@@ -1,0 +1,35 @@
+# Visual Studio
+.vs/
+bin/
+obj/
+*.user
+*.suo
+*.userprefs
+
+# NuGet
+packages/
+*.nupkg
+
+# ビルド成果物
+*.pdb
+*.dll
+*.exe
+
+# macOS
+.DS_Store
+
+# WordPress の接続先（パスワードを含む。exe の隣に置く。SPEC 20章）
+wordpress.json
+Thumbs.db
+
+# 設定（exe の隣。開いたファイルのパスなどを含む）
+app.json
+
+# AI の欄の端末で使う ConPTY（Microsoft の conpty.dll・OpenConsole.exe。MIT）は同梱する
+!Tsuzuri/ConPty/**/*.dll
+!Tsuzuri/ConPty/**/*.exe
+
+# 手元だけのもの（公開しない）
+archive/
+memory/
+.claude/

@@ -1,0 +1,232 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<title>AI</title>
+<!--
+  AI の欄の端末（SPEC 19章。2026-10-24）。WebView2 の中で xterm.js を動かす。
+  claude.exe とは、エディタ（Views/TerminalView.cs）が ConPTY でつないでいる。
+  ・エディタから: claude の出力（文字列）を postMessage で受け取り、そのまま xterm に書く
+  ・エディタへ: 打った文字 {type:"input"}、大きさ {type:"resize"}、用意ができた {type:"ready"}、
+    タイトル {type:"title"}、押したリンク {type:"link"}（2026-10-27）を送る
+  色はエディタ（Markdown/Theme.cs・App.xaml）に合わせる。
+-->
+<link rel="stylesheet" href="xterm.css">
+<style>
+  html, body { margin: 0; height: 100%; background: #101827; overflow: hidden; }
+  #terminal { position: absolute; inset: 10px 6px 8px 12px; }
+  .xterm .xterm-viewport { background-color: #101827 !important; }
+  .xterm-viewport::-webkit-scrollbar { width: 8px; }
+  .xterm-viewport::-webkit-scrollbar-thumb { background: #3A4255; border-radius: 4px; }
+  .xterm-viewport::-webkit-scrollbar-thumb:hover { background: #4E576B; }
+
+  /* 日本語の変換中の文字（2026-10-26）。カーソルを隠しているプログラム（Claude Code）では、本物のカーソルが入力欄と別の所にあり、
+     変換中の文字と候補の窓が見当違いの所に出た。そのときは欄の下端（Claude Code の入力欄がある辺り）に固定して出す。 */
+  /* 打った文字と同じ升目に字が来るよう、枠と余白で字をずらさない。枠は外側に描く線（outline）にする（2026-10-28。
+     前は枠と余白の分、確定した字より右下にずれた。カーソルの位置に出すとき・入力欄の行に出すとき、どちらも）。 */
+  .xterm .composition-view { background: #20283A !important; color: #DDDFE4 !important; padding: 0; border: 0; outline: 1px solid #4A7CE8; }
+  #terminal.ime-docked .xterm .composition-view { position: fixed !important; left: 14px !important; top: auto !important; bottom: 12px !important; z-index: 10; }
+  #terminal.ime-docked .xterm .xterm-helper-textarea { position: fixed !important; left: 14px !important; top: auto !important; bottom: 12px !important; }
+  /* 入力欄の行が見つかったときは、その行の文字の後ろに出す（2026-10-28）。 */
+  #terminal.ime-anchored .xterm .composition-view,
+  #terminal.ime-anchored .xterm .xterm-helper-textarea { left: var(--ime-left) !important; top: var(--ime-top) !important; bottom: auto !important; }
+</style>
+</head>
+<body>
+<div id="terminal"></div>
+<script src="xterm.js"></script>
+<script src="addon-fit.js"></script>
+<script src="addon-unicode11.js"></script>
+<script src="addon-webgl.js"></script>
+<script>
+  const host = window.chrome && window.chrome.webview;
+  const send = (message) => { if (host) host.postMessage(message); };
+
+  const term = new Terminal({
+    fontFamily: "'Cascadia Mono', Consolas, 'BIZ UDGothic', 'MS Gothic', monospace",
+    fontSize: 15,             // 2026-10-28。13 では見づらかった
+    lineHeight: 1.15,
+    cursorBlink: true,
+    cursorStyle: 'bar',          // 1文字分の箱ではなく、エディタと同じ縦棒（2026-10-25）
+    cursorWidth: 2,
+    cursorInactiveStyle: 'bar',
+    allowProposedApi: true,   // 文字の幅の表（Unicode 11）を使うのに要る
+    scrollback: 5000,
+    // 端末の中のリンク（OSC 8。Claude Code が出す）は、ページでは開かず、エディタに頼んでいつものブラウザで開く（2026-10-27）。
+    // 既定は window.open で、この欄の中で開こうとする。エディタは http・https だけを開く。
+    linkHandler: {
+      activate: (event, text) => send({ type: 'link', url: text }),
+      allowNonHttpProtocols: false
+    },
+    theme: {
+      background: '#101827',
+      foreground: '#DDDFE4',
+      cursor: '#DDDFE4',
+      cursorAccent: '#101827',
+      selectionBackground: '#26457A',
+      black: '#101827',  red: '#D24B4E',  green: '#3DB887',  yellow: '#F5AB00',
+      blue: '#4A7CE8',   magenta: '#B07CE8', cyan: '#3FB5C9', white: '#DDDFE4',
+      brightBlack: '#525863', brightRed: '#E06C6E', brightGreen: '#5FD3A0', brightYellow: '#FFC94D',
+      brightBlue: '#5D89EA',  brightMagenta: '#C79AF0', brightCyan: '#6CCFE0', brightWhite: '#FFFFFF'
+    }
+  });
+
+  const fit = new FitAddon.FitAddon();
+  term.loadAddon(fit);
+  term.loadAddon(new Unicode11Addon.Unicode11Addon());
+  term.unicode.activeVersion = '11';   // 日本語・絵文字の幅を ConPTY と揃える
+
+  term.open(document.getElementById('terminal'));
+
+  // 描くのは WebGL（2026-10-28。VS Code の端末と同じ）。既定の DOM の描き方は、Claude Code が打つたびに入力欄を描き直すと、
+  // 行の要素の作り直しでちらついた。WebGL を使えない・途中で失った（GPU のリセットなど）ときは、DOM の描き方に戻る。
+  try {
+    const webgl = new WebglAddon.WebglAddon();
+    webgl.onContextLoss(() => webgl.dispose());
+    term.loadAddon(webgl);
+  } catch (e) { }
+
+  fit.fit();
+
+  // xterm が日本語入力を受ける見えない入力欄に、自動入力・自動修正・スペルチェックを使わない印を付ける（2026-10-25）。
+  // 入力補完が勝手に確定して、日本語の入力がおかしくなったため。
+  if (term.textarea) {
+    term.textarea.setAttribute('autocomplete', 'off');
+    term.textarea.setAttribute('autocorrect', 'off');
+    term.textarea.setAttribute('autocapitalize', 'off');
+    term.textarea.setAttribute('aria-autocomplete', 'none');
+    term.textarea.spellcheck = false;
+  }
+
+  // 選んでいるときの Ctrl+C はコピー（選んでいなければ claude への Ctrl+C）。
+  // Ctrl+V・Shift+Insert は xterm に渡さず、ブラウザの貼り付けに回す（2026-10-25）。渡すと xterm は Ctrl+V を制御文字として claude に送り、
+  // 貼り付けが起きなかった。ブラウザが貼り付けると、xterm がそれを受けて貼り付けとして渡す。
+  term.attachCustomKeyEventHandler((e) => {
+    if (e.type === 'keydown' && e.ctrlKey && !e.shiftKey && e.key === 'c' && term.hasSelection()) {
+      navigator.clipboard.writeText(term.getSelection());
+      term.clearSelection();
+      return false;
+    }
+    if (e.ctrlKey && !e.altKey && (e.key === 'v' || e.key === 'V')) return false;
+    if (e.shiftKey && e.key === 'Insert') return false;
+    return true;
+  });
+
+  // クリップボードが画像だけ（文字が無い）なら、貼り付けの代わりに Alt+V（ESC v）を送る（2026-10-25）。
+  // Claude Code は Alt+V を受けると、自分でクリップボードの画像を読んで付ける。Ctrl+V でも画像を渡せるようにするため。
+  // xterm の貼り付けより先に受けたいので、外側の要素で、捕まえる段階（capture）で受ける。
+  document.getElementById('terminal').addEventListener('paste', (e) => {
+    const data = e.clipboardData;
+    if (!data) return;
+
+    const types = Array.from(data.types || []);
+    const hasText = types.includes('text/plain') && data.getData('text/plain').length > 0;
+    const hasImage = Array.from(data.items || []).some((item) => item.kind === 'file' && item.type.startsWith('image/'));
+    if (hasText || !hasImage) return;
+
+    e.preventDefault();
+    e.stopImmediatePropagation();
+    send({ type: 'input', data: '\x1bv' });
+  }, true);
+
+  // 右クリックは Windows Terminal と同じ: 選んでいればコピー、選んでいなければ貼り付け。
+  document.getElementById('terminal').addEventListener('contextmenu', async (e) => {
+    e.preventDefault();
+    try {
+      if (term.hasSelection()) {
+        await navigator.clipboard.writeText(term.getSelection());
+        term.clearSelection();
+      } else {
+        const text = await navigator.clipboard.readText();
+        if (text) term.paste(text);
+        else send({ type: 'input', data: '\x1bv' });   // 文字が無ければ画像として Alt+V（上の Ctrl+V と同じ）
+      }
+    } catch (error) { }
+    term.focus();
+  });
+
+  // 変換を始めたとき、カーソルが隠されていれば（Claude Code が動いている）、変換中の文字を欄の下端に固定する（上の CSS）。
+  // カーソルが見えていれば（ただの PowerShell）、今までどおりカーソルの位置に出す。
+  // カーソルを隠しているかは公開の API に無いので、中の値を見る（読めなければ固定しない）。
+  const container = document.getElementById('terminal');
+  const cursorHidden = () => { try { return !!term._core.coreService.isCursorHidden; } catch (e) { return false; } };
+  // Claude Code の入力欄の行（「> 」で始まる行。枠の「│」があってもよい）を、画面の下から探す（2026-10-28）。
+  // 見つかれば、その行の打った文字の後ろ（薄く出ている例文は数えない）の位置を返す。見つからなければ null（欄の下端に出す）。
+  // 前は下端に固定するだけで、入力欄の下に出る行（ヒントなど）の分や、文字の大きさによって入力欄から外れて見えた。
+  const imeAnchor = () => {
+    try {
+      const screen = term.element.querySelector('.xterm-screen');
+      if (!screen) return null;
+      const rect = screen.getBoundingClientRect();
+      const cellWidth = rect.width / term.cols, cellHeight = rect.height / term.rows;
+      const buffer = term.buffer.active;
+
+      for (let row = term.rows - 1; row >= 0; row--) {
+        const line = buffer.getLine(buffer.viewportY + row);
+        if (!line) continue;
+
+        const prompt = /^(\s*│?\s*)[>❯›]\s/.exec(line.translateToString(true));
+        if (!prompt) continue;
+
+        let end = prompt[0].length;
+        for (let x = end; x < term.cols; x++) {
+          const cell = line.getCell(x);
+          if (!cell) break;
+          const chars = cell.getChars();
+          if (chars && chars.trim() && chars !== '│' && !cell.isDim()) end = x + Math.max(1, cell.getWidth());
+        }
+
+        return { left: rect.left + Math.min(end, term.cols - 2) * cellWidth, top: rect.top + row * cellHeight };
+      }
+    } catch (e) { }
+    return null;
+  };
+
+  if (term.textarea) {
+    term.textarea.addEventListener('compositionstart', () => {
+      const hidden = cursorHidden();
+      const anchor = hidden ? imeAnchor() : null;
+      if (anchor) {
+        container.style.setProperty('--ime-left', anchor.left + 'px');
+        container.style.setProperty('--ime-top', anchor.top + 'px');
+      }
+      container.classList.toggle('ime-docked', hidden);
+      container.classList.toggle('ime-anchored', !!anchor);
+    });
+    term.textarea.addEventListener('compositionend', (e) => {
+      committed = { text: e.data || '', at: performance.now(), sent: false };
+      setTimeout(() => container.classList.remove('ime-docked', 'ime-anchored'), 0);
+    });
+  }
+
+  // 日本語の確定を、1回の確定につき1回だけ送る（2026-10-28）。変換の候補の窓から確定してすぐ次を打つと、xterm.js が
+  // 同じ確定の文字を2回送ることがあり、2重に入った。確定（compositionend）のあと1秒以内に同じ文字がもう一度来たら捨てる。
+  // 同じ文字を続けて確定したとき（「、、」など）は、確定ごとに覚え直すので捨てない。
+  let committed = null;
+  term.onData((data) => {
+    if (committed && committed.text && data === committed.text && performance.now() - committed.at < 1000) {
+      if (committed.sent) return;
+      committed.sent = true;
+    }
+    send({ type: 'input', data: data });
+  });
+  term.onResize((size) => send({ type: 'resize', cols: size.cols, rows: size.rows }));
+  term.onTitleChange((title) => send({ type: 'title', title: title }));   // 端末のタイトル。AI の欄のタブの名前にする
+  term.textarea.addEventListener('focus', () => send({ type: 'focused' }));   // 2段のとき、どちらの段で打っているかを知らせる
+
+  // 欄の幅が変わったら、桁数と行数を合わせ直す。
+  new ResizeObserver(() => { try { fit.fit(); } catch (e) { } }).observe(document.getElementById('terminal'));
+
+  if (host) {
+    host.addEventListener('message', (e) => {
+      if (typeof e.data === 'string') term.write(e.data);
+      else if (e.data && e.data.type === 'focus') term.focus();
+      else if (e.data && e.data.type === 'clear') term.reset();
+    });
+  }
+
+  send({ type: 'ready', cols: term.cols, rows: term.rows });
+  term.focus();
+</script>
+</body>
+</html>

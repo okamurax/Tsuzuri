@@ -1,0 +1,216 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="15.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <Import Project="$(MSBuildExtensionsPath)\$(MSBuildToolsVersion)\Microsoft.Common.props" Condition="Exists('$(MSBuildExtensionsPath)\$(MSBuildToolsVersion)\Microsoft.Common.props')" />
+  <PropertyGroup>
+    <Configuration Condition=" '$(Configuration)' == '' ">Debug</Configuration>
+    <Platform Condition=" '$(Platform)' == '' ">AnyCPU</Platform>
+    <ProjectGuid>{7C3B1F2A-9D4E-4A61-B8C5-2E0F6A93D714}</ProjectGuid>
+    <OutputType>WinExe</OutputType>
+    <RootNamespace>Tsuzuri</RootNamespace>
+    <AssemblyName>Tsuzuri</AssemblyName>
+    <TargetFrameworkVersion>v4.8</TargetFrameworkVersion>
+    <FileAlignment>512</FileAlignment>
+    <ProjectTypeGuids>{60dc8134-eba5-43b8-bcc9-bb4bc16c2548};{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}</ProjectTypeGuids>
+    <WarningLevel>4</WarningLevel>
+    <AutoGenerateBindingRedirects>true</AutoGenerateBindingRedirects>
+    <Deterministic>true</Deterministic>
+    <LangVersion>7.3</LangVersion>
+    <ApplicationIcon>App.ico</ApplicationIcon>
+    <RestoreProjectStyle>PackageReference</RestoreProjectStyle>
+    <!-- 32 ビットを優先しない（2026-10-24）。32 ビットだと System32 が SysWOW64 に振り替えられ、
+         AI の欄の ConPTY が裏で使う conhost.exe が見つからず、中のプログラムがすぐ終わった。ARM 版 Windows では ARM か x64 で動く -->
+    <Prefer32Bit>false</Prefer32Bit>
+  </PropertyGroup>
+  <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Debug|AnyCPU' ">
+    <PlatformTarget>AnyCPU</PlatformTarget>
+    <DebugSymbols>true</DebugSymbols>
+    <DebugType>full</DebugType>
+    <Optimize>false</Optimize>
+    <OutputPath>bin\Debug\</OutputPath>
+    <DefineConstants>DEBUG;TRACE</DefineConstants>
+    <ErrorReport>prompt</ErrorReport>
+  </PropertyGroup>
+  <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Release|AnyCPU' ">
+    <PlatformTarget>AnyCPU</PlatformTarget>
+    <DebugType>pdbonly</DebugType>
+    <Optimize>true</Optimize>
+    <OutputPath>bin\Release\</OutputPath>
+    <DefineConstants>TRACE</DefineConstants>
+    <ErrorReport>prompt</ErrorReport>
+  </PropertyGroup>
+  <ItemGroup>
+    <Reference Include="System" />
+    <Reference Include="System.Core" />
+    <Reference Include="System.Web.Extensions" />
+    <Reference Include="System.Drawing" />
+    <Reference Include="System.Xml" />
+    <Reference Include="Microsoft.VisualBasic" />
+    <Reference Include="System.Xaml">
+      <RequiredTargetFramework>4.0</RequiredTargetFramework>
+    </Reference>
+    <Reference Include="System.Runtime.Serialization" />
+    <Reference Include="WindowsBase" />
+    <Reference Include="PresentationCore" />
+    <Reference Include="PresentationFramework" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="AvalonEdit">
+      <Version>6.3.1.120</Version>
+    </PackageReference>
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="Markdig">
+      <Version>0.33.0</Version>
+    </PackageReference>
+  </ItemGroup>
+  <!-- AI の欄の端末（SPEC 19章）。WebView2 の中で xterm.js を動かす。xterm.js は Terminal フォルダに同梱し、exe の隣にコピーする -->
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Web.WebView2">
+      <Version>1.0.4258.31</Version>
+    </PackageReference>
+  </ItemGroup>
+  <ItemGroup>
+    <Content Include="Terminal\terminal.html"><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory></Content>
+    <Content Include="Terminal\xterm.js"><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory></Content>
+    <Content Include="Terminal\xterm.css"><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory></Content>
+    <Content Include="Terminal\addon-fit.js"><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory></Content>
+    <Content Include="Terminal\addon-unicode11.js"><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory></Content>
+    <Content Include="Terminal\addon-webgl.js"><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory></Content>
+    <Content Include="Terminal\LICENSE-xterm.txt"><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory></Content>
+  </ItemGroup>
+  <!-- 同梱の新しい ConPTY（SPEC 19章。2026-10-30）。NuGet の Microsoft.Windows.Console.ConPTY（MIT）から取り出したもの。
+       NuGet のまま入れると、AnyCPU では OpenConsole.exe がコピーされないので、ファイルで持つ。ConPty\README.txt -->
+  <ItemGroup>
+    <Content Include="ConPty\README.txt"><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory></Content>
+    <Content Include="ConPty\LICENSE.txt"><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory></Content>
+    <Content Include="ConPty\x64\conpty.dll"><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory></Content>
+    <Content Include="ConPty\x64\x64\OpenConsole.exe"><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory></Content>
+    <Content Include="ConPty\x64\arm64\OpenConsole.exe"><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory></Content>
+    <Content Include="ConPty\arm64\conpty.dll"><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory></Content>
+    <Content Include="ConPty\arm64\arm64\OpenConsole.exe"><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory></Content>
+  </ItemGroup>
+  <!-- 表エディタ（自前の WPF の表。SPEC 8.4.2）。エディタの上に開くウィンドウ。
+       2026-10-18 に SPREAD for Windows Forms をやめたので、SPREAD の NuGet と licenses.licx（実行時ライセンス）も外した -->
+  <ItemGroup>
+    <ProjectReference Include="..\TableEditor\TableEditor.csproj">
+      <Project>{FC0FFE24-4787-4848-B7E9-B4AC04B4FAB9}</Project>
+      <Name>TableEditor</Name>
+    </ProjectReference>
+    <ProjectReference Include="..\DrawingEditor\DrawingEditor.csproj">
+      <Project>{2A2E23E0-EF7B-4FFD-A84F-AD0B66552B5A}</Project>
+      <Name>DrawingEditor</Name>
+    </ProjectReference>
+  </ItemGroup>
+  <ItemGroup>
+    <ApplicationDefinition Include="App.xaml">
+      <Generator>MSBuild:Compile</Generator>
+      <SubType>Designer</SubType>
+    </ApplicationDefinition>
+    <Page Include="MainWindow.xaml">
+      <Generator>MSBuild:Compile</Generator>
+      <SubType>Designer</SubType>
+    </Page>
+    <Compile Include="App.xaml.cs">
+      <DependentUpon>App.xaml</DependentUpon>
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="MainWindow.xaml.cs">
+      <DependentUpon>MainWindow.xaml</DependentUpon>
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="MainWindow.Stack.cs">
+      <DependentUpon>MainWindow.xaml</DependentUpon>
+    </Compile>
+    <Compile Include="MainWindow.Overlays.cs">
+      <DependentUpon>MainWindow.xaml</DependentUpon>
+    </Compile>
+    <Compile Include="MainWindow.Pages.cs">
+      <DependentUpon>MainWindow.xaml</DependentUpon>
+    </Compile>
+    <Compile Include="MainWindow.Outline.cs">
+      <DependentUpon>MainWindow.xaml</DependentUpon>
+    </Compile>
+    <Compile Include="MainWindow.OutlineDrag.cs">
+      <DependentUpon>MainWindow.xaml</DependentUpon>
+    </Compile>
+    <Compile Include="MainWindow.OutlineEdit.cs">
+      <DependentUpon>MainWindow.xaml</DependentUpon>
+    </Compile>
+    <Compile Include="MainWindow.Bookmarks.cs">
+      <DependentUpon>MainWindow.xaml</DependentUpon>
+    </Compile>
+    <Compile Include="MainWindow.History.cs">
+      <DependentUpon>MainWindow.xaml</DependentUpon>
+    </Compile>
+    <Compile Include="MainWindow.Links.cs">
+      <DependentUpon>MainWindow.xaml</DependentUpon>
+    </Compile>
+    <Compile Include="MainWindow.Toolbar.cs">
+      <DependentUpon>MainWindow.xaml</DependentUpon>
+    </Compile>
+    <Compile Include="MainWindow.Ai.cs">
+      <DependentUpon>MainWindow.xaml</DependentUpon>
+    </Compile>
+    <Compile Include="MainWindow.Screen.cs">
+      <DependentUpon>MainWindow.xaml</DependentUpon>
+    </Compile>
+    <Compile Include="MainWindow.WordPress.cs">
+      <DependentUpon>MainWindow.xaml</DependentUpon>
+    </Compile>
+  </ItemGroup>
+  <ItemGroup>
+    <Compile Include="AppSettings.cs" />
+    <Compile Include="WordPress\HtmlToMarkdown.cs" />
+    <Compile Include="WordPress\WordPressClient.cs" />
+    <Compile Include="WordPress\WordPressSettings.cs" />
+    <Compile Include="Export\DocxBuilder.cs" />
+    <Compile Include="Export\DocxExporter.cs" />
+    <Compile Include="Markdown\Attachments.cs" />
+    <Compile Include="Markdown\DocumentModel.cs" />
+    <Compile Include="Markdown\DocumentHistory.cs" />
+    <Compile Include="Markdown\ScreenState.cs" />
+    <Compile Include="Markdown\DocumentState.cs" />
+    <Compile Include="Markdown\ImageOrientation.cs" />
+    <Compile Include="Markdown\TableModel.cs" />
+    <Compile Include="Markdown\InlineSpan.cs" />
+    <Compile Include="Markdown\LineInfo.cs" />
+    <Compile Include="Markdown\LineKind.cs" />
+    <Compile Include="Markdown\MarkdownParser.cs" />
+    <Compile Include="Markdown\PageDocument.cs" />
+    <Compile Include="Markdown\Theme.cs" />
+    <Compile Include="Views\FileIcon.cs" />
+    <Compile Include="Views\FilerView.cs" />
+    <Compile Include="Views\IndentGuideRenderer.cs" />
+    <Compile Include="Views\MarkdownColorizer.cs" />
+    <Compile Include="Views\MarkerHideGenerator.cs" />
+    <Compile Include="Views\TableElement.cs" />
+    <Compile Include="Views\RuleRenderer.cs" />
+    <Compile Include="Views\CodeCopyLayer.cs" />
+    <Compile Include="Views\CodeBlockRenderer.cs" />
+    <Compile Include="Views\SearchColorizer.cs" />
+    <Compile Include="Views\MarkdownView.cs" />
+    <Compile Include="Views\MarkdownView.Sections.cs">
+      <DependentUpon>MarkdownView.cs</DependentUpon>
+    </Compile>
+    <Compile Include="Views\LauncherView.cs" />
+    <Compile Include="Views\ShellIcons.cs" />
+    <Compile Include="Views\ShellActions.cs" />
+    <Compile Include="Views\ChatView.cs" />
+    <Compile Include="Views\PseudoConsole.cs" />
+    <Compile Include="Views\TerminalView.cs" />
+  </ItemGroup>
+  <ItemGroup>
+    <Compile Include="Properties\AssemblyInfo.cs">
+      <SubType>Code</SubType>
+    </Compile>
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="App.config" />
+    <None Include="Fonts\OFL.txt" />
+    <Resource Include="App.ico" />
+    <Resource Include="Fonts\OpenSans-Regular.ttf" />
+    <Resource Include="Fonts\OpenSans-SemiBold.ttf" />
+    <Resource Include="Fonts\OpenSans-Bold.ttf" />
+  </ItemGroup>
+  <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
+</Project>

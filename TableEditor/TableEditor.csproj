@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Markdown の表を編集するための表エディタ（SPEC 8.4.2）。
+    エディタ本体（Tsuzuri、WPF）から DLL として読み込み、本体の上に WPF のウィンドウとして開く（TableEditorHost）。
+    2026-10-18 に SPREAD for Windows Forms をやめ、自前の WPF の表にした（前のものは archive/TableEditor-SPREAD/）。
+    画面はコードだけで組む（XAML を使わない）。Mac でもコンパイルを確かめられるように（tools/check-build.sh）。
+  -->
+  <PropertyGroup>
+    <OutputType>Library</OutputType>
+    <TargetFramework>net48</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <LangVersion>7.3</LangVersion>
+    <RootNamespace>TableEditor</RootNamespace>
+    <AssemblyName>TableEditor</AssemblyName>
+  </PropertyGroup>
+
+</Project>

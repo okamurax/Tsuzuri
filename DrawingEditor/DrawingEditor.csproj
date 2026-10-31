@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    図エディタ（SPEC 8.4.3。2026-10-18）。Excel のオートシェイプの操作感で、直線・四角・丸・文字・寸法線を描き、寸法を mm で入れる。
+    エディタ本体（Tsuzuri、WPF）から DLL として読み込み、本体の上に WPF のウィンドウとして開く（DrawingEditorHost）。
+    画面はコードだけで組む（XAML を使わない）。Mac でもコンパイルを確かめられるように（tools/check-build.sh）。
+  -->
+  <PropertyGroup>
+    <OutputType>Library</OutputType>
+    <TargetFramework>net48</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <LangVersion>7.3</LangVersion>
+    <RootNamespace>DrawingEditor</RootNamespace>
+    <AssemblyName>DrawingEditor</AssemblyName>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Reference Include="System.Runtime.Serialization" />
+  </ItemGroup>
+
+</Project>

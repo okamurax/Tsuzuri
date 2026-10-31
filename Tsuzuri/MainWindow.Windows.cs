@@ -19,6 +19,7 @@ namespace Tsuzuri
     // ・タブの × は、その画面だけを閉じる。ツールバーの「終了」は、アプリごと（全部の画面を）閉じる（2026-10-31）
     //   最初の画面を × で閉じたら、次の画面が最初の画面を引き継ぐ（前回のファイル・app.json の上のほうの項目）
     // ・画面は全部同じ位置・大きさに重ね、ツールバーの一段下のタブで前に出す
+    // ・前に出ている画面のほかは隠す（2026-11-01）。タスクバーのボタンも Alt+Tab も1つで、切り替えはタブだけ
     public partial class MainWindow
     {
         /// <summary>開いている画面。作った順。先頭が最初の画面。</summary>
@@ -34,6 +35,9 @@ namespace Tsuzuri
 
         /// <summary>「終了」で全部の画面を閉じている最中か。このときは、閉じた画面の覚え（Windows）を消さない（次の起動で戻す）。</summary>
         private static bool _closingAll;
+
+        /// <summary>前に出ている画面（ほかの画面は隠してある）。最後に前に出た画面。</summary>
+        private static MainWindow _frontWindow;
 
         /// <summary>ツールバーの一覧を最後に組んだときの中身。変わったときだけ組み直す。</summary>
         private string _windowListSignature;
@@ -73,10 +77,21 @@ namespace Tsuzuri
                 }
             }
 
+            Activated += delegate { _frontWindow = this; };
+
             Closed += delegate
             {
                 var wasPrimary = IsPrimary;
+                var index = OpenWindows.IndexOf(this);
                 OpenWindows.Remove(this);
+
+                // 前に出ていた画面をタブの × で閉じたら、隣の画面（右、無ければ左）を出す。ほかは隠してあるので、出さないと何も見えなくなる。
+                if (ReferenceEquals(_frontWindow, this))
+                {
+                    _frontWindow = null;
+                    if (!_closingAll && OpenWindows.Count > 0)
+                        OpenWindows[Math.Min(index, OpenWindows.Count - 1)].BringForward(this);
+                }
 
                 // タブの × でこの画面だけを閉じたなら、次の起動では戻さない。「終了」で全部を閉じている最中なら残す。
                 if (!_closingAll)
@@ -111,6 +126,11 @@ namespace Tsuzuri
         {
             _closingAll = true;
             var primary = OpenWindows.FirstOrDefault(window => window.IsPrimary) ?? this;
+
+            // 次の起動の位置・大きさは最初の画面のものを覚える。隠れていた間に前の画面を動かしたかもしれないので、前の画面に合わせておく。
+            var front = FrontWindow();
+            if (front != null && !ReferenceEquals(front, primary)) primary.PlaceLike(front);
+
             primary.Close();
         }
 
@@ -158,7 +178,8 @@ namespace Tsuzuri
                 window.Show();
             }
 
-            Dispatcher.BeginInvoke(new Action(delegate { Activate(); }), System.Windows.Threading.DispatcherPriority.ApplicationIdle);
+            // 中身を戻すのに一度出してから（Loaded）、最初の画面を前に出してほかを隠す。
+            Dispatcher.BeginInvoke(new Action(delegate { BringForward(null); }), System.Windows.Threading.DispatcherPriority.ApplicationIdle);
         }
 
         /// <summary>増やした画面を、元の画面と同じ位置・大きさで出す（前回の位置は使わない）。</summary>
@@ -182,11 +203,10 @@ namespace Tsuzuri
         private void NewWindow_Click(object sender, RoutedEventArgs e)
         {
             var window = new MainWindow(_settings, this, null);
-            window.Show();
-            window.Activate();
+            window.BringForward(this);
         }
 
-        /// <summary>この画面を、今の画面と同じ位置・大きさにして前に出す。</summary>
+        /// <summary>この画面を、今の画面と同じ位置・大きさにして前に出し、ほかの画面を隠す（先に出してから隠すので、間に何も見えない時が無い）。</summary>
         private void BringForward(MainWindow from)
         {
             if (from != null && !ReferenceEquals(from, this)) PlaceLike(from);
@@ -194,6 +214,26 @@ namespace Tsuzuri
 
             Show();
             Activate();
+            _frontWindow = this;
+
+            foreach (var other in OpenWindows.Where(window => !ReferenceEquals(window, this) && window.IsVisible).ToList())
+                other.Hide();
+        }
+
+        /// <summary>前に出ている画面。無ければ、見えている画面のどれか。</summary>
+        private static MainWindow FrontWindow()
+        {
+            if (_frontWindow != null && OpenWindows.Contains(_frontWindow) && _frontWindow.IsVisible) return _frontWindow;
+            return OpenWindows.FirstOrDefault(window => window.IsVisible);
+        }
+
+        /// <summary>
+        /// 尋ねる前に呼ぶ。隠れている画面（閉じるとき・「終了」のとき）なら前に出す。どの画面の文書について尋ねているのかが見えるように、
+        /// また、隠れた窓を親にしたダイアログが見えなくならないように。
+        /// </summary>
+        private void ShowBeforeAsking()
+        {
+            if (!IsVisible) BringForward(FrontWindow());
         }
 
         /// <summary>

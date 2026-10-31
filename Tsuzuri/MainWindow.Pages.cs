@@ -812,6 +812,7 @@ namespace Tsuzuri
             if (leaving.Count == 0) return true;
 
             var names = string.Join(Environment.NewLine, leaving.Select(document => "・" + Path.GetFileName(document.FilePath)).ToArray());
+            ShowBeforeAsking();
             var answer = MessageBox.Show(this,
                 "次のファイルに、保存していない変更があります。" + Environment.NewLine + Environment.NewLine + names +
                 Environment.NewLine + Environment.NewLine + "保存しますか？",

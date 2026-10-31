@@ -197,6 +197,7 @@ namespace Tsuzuri
                 return "・" + (link.Id > 0 ? "#" + link.Id + " " : "（新しい記事）") + TitleOf(document, link);
             }).ToArray());
 
+            ShowBeforeAsking();
             var answer = MessageBox.Show(this,
                 "次の WordPress の記事に、アップロードしていない変更があります。" + Environment.NewLine + Environment.NewLine + names +
                 Environment.NewLine + Environment.NewLine + "このまま閉じると、変更は捨てます（手元には残りません）。" + Environment.NewLine +

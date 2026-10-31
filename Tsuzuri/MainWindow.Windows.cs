@@ -15,9 +15,10 @@ namespace Tsuzuri
     // 別の exe を起動しないのは、app.json を2つのアプリが別々に書いて、ランチャーの登録などを消し合わないため（設定はメモリの上で1つを共有する）。
     // ・1つの文書は1つの画面だけで開く（リンクで右に開いた .md・WordPress の記事も）。.文書名/state.json と変更の記録を、2つの画面から書かないため
     // ・終了したときに開いていた画面は、次の起動で全部戻す（ページの並び・AI の会話のタブ。WordPress の記事は読み込み直す）。
-    //   最初の画面の分は app.json の Screen・Collapsed・AiTabs、増やした画面の分は Windows に覚える。画面を「終了」で閉じたら、その分は消す
-    // ・最初の画面を閉じたら、全部の画面を閉じる
-    // ・画面は全部同じ位置・大きさに重ね、ツールバーの一覧で前に出す（見た目はタブの切り替え）
+    //   最初の画面の分は app.json の Screen・Collapsed・AiTabs、増やした画面の分は Windows に覚える。タブの × で閉じたら、その分は消す
+    // ・タブの × は、その画面だけを閉じる。ツールバーの「終了」は、アプリごと（全部の画面を）閉じる（2026-10-31）
+    //   最初の画面を × で閉じたら、次の画面が最初の画面を引き継ぐ（前回のファイル・app.json の上のほうの項目）
+    // ・画面は全部同じ位置・大きさに重ね、ツールバーの一段下のタブで前に出す
     public partial class MainWindow
     {
         /// <summary>開いている画面。作った順。先頭が最初の画面。</summary>
@@ -31,16 +32,19 @@ namespace Tsuzuri
         /// <summary>増やした画面の、次の起動で戻すもの（app.json の Windows の1つ）。最初の画面は null（app.json の上のほうの項目を使う）。</summary>
         private WindowSession _session;
 
-        /// <summary>最初の画面を閉じて、全部の画面を閉じている最中か。このときは、閉じた画面の覚え（Windows）を消さない（次の起動で戻す）。</summary>
+        /// <summary>「終了」で全部の画面を閉じている最中か。このときは、閉じた画面の覚え（Windows）を消さない（次の起動で戻す）。</summary>
         private static bool _closingAll;
 
         /// <summary>ツールバーの一覧を最後に組んだときの中身。変わったときだけ組み直す。</summary>
         private string _windowListSignature;
 
-        /// <summary>最初の画面か。前回のファイル（LastFile）を覚えるのと、起動のときにほかの画面を作るのは、この画面だけ。</summary>
+        /// <summary>
+        /// 最初の画面か（覚えを app.json の上のほうの項目に置く画面）。前回のファイル（LastFile）を覚えるのと、起動のときにほかの画面を作るのは、この画面だけ。
+        /// 最初の画面を × で閉じると、次の画面が引き継ぐ（PromoteToPrimary）。
+        /// </summary>
         private bool IsPrimary
         {
-            get { return _windowNumber == 1; }
+            get { return _session == null; }
         }
 
         /// <summary>画面を見分ける名前。AI の欄のパイプ・設定のファイル、WordPress の一時フォルダに使う（同じアプリの中の画面どうしで重ねない）。</summary>
@@ -58,7 +62,7 @@ namespace Tsuzuri
             _windowNumber = ++_windowsCreated;
             OpenWindows.Add(this);
 
-            if (!IsPrimary)
+            if (OpenWindows.Count > 1)
             {
                 _session = session ?? new WindowSession();
                 if (!_settings.Windows.Contains(_session)) _settings.Windows.Add(_session);
@@ -66,17 +70,43 @@ namespace Tsuzuri
 
             Closed += delegate
             {
+                var wasPrimary = IsPrimary;
                 OpenWindows.Remove(this);
 
-                // 「終了」でこの画面だけを閉じたなら、次の起動では戻さない。全部を閉じている最中なら残す。
-                if (_session != null && !_closingAll)
+                // タブの × でこの画面だけを閉じたなら、次の起動では戻さない。「終了」で全部を閉じている最中なら残す。
+                if (!_closingAll)
                 {
-                    _settings.Windows.Remove(_session);
+                    if (_session != null) _settings.Windows.Remove(_session);
+                    else if (wasPrimary && OpenWindows.Count > 0) OpenWindows[0].PromoteToPrimary();
                     _settings.Save();
                 }
 
                 RefreshWindowLists();
             };
+        }
+
+        /// <summary>
+        /// 最初の画面が × で閉じられたので、この画面が引き継ぐ。この画面の覚えを app.json の上のほうの項目へ移す
+        /// （閉じた画面の覚えは捨てる）。アプリの主の窓もこの画面にする。
+        /// </summary>
+        private void PromoteToPrimary()
+        {
+            _settings.Screen = _session.Screen;
+            _settings.Collapsed = _session.Collapsed;
+            _settings.AiTabs = _session.AiTabs;
+            _settings.Windows.Remove(_session);
+            _session = null;
+
+            _settings.LastFile = _stack.Count > 0 ? _stack[0].FilePath : null;
+            if (Application.Current != null) Application.Current.MainWindow = this;
+        }
+
+        /// <summary>ツールバーの「終了」。アプリごと（全部の画面を）閉じる。最初の画面を閉じれば、ほかの画面を先に閉じる（OnClosing）。</summary>
+        private void CloseAllWindows()
+        {
+            _closingAll = true;
+            var primary = OpenWindows.FirstOrDefault(window => window.IsPrimary) ?? this;
+            primary.Close();
         }
 
         /// <summary>次の起動で戻す、終了したときの画面（最初の画面は app.json の Screen、増やした画面は Windows の1つ）。</summary>
@@ -189,7 +219,9 @@ namespace Tsuzuri
         }
 
         /// <summary>
-        /// ツールバーの一段下の、画面の一覧。画面ごとのボタン（この画面は色を付ける）と、右に「＋」（新しい画面）。1つだけのときも出す（ブラウザのタブと同じ）。
+        /// ツールバーの一段下の、画面のタブ。画面ごとのタブ（この画面は色を付ける）と、右に「＋」（新しい画面）。1つだけのときも出す（ブラウザのタブと同じ）。
+        /// タブを押すとその画面を前に出し、タブの × でその画面だけを閉じる。画面が1つのときは × を出さない（アプリを閉じるのは「終了」）。
+        /// 見た目は AI の欄の会話のタブにそろえる。
         /// </summary>
         private void BuildWindowList()
         {
@@ -201,20 +233,7 @@ namespace Tsuzuri
             WindowList.Children.Clear();
 
             for (var i = 0; i < OpenWindows.Count; i++)
-            {
-                var window = OpenWindows[i];
-                var self = ReferenceEquals(window, this);
-
-                // 中身は TextBlock にする（文字のままだと、ファイル名の _ がアクセスキーとして消える）。
-                var button = new Button
-                {
-                    Content = new TextBlock { Text = labels[i], TextTrimming = TextTrimming.CharacterEllipsis, MaxWidth = 200 },
-                    Style = (Style)FindResource(self ? "AccentButton" : "ToolButton"),
-                    ToolTip = window.WindowTip(),
-                };
-                button.Click += delegate { window.BringForward(this); };
-                WindowList.Children.Add(button);
-            }
+                WindowList.Children.Add(CreateWindowTab(OpenWindows[i], labels[i], OpenWindows.Count > 1));
 
             var add = new Button
             {
@@ -224,6 +243,64 @@ namespace Tsuzuri
             };
             add.Click += NewWindow_Click;
             WindowList.Children.Add(add);
+        }
+
+        private Border CreateWindowTab(MainWindow window, string label, bool closable)
+        {
+            var self = ReferenceEquals(window, this);
+
+            var panel = new StackPanel { Orientation = Orientation.Horizontal };
+            panel.Children.Add(new TextBlock
+            {
+                Text = label,
+                TextTrimming = TextTrimming.CharacterEllipsis,
+                MaxWidth = 200,
+                VerticalAlignment = VerticalAlignment.Center,
+                Foreground = (Brush)FindResource(self ? "AccentText" : "TextMuted"),
+            });
+
+            if (closable)
+            {
+                var close = new Button
+                {
+                    Content = "\uE711",
+                    ToolTip = "この画面を閉じる（ほかの画面はそのまま。未保存なら保存するか尋ねる）",
+                    FontFamily = IconFont,
+                    FontSize = 9,
+                    Width = 20,
+                    Height = 20,
+                    Padding = new Thickness(0),
+                    Margin = new Thickness(6, 0, 0, 0),
+                    Focusable = false,
+                    VerticalAlignment = VerticalAlignment.Center,
+                    Style = (Style)FindResource("ToolButton"),
+                };
+                close.Click += delegate { window.Close(); };
+                panel.Children.Add(close);
+            }
+
+            var tab = new Border
+            {
+                Child = panel,
+                Height = 26,
+                CornerRadius = new CornerRadius(4),
+                Padding = new Thickness(10, 0, closable ? 3 : 10, 0),
+                Margin = new Thickness(0, 0, 4, 0),
+                Cursor = System.Windows.Input.Cursors.Hand,
+                VerticalAlignment = VerticalAlignment.Center,
+                Background = self ? (Brush)FindResource("AccentFill") : Brushes.Transparent,
+                ToolTip = window.WindowTip(),
+            };
+
+            // 押したときに切り替える。段の空いているところはウィンドウを動かすので、ここで受け止めて段に回さない（× のボタンは自分で受け取る）。
+            tab.MouseLeftButtonDown += (sender, e) =>
+            {
+                e.Handled = true;
+                window.BringForward(this);
+            };
+            tab.MouseEnter += delegate { if (!self) tab.Background = (Brush)FindResource("HoverFill"); };
+            tab.MouseLeave += delegate { if (!self) tab.Background = Brushes.Transparent; };
+            return tab;
         }
 
         /// <summary>一覧に出す名前。開いているファイル（いちばん左のページ）の題。WordPress の記事なら頭に「WP:」、未保存なら後ろに「*」。</summary>
@@ -248,11 +325,10 @@ namespace Tsuzuri
         }
 
         /// <summary>
-        /// 最初の画面を閉じるとき、先にほかの画面を閉じる（それぞれ未保存の確かめをする）。どれかが取りやめたら false（最初の画面も閉じない）。
+        /// 「終了」で最初の画面を閉じるとき、先にほかの画面を閉じる（それぞれ未保存の確かめをする）。どれかが取りやめたら false（最初の画面も閉じない）。
         /// </summary>
         private bool CloseOtherWindows()
         {
-            _closingAll = true;
 
             foreach (var window in OpenWindows.Where(other => !ReferenceEquals(other, this)).ToList())
             {

@@ -382,8 +382,9 @@ namespace Tsuzuri
 
         private void OnClosing(object sender, CancelEventArgs e)
         {
-            // 最初の画面を閉じるときは、ほかの画面を先に閉じる。どれかで取りやめたら、こちらも閉じない（2026-10-31）。
-            if (IsPrimary && !CloseOtherWindows())
+            // 「終了」で最初の画面を閉じるときは、ほかの画面を先に閉じる。どれかで取りやめたら、こちらも閉じない（2026-10-31）。
+            // タブの × で閉じるときは、この画面だけ（最初の画面なら、次の画面が引き継ぐ）。
+            if (IsPrimary && _closingAll && !CloseOtherWindows())
             {
                 e.Cancel = true;
                 return;
@@ -392,7 +393,7 @@ namespace Tsuzuri
             // 編集していなければ何も尋ねずに閉じる。編集していれば、保存するか尋ねる（2026-10-25）。
             if (!ConfirmLeaving(new MarkdownView[0], null))
             {
-                if (IsPrimary && _closingAll) CancelClosingAll();
+                if (_closingAll) CancelClosingAll();
                 e.Cancel = true;
                 return;
             }

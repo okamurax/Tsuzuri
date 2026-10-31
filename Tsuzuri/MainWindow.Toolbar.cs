@@ -96,9 +96,10 @@ namespace Tsuzuri
             else Status("保存しました: " + Active.FilePath);
         }
 
+        /// <summary>「終了」。アプリごと（全部の画面を）閉じる（2026-10-31。画面1つだけを閉じるのはタブの ×）。</summary>
         private void Exit_Click(object sender, RoutedEventArgs e)
         {
-            Close();
+            CloseAllWindows();
         }
 
         /// <summary>ツールバーの右端の「ランチャー」（2026-10-31。前はページの上端の段）。ランチャーとファイラーを出し入れする（SPEC 4章）。</summary>

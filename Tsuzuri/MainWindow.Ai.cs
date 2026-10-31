@@ -131,7 +131,7 @@ namespace Tsuzuri
   この履歴にコミットしたり、書き換えたりしない（記録はエディタがする）。
 - 返事は日本語で、欄は狭いので短めに書く。";
 
-        /// <summary>ツールバーの右端の「AI」。AI の欄を出し入れする。タブが1つも無ければ、PowerShell だけのタブを1つ開く。</summary>
+        /// <summary>ツールバーの右端の「AI」。AI の欄を出し入れする。タブが1つも無ければ、claude を起動したタブを1つ開く。</summary>
         private void ToggleAi()
         {
             if (AiPane.Visibility == Visibility.Visible)
@@ -140,7 +140,7 @@ namespace Tsuzuri
                 return;
             }
 
-            if (_aiTabs.Count == 0 && !_aiRestorePending) AddAiTab(null);
+            if (_aiTabs.Count == 0 && !_aiRestorePending) AddAiTab(string.Empty);   // claude を直接起動する（2026-10-31。前は PowerShell だけ）
             ShowAiPane();
         }
 
@@ -148,8 +148,8 @@ namespace Tsuzuri
         private bool _aiRestorePending;
 
         /// <summary>
-        /// 会話のタブを足して選ぶ。start が null なら PowerShell だけ。"" なら新しい会話、
-        /// "--resume" なら履歴から選ぶ（どれも claude をそのコマンドで起動する。最初の1回だけ。終わったあと Enter で起動し直すのは PowerShell）。
+        /// 会話のタブを足して選ぶ。"" なら新しい会話（claude をそのまま起動する。最初の1回だけ。終わったあとの端末は PowerShell）。
+        /// null なら PowerShell だけ（今は使わない。2026-10-31 に「＋」のメニューをやめ、claude を直接起動するようにした）。
         /// </summary>
         private void AddAiTab(string start)
         {
@@ -402,7 +402,7 @@ namespace Tsuzuri
                 _aiAddButton = new Button
                 {
                     Content = "\uE710",
-                    ToolTip = "会話を足す（新しい会話・履歴から選ぶ）",
+                    ToolTip = "新しい会話を足す（claude を起動する）",
                     FontFamily = IconFont,
                     FontSize = 11,
                     Width = 26,
@@ -413,24 +413,12 @@ namespace Tsuzuri
                 };
                 var style = Application.Current != null ? Application.Current.Resources["ToolButton"] as Style : null;
                 if (style != null) _aiAddButton.Style = style;
-                _aiAddButton.Click += delegate { ShowAiAddMenu(); };
+                _aiAddButton.Click += delegate { AddAiTab(string.Empty); };   // メニューは出さず、claude を直接起動する（2026-10-31）
             }
 
             AiTabs.Children.Clear();
             foreach (var tab in _aiTabs) AiTabs.Children.Add(tab.Header);
             AiTabs.Children.Add(_aiAddButton);
-        }
-
-        /// <summary>「＋」のメニュー。選ぶと新しいタブを開き、そのコマンドで claude を起動する。</summary>
-        private void ShowAiAddMenu()
-        {
-            var menu = new ContextMenu { PlacementTarget = _aiAddButton, Placement = System.Windows.Controls.Primitives.PlacementMode.Bottom };
-            menu.Items.Add(AiMenuItem("新しい会話", "claude を新しく起動する", () => AddAiTab(string.Empty)));
-            // 「前の会話の続き」（claude --continue）は外した（2026-10-28）。起動し直すと前のタブが戻るので、要らなくなった。
-            menu.Items.Add(AiMenuItem("履歴から選ぶ…", "過去の会話の一覧から選んで開く（claude --resume）", () => AddAiTab("--resume")));
-            menu.Items.Add(new Separator());
-            menu.Items.Add(AiMenuItem("PowerShell だけ", "claude は起動しない", () => AddAiTab(null)));
-            menu.IsOpen = true;
         }
 
         private static MenuItem AiMenuItem(string header, string tip, Action click)
@@ -654,7 +642,7 @@ namespace Tsuzuri
             StartAiListener();
 
             // 引数は -EncodedCommand にまとめる（引用符や $ を気にしなくて済む）。
-            // 起動したときに出していた claude の使い方の1行は外した（2026-10-30。タブが戻るので「続き」の案内は要らず、ほかは ＋ のメニューにある）。
+            // 起動したときに出していた claude の使い方の1行は外した（2026-10-30。タブが戻るので「続き」の案内は要らず、履歴は claude --resume）。
             var command = "$env:MDEDITOR_AI_TAB=" + Quote(tabId) + ";"
                          + "function claude { & " + Quote(claude) + " --settings " + Quote(settings)
                          + " --append-system-prompt-file " + Quote(instructions) + " @args }";

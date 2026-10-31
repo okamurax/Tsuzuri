@@ -110,14 +110,14 @@ namespace Tsuzuri
             }));
         }
 
-        /// <summary>全部の画面のツールバーの一覧を、今の中身に合わせる（題・未保存の印が変わったとき、画面が増えた・減ったとき）。</summary>
+        /// <summary>全部の画面の一覧（ツールバーの一段下）を、今の中身に合わせる（題・未保存の印が変わったとき、画面が増えた・減ったとき）。</summary>
         private static void RefreshWindowLists()
         {
             foreach (var window in OpenWindows.ToList()) window.BuildWindowList();
         }
 
         /// <summary>
-        /// ツールバーの画面の一覧。画面が2つ以上のときだけ、画面ごとのボタンを出す（この画面は色を付ける）。右に「＋」（新しい画面）。
+        /// ツールバーの一段下の、画面の一覧。画面ごとのボタン（この画面は色を付ける）と、右に「＋」（新しい画面）。1つだけのときも出す（ブラウザのタブと同じ）。
         /// </summary>
         private void BuildWindowList()
         {
@@ -128,23 +128,20 @@ namespace Tsuzuri
             _windowListSignature = signature;
             WindowList.Children.Clear();
 
-            if (OpenWindows.Count >= 2)
+            for (var i = 0; i < OpenWindows.Count; i++)
             {
-                for (var i = 0; i < OpenWindows.Count; i++)
-                {
-                    var window = OpenWindows[i];
-                    var self = ReferenceEquals(window, this);
+                var window = OpenWindows[i];
+                var self = ReferenceEquals(window, this);
 
-                    // 中身は TextBlock にする（文字のままだと、ファイル名の _ がアクセスキーとして消える）。
-                    var button = new Button
-                    {
-                        Content = new TextBlock { Text = labels[i], TextTrimming = TextTrimming.CharacterEllipsis, MaxWidth = 160 },
-                        Style = (Style)FindResource(self ? "AccentButton" : "ToolButton"),
-                        ToolTip = window.WindowTip(),
-                    };
-                    button.Click += delegate { window.BringForward(this); };
-                    WindowList.Children.Add(button);
-                }
+                // 中身は TextBlock にする（文字のままだと、ファイル名の _ がアクセスキーとして消える）。
+                var button = new Button
+                {
+                    Content = new TextBlock { Text = labels[i], TextTrimming = TextTrimming.CharacterEllipsis, MaxWidth = 200 },
+                    Style = (Style)FindResource(self ? "AccentButton" : "ToolButton"),
+                    ToolTip = window.WindowTip(),
+                };
+                button.Click += delegate { window.BringForward(this); };
+                WindowList.Children.Add(button);
             }
 
             var add = new Button

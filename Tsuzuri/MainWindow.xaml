@@ -52,10 +52,16 @@
                     <Button Content="エクスポート(_W)" Style="{StaticResource ToolButton}" Click="Export_Click"
                             ToolTip="Word 文書 (.docx) に書き出す。範囲・用紙・向き・余白を選んでから。サブページは本文に戻し、添付は隣のフォルダにコピーする" />
                 </StackPanel>
-                <!-- 開いている画面の一覧と「＋」（2026-10-31。試作）。画面が2つ以上のときだけ名前を並べ、押すとその画面を前に出す。中身は MainWindow.Windows.cs が組む -->
-                <Border Width="1" Height="16" Margin="8,0,4,0" VerticalAlignment="Center" Background="{StaticResource BorderBrushSoft}" />
-                <StackPanel x:Name="WindowList" Orientation="Horizontal" />
             </DockPanel>
+        </Border>
+
+        <!-- ============ 画面の一覧（2026-10-31。試作）。ツールバーの一段下。開いている画面の名前と「＋」。押すとその画面を前に出す ============ -->
+        <!-- ツールバーに並べると右へ行き過ぎたので段を分けた。空いているところはツールバーと同じく、ドラッグで移動・ダブルクリックで最大化。中身は MainWindow.Windows.cs が組む -->
+        <Border DockPanel.Dock="Top" Height="30"
+                Background="{StaticResource ChromeBackground}"
+                MouseLeftButtonDown="Toolbar_MouseLeftButtonDown">
+            <StackPanel x:Name="WindowList" Orientation="Horizontal" Margin="8,0,8,2" VerticalAlignment="Center"
+                        TextElement.FontSize="13" />
         </Border>
 
         <!-- ============ ステータスバー。角丸の作業面の外、紺の枠の上に出す ============ -->

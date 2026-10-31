@@ -161,6 +161,7 @@
   <ItemGroup>
     <Compile Include="AppSettings.cs" />
     <Compile Include="WordPress\HtmlToMarkdown.cs" />
+    <Compile Include="WordPress\CrayonCodeRenderer.cs" />
     <Compile Include="WordPress\WordPressClient.cs" />
     <Compile Include="WordPress\WordPressSettings.cs" />
     <Compile Include="Export\DocxBuilder.cs" />

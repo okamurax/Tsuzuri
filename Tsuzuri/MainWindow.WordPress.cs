@@ -908,6 +908,7 @@ namespace Tsuzuri
             var writer = new StringWriter();
             var renderer = new global::Markdig.Renderers.HtmlRenderer(writer);
             pipeline.Setup(renderer);
+            CrayonCodeRenderer.Use(renderer);   // Crayon の印のコードブロックは <pre class="…"> に戻す
             renderer.Render(parsed);
             writer.Flush();
             return RestoreShortcodes(writer.ToString());

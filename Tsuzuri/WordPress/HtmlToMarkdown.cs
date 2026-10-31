@@ -561,24 +561,26 @@ namespace Tsuzuri.WordPress
         // コード
         // ---------------------------------------------------------------
 
-        // Crayon Syntax Highlighter の印（<pre class="lang:default decode:true">。2026-10-31。#7873）。
-        // Crayon は 2016 年に開発が止まったプラグインで、入っていなければ何もしない（ただの pre として表示される）。
-        // 印を落としてコードブロックにする。lang:sh などの言語は、コードブロックの言語（```sh）として残す。
-        // Crayon がまだ動いているサイトでは、送り直したブロックの色付けが無くなる（中身は変わらない）。
-        private static readonly Regex CrayonToken = new Regex(@"^[a-z][a-z-]*:\S*$", RegexOptions.Compiled);
+        // Crayon Syntax Highlighter（と互換の Urvanov Syntax Highlighter）の印（<pre class="lang:default decode:true">。2026-10-31。#7873）。
+        // コードブロックにし、印はそのまま言語の欄に書く（```lang:default decode:true）。送るときに <pre class="…"> に戻す（CrayonCodeRenderer）。
+        // 印を落とすと、サイトで色付けが効かなくなる（REST の表示用の本文には色付けの結果が入らないので、効いているかは本文からは分からない）。
+        // 名前と値に使えるのは、属性の中に書いても崩れない字だけ。それ以外が混じれば HTML のまま残す。
+        private static readonly Regex CrayonToken = new Regex(@"^[a-z][a-z-]*:[^\s""'<>&`\\]*$", RegexOptions.Compiled);
+
+        /// <summary>Crayon の印だけでできたクラスか（空白で区切った全部が「名前:値」）。</summary>
+        public static bool IsCrayonClass(string value)
+        {
+            var tokens = (value ?? string.Empty).Split(new[] { ' ', '\t', '\n' }, StringSplitOptions.RemoveEmptyEntries);
+            return tokens.Length > 0 && tokens.All(CrayonToken.IsMatch);
+        }
 
         private static string Code(Node pre, string html)
         {
             var language = string.Empty;
             foreach (var attribute in pre.Attributes)
             {
-                if (!attribute.Key.Equals("class", StringComparison.OrdinalIgnoreCase)) return null;
-
-                var tokens = attribute.Value.Split(new[] { ' ', '\t', '\n' }, StringSplitOptions.RemoveEmptyEntries);
-                if (tokens.Length == 0 || !tokens.All(CrayonToken.IsMatch)) return null;
-
-                var lang = tokens.FirstOrDefault(token => token.StartsWith("lang:", StringComparison.Ordinal));
-                if (lang != null && lang != "lang:default" && Regex.IsMatch(lang, @"^lang:[A-Za-z0-9_+#-]+$")) language = lang.Substring(5);
+                if (!attribute.Key.Equals("class", StringComparison.OrdinalIgnoreCase) || !IsCrayonClass(attribute.Value)) return null;
+                language = string.Join(" ", attribute.Value.Split(new[] { ' ', '\t', '\n' }, StringSplitOptions.RemoveEmptyEntries));
             }
 
             var content = pre.Children.Where(c => !(c.IsText && string.IsNullOrWhiteSpace(c.Text))).ToList();
@@ -586,6 +588,9 @@ namespace Tsuzuri.WordPress
 
             if (content.Count == 1 && content[0].IsElement && content[0].Name == "code")
             {
+                // Crayon の pre の中に code があるものは、送るときに同じ形（pre だけ）に戻せないので HTML のまま。
+                if (language.Length > 0) return null;
+
                 var code = content[0];
                 foreach (var attribute in code.Attributes)
                 {

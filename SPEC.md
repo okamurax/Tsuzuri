@@ -1961,9 +1961,11 @@ WPF 標準のコントロールはそのままだと明るい前提の見た目�
     捨てるのは、Mac のメモ等の `p1`・`s1`・`t1`・`td1`（#7906・#6758）、claude.ai の画面からコピーした Tailwind のクラス（#6758）、
     クラシックエディタの画像の `alignnone`・`size-*`・`wp-image-*`。テーマの装飾（`blank-box`・`marker-under`・`btn`・吹き出し等）は残る（HTML のまま）。
     コード（`pre`・`code`）のクラスは、言語や色付けのプラグインが読むので残す。
-    ただし Crayon Syntax Highlighter の印（`<pre class="lang:default decode:true">`）だけは落として、コードブロックにする（2026-10-31。#7873）。
-    Crayon は 2016 年に開発が止まったプラグインで、入っていなければ何もしない。`lang:sh` などの言語は、コードブロックの言語（` ```sh `）として残す。
-    Crayon がまだ動いているサイトでは、送り直したブロックの色付けが無くなる（中身は変わらない）
+    ただし Crayon Syntax Highlighter（と互換の Urvanov Syntax Highlighter）の印（`<pre class="lang:default decode:true">`）は、
+    コードブロックにして、印をそのまま言語の欄に書く（` ```lang:default decode:true `。2026-10-31。#7873）。
+    送るときは `<pre class="lang:default decode:true">…</pre>` に戻す（`WordPress/CrayonCodeRenderer.cs`）ので、サイトの色付けはそのまま効く。
+    REST の表示用の本文には色付けの結果が入らないので、プラグインが動いているかは本文からは分からない。印は落とさない。
+    印の値に属性を崩す字（`"`・`<`・`&` など）が混じるもの、中に `code` があるものは HTML のまま
   - **表**: セルの中身が段落1つ（`<td><p>…</p></td>`）なら包みを外す。
     見出しの行（`thead`・全部 `th`）が無くても、1行目のセルが全部まるごと太字なら、それを見出しの行にする（見出しは太字で出るので、太字は外す。#6758）。
     コード・リンク先・HTML の中に `|` があるセルは、`\|` で逃がせない（`\` が残る）ので、表を HTML のまま

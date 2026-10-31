@@ -688,6 +688,7 @@ namespace Tsuzuri
 
             // 見出しの書き換えに追いかけたブックマークも、本文と一緒に覚える。変わっていなければ書かない。
             StoreHeadingBookmarks();
+            ScheduleRememberScreens();   // 保存したら、画面の状態も覚える（2026-10-31）
 
             UpdateChrome();
             return ok;

@@ -618,6 +618,7 @@ namespace Tsuzuri
             UpdateChrome();
 
             ShowRest();
+            ScheduleRememberScreens();   // ファイル・記事を開いた・ページを移ったら、画面の状態を覚える（2026-10-31）
 
             // 開いたページにはフォーカスを渡さない。渡すとキャレットの行が
             // 生ソースになり、読みに来ただけのページが崩れて見える。

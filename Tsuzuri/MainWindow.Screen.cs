@@ -214,6 +214,7 @@ namespace Tsuzuri
             // WordPress の記事は、一時ファイルを閉じたときに消しているので、WordPress から読み込み直す（2026-10-31）。
             if (screen.WordPressPost > 0)
             {
+                _wordPressRestoring = true;   // 読み込み終わるまで、この画面の覚えを書き換えない（ReopenWordPressPost）
                 RestorePanels(screen);
                 ReopenWordPressPost(screen.WordPressSite, screen.WordPressPost);
                 return true;
@@ -226,9 +227,57 @@ namespace Tsuzuri
             return result == ScreenOpenFailed;
         }
 
+        /// <summary>
+        /// 起動のときの画面を戻し終えたか（2026-10-31）。それまでは画面の状態を書かない（RememberLastScreen）。
+        /// カーソルは戻したあとで置くので、置き終わってから true にする。WordPress の記事は、読み込み直し終えてから。
+        /// </summary>
+        private bool _screenReady;
+
+        /// <summary>WordPress の記事を、起動のときに読み込み直している最中か。</summary>
+        private bool _wordPressRestoring;
+
+        /// <summary>起動のときの画面を戻し終えたら呼ぶ（カーソルを置いたあと）。</summary>
+        private void MarkScreenReady()
+        {
+            Dispatcher.BeginInvoke(new Action(delegate
+            {
+                if (!_wordPressRestoring) _screenReady = true;
+            }), DispatcherPriority.ApplicationIdle);
+        }
+
+        private static bool _rememberScheduled;
+
+        /// <summary>
+        /// 全部の画面の状態を app.json に書く（2026-10-31。前は閉じるときだけで、落ちた・VM ごと止めたときは前回の終了の画面に戻った）。
+        /// ファイル・記事を開いた・ページを移ったとき（AfterStackChanged）、保存したとき、ほかのアプリに切り替えたとき（Deactivated）に呼ぶ。
+        /// 続けて呼ばれても、手が空いたときに1回だけ書く。
+        /// </summary>
+        private void ScheduleRememberScreens()
+        {
+            if (_rememberScheduled) return;
+
+            _rememberScheduled = true;
+            Dispatcher.BeginInvoke(new Action(delegate
+            {
+                _rememberScheduled = false;
+
+                foreach (var window in OpenWindows.ToList())
+                {
+                    window.RememberLastScreen();
+                    if (window.IsPrimary && window._screenReady)
+                        _settings.LastFile = window._stack.Count > 0 ? window._stack[0].FilePath : null;
+                }
+
+                _settings.Save();
+            }), DispatcherPriority.ApplicationIdle);
+        }
+
         /// <summary>終了するとき、今の画面の状態とたたんでいた見出しを覚える（app.json に書くのは StoreLayout）。</summary>
         private void RememberLastScreen()
         {
+            // 戻し終わる前（WordPress の記事を読み込み直している最中など）に書くと、覚えていた画面を空の画面で上書きしてしまう。
+            if (!_screenReady) return;
+
             var screen = CaptureScreen();
 
             // WordPress の記事は一時ファイルなので、ページの並びではなく記事を覚える（起動したときに読み込み直す。2026-10-31）。

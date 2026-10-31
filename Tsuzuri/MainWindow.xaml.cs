@@ -164,6 +164,9 @@ namespace Tsuzuri
 
             // 戻ってきたら、外で変わった文書を読み直す（SPEC 19章）。離れるときに保存するのはやめた（2026-10-25。自動保存をやめた）。
             Activated += delegate { ReloadChangedDocuments(); };
+
+            // ほかのアプリに切り替えたら、全部の画面の状態を覚える（2026-10-31。VM ごと止める前は、たいてい Mac 側に移るため）。
+            Deactivated += delegate { ScheduleRememberScreens(); };
             Closing += OnClosing;
 
             // Ctrl+S で保存（2026-10-25）。ショートカットは既定では付けない方針（SPEC 11章）だが、自動保存をやめたので、これだけは付ける。
@@ -244,11 +247,13 @@ namespace Tsuzuri
                 if (!IsPrimary)
                 {
                     if (!RestoreLastScreen()) ShowRest();
+                    MarkScreenReady();
                     return;
                 }
 
                 CleanWordPressTemp();   // 前の起動で読み込んだ WordPress の記事は、閉じたらそれで終わり（SPEC 20章）。開き直す前に消す
                 OpenLastFile();
+                MarkScreenReady();
                 RestoreOtherWindows();
             };
             ContentRendered += delegate

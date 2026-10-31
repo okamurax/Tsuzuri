@@ -107,7 +107,21 @@ namespace Tsuzuri
         /// 起動したとき、終了したときに開いていた記事を WordPress から読み込み直す（2026-10-31）。
         /// サイトは wordpress.json から URL で探す。読めない・見つからなければ知らせて開かない。
         /// </summary>
-        private void ReopenWordPressPost(string url, int id)
+        private async void ReopenWordPressPost(string url, int id)
+        {
+            try
+            {
+                await ReopenWordPressPostCore(url, id);
+            }
+            finally
+            {
+                // 読み込めても読み込めなくても、ここからは今の画面を覚える（読み込めなければ空の画面として覚える。知らせは LoadWordPressPost が出す）。
+                _wordPressRestoring = false;
+                _screenReady = true;
+            }
+        }
+
+        private async Task ReopenWordPressPostCore(string url, int id)
         {
             WordPressSite site = null;
             try
@@ -127,7 +141,7 @@ namespace Tsuzuri
                 return;
             }
 
-            OpenWordPressPost(site, id);
+            await LoadWordPressPost(site, id);
         }
 
         /// <summary>この起動の一時フォルダを消す（エディタを閉じるとき）。消せなければ（AI の欄の claude が掴んでいる等）、次の起動で消す。</summary>
@@ -675,6 +689,12 @@ namespace Tsuzuri
 
         /// <summary>記事を読み込んで開く。タイトルは1行目の見出し（# タイトル）にする。</summary>
         private async void OpenWordPressPost(WordPressSite site, int id)
+        {
+            await LoadWordPressPost(site, id);
+        }
+
+        /// <summary>OpenWordPressPost の中身。起動のときに読み込み直すときは、終わるのを待つ（ReopenWordPressPost）。</summary>
+        private async Task LoadWordPressPost(WordPressSite site, int id)
         {
             // ほかの画面で開いている記事は読み込まず、その画面を前に出す（2026-10-31。同じ記事を2か所で直して食い違わないように）。
             var holder = WindowHoldingPost(site.Url, id);

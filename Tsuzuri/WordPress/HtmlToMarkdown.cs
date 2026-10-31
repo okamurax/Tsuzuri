@@ -241,7 +241,7 @@ namespace Tsuzuri.WordPress
         /// 見た目に関わらない属性（2026-10-30）。無いものとして扱い、Markdown にしてよいかの判断に入れない。
         /// Google ドキュメント等から貼った本文は、段落ごとに dir="ltr" が付いていて、前はそれだけで段落が全部 HTML のまま残った。
         /// 保存すると、これらの属性は落ちる（見た目は変わらない）。
-        /// - dir="ltr"（左から右は既定）・表の見出しの scope・role="presentation"・aria-*・data-*
+        /// - dir="ltr"（左から右は既定）・dir="auto"・表の見出しの scope・role="presentation"・aria-*・data-*
         /// - 画像の width・height・decoding・loading・srcset・sizes
         /// - 何もしないと分かっているクラス（IsJunkClass）
         /// - 表の cellspacing・cellpadding、セルの valign
@@ -289,7 +289,8 @@ namespace Tsuzuri.WordPress
             if (element == "table" && (name == "cellspacing" || name == "cellpadding")) return true;
             if ((element == "td" || element == "th" || element == "tr") && name == "valign") return true;
 
-            if (name == "dir") return value.Trim().Equals("ltr", StringComparison.OrdinalIgnoreCase);
+            // auto は、中の字から向きを決める（2026-10-31。claude.ai からコピーした表を包む <div dir="auto">。#7873）。日本語・英語の文では ltr と同じ。
+            if (name == "dir") return value.Trim().Equals("ltr", StringComparison.OrdinalIgnoreCase) || value.Trim().Equals("auto", StringComparison.OrdinalIgnoreCase);
             if (name == "scope") return element == "th" || element == "td";
             if (name == "role") return value.Trim().Equals("presentation", StringComparison.OrdinalIgnoreCase);
             return name.StartsWith("aria-", StringComparison.Ordinal) || name.StartsWith("data-", StringComparison.Ordinal);
@@ -560,12 +561,27 @@ namespace Tsuzuri.WordPress
         // コード
         // ---------------------------------------------------------------
 
+        // Crayon Syntax Highlighter の印（<pre class="lang:default decode:true">。2026-10-31。#7873）。
+        // Crayon は 2016 年に開発が止まったプラグインで、入っていなければ何もしない（ただの pre として表示される）。
+        // 印を落としてコードブロックにする。lang:sh などの言語は、コードブロックの言語（```sh）として残す。
+        // Crayon がまだ動いているサイトでは、送り直したブロックの色付けが無くなる（中身は変わらない）。
+        private static readonly Regex CrayonToken = new Regex(@"^[a-z][a-z-]*:\S*$", RegexOptions.Compiled);
+
         private static string Code(Node pre, string html)
         {
-            if (pre.Attributes.Count > 0) return null;
+            var language = string.Empty;
+            foreach (var attribute in pre.Attributes)
+            {
+                if (!attribute.Key.Equals("class", StringComparison.OrdinalIgnoreCase)) return null;
+
+                var tokens = attribute.Value.Split(new[] { ' ', '\t', '\n' }, StringSplitOptions.RemoveEmptyEntries);
+                if (tokens.Length == 0 || !tokens.All(CrayonToken.IsMatch)) return null;
+
+                var lang = tokens.FirstOrDefault(token => token.StartsWith("lang:", StringComparison.Ordinal));
+                if (lang != null && lang != "lang:default" && Regex.IsMatch(lang, @"^lang:[A-Za-z0-9_+#-]+$")) language = lang.Substring(5);
+            }
 
             var content = pre.Children.Where(c => !(c.IsText && string.IsNullOrWhiteSpace(c.Text))).ToList();
-            var language = string.Empty;
             string text;
 
             if (content.Count == 1 && content[0].IsElement && content[0].Name == "code")

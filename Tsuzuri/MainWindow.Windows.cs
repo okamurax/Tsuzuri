@@ -65,7 +65,12 @@ namespace Tsuzuri
             if (OpenWindows.Count > 1)
             {
                 _session = session ?? new WindowSession();
-                if (!_settings.Windows.Contains(_session)) _settings.Windows.Add(_session);
+                if (!_settings.Windows.Contains(_session))
+                {
+                    // 「＋」で増やした空の画面も、すぐ覚える（2026-10-31）。落ちても、次の起動で空の画面として戻る。
+                    _settings.Windows.Add(_session);
+                    _settings.Save();
+                }
             }
 
             Closed += delegate

@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+# コミットの前に回す（git config core.hooksPath tools/git-hooks で有効になる。README「開発」）。
+# WordPress の変換（Tsuzuri/WordPress/・tools/wp-check/）を変えたコミットなら、全記事の確かめ（tools/wp-check.sh）を回し、
+# 食い違いがあればコミットを止める。確かめられない（wordpress.json が無い・つながらない）ときも止める。
+# どうしても今コミットしたいときは git commit --no-verify（あとで必ず回す）。
+set -uo pipefail
+
+if ! git diff --cached --name-only | grep -qE '^(Tsuzuri/WordPress/|tools/wp-check)'; then
+    exit 0
+fi
+
+root="$(git rev-parse --show-toplevel)"
+echo "WordPress の変換が変わったので、全記事で確かめます（tools/wp-check.sh）…"
+if ! bash "$root/tools/wp-check.sh"; then
+    echo
+    echo "WordPress の変換の確かめが通らなかったので、コミットを止めました。" >&2
+    exit 1
+fi

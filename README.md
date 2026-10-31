@@ -157,6 +157,14 @@ git は、exe の隣の `git` フォルダに置いた [MinGit](https://github.c
 
 Mac では、XAML を除いた C# のコンパイルだけを `bash tools/check-build.sh` で確かめられます（.NET SDK が要ります）。
 
+### WordPress の変換を変えるとき
+
+`bash tools/wp-check.sh` で、サイトの全記事を読み（GET だけ。記事は変えません）、ダウンロード → アップロード → ダウンロードと往復させて、
+送る HTML の見える文字が元と同じか、往復で変わらないかを確かめます。HTML のまま残るタグ・属性・クラスの一覧も出します。
+`wordpress.json` は exe の隣のものを使います（引数で渡すこともできます）。
+
+`git config core.hooksPath tools/git-hooks` をしておくと、`Tsuzuri/WordPress/` を変えたコミットの前に、これを自動で回し、通らなければコミットを止めます。
+
 ## 設定ファイル
 
 どれも exe と同じフォルダに置きます。持ち運べるように、`%AppData%` は使いません。
@@ -177,12 +185,12 @@ Tsuzuri/
 ├ Markdown/              ページの読み書き（PageDocument）、Markdig による解析、変更の記録（DocumentHistory）
 ├ Views/                 編集面（AvalonEdit の拡張）、ランチャー、ファイラー、端末
 ├ Export/                Word への書き出し
-├ WordPress/             WordPress の REST API、HTML → Markdown の変換
+├ WordPress/             WordPress の REST API、HTML → Markdown の変換、送る HTML（WordPressHtml）
 ├ Terminal/              AI の欄の端末の画面（xterm.js）
 └ ConPty/                AI の欄の端末で使う ConPTY（conpty.dll・OpenConsole.exe）
 TableEditor/             表エディタ（WPF。本体から DLL として読み込む）
 DrawingEditor/           図エディタ（WPF。本体から DLL として読み込む）
-tools/                   Mac でのコンパイル確認、アイコンの生成
+tools/                   Mac でのコンパイル確認、WordPress の変換の確かめ（wp-check）、コミット前のフック、アイコンの生成
 sample/                  動作確認用の文書
 ```
 

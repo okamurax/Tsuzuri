@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- WordPress の変換の確かめ（tools/wp-check.sh から動かす）。エディタと同じ変換のコードをそのままコンパイルする -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="../../Tsuzuri/WordPress/HtmlToMarkdown.cs" />
+    <Compile Include="../../Tsuzuri/WordPress/CrayonCodeRenderer.cs" />
+    <Compile Include="../../Tsuzuri/WordPress/WordPressHtml.cs" />
+    <!-- 本体の Tsuzuri.csproj と同じ版にする -->
+    <PackageReference Include="Markdig" Version="0.33.0" />
+  </ItemGroup>
+</Project>

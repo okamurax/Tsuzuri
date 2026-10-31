@@ -701,7 +701,7 @@ namespace Tsuzuri
         /// <summary>手元の画像のリンク先を、元の文書の場所を基準にした絶対パスに書き換える。URL・見つからないものはそのまま。</summary>
         private static string AbsolutizeImageLinks(string text, string documentPath)
         {
-            var parsed = global::Markdig.Markdown.Parse(text, WordPressPipeline);
+            var parsed = WordPressHtml.Parse(text);
             var edits = new List<KeyValuePair<global::Markdig.Syntax.SourceSpan, string>>();
 
             foreach (var image in parsed.Descendants<Markdig.Syntax.Inlines.LinkInline>().Where(each => each.IsImage))
@@ -863,8 +863,7 @@ namespace Tsuzuri
         /// </summary>
         private string BuildWordPressHtml(string body, string documentPath, WordPressSite site, WordPressClient client)
         {
-            var pipeline = WordPressPipeline;
-            var parsed = global::Markdig.Markdown.Parse(body, pipeline);
+            var parsed = WordPressHtml.Parse(body);
 
             foreach (var image in parsed.Descendants<Markdig.Syntax.Inlines.LinkInline>().Where(each => each.IsImage).ToList())
             {
@@ -905,38 +904,7 @@ namespace Tsuzuri
                 image.Url = url;
             }
 
-            var writer = new StringWriter();
-            var renderer = new global::Markdig.Renderers.HtmlRenderer(writer);
-            pipeline.Setup(renderer);
-            CrayonCodeRenderer.Use(renderer);   // Crayon の印のコードブロックは <pre class="…"> に戻す
-            renderer.Render(parsed);
-            writer.Flush();
-            return RestoreShortcodes(writer.ToString());
-        }
-
-        /// <summary>
-        /// WordPress に送るときの Markdown の解釈（2026-10-30 のレビュー）。エディタの解釈（MarkdownParser.Pipeline）から2つ外す。
-        /// ・裸の URL を自動でリンクにしない。逃がした文字（a\_b）がリンク先に入って壊れ、行に1つだけの URL（WordPress が埋め込みにする）もただのリンクになったため。
-        ///   URL のリンクは <URL> か [文字](URL) で書く（読み込んだ記事はそう書かれる）
-        /// ・強調の追加の記法は打消し（~~）だけにする。^（上付き）・==（マーカー）・++（下線）で、本文の 2^10・x==y が化けたため
-        /// </summary>
-        private static readonly global::Markdig.MarkdownPipeline WordPressPipeline = new global::Markdig.MarkdownPipelineBuilder()
-            .UsePipeTables()
-            .UseTaskLists()
-            .UseFootnotes()
-            .UseEmphasisExtras(global::Markdig.Extensions.EmphasisExtras.EmphasisExtraOptions.Strikethrough)
-            .UsePreciseSourceLocation()
-            .Build();
-
-        private static readonly Regex ShortcodeTag = new Regex(@"\[/?[A-Za-z][\w-]*(?:\s[^\[\]]*)?/?\]", RegexOptions.Compiled);
-
-        /// <summary>
-        /// ショートコード（[caption width="300"]・[gallery ids="1,2"]）の中の文字参照を戻す。Markdig は本文の " を &amp;quot; にするので、
-        /// そのままだと WordPress が属性を読めない（2026-10-30 のレビュー）。
-        /// </summary>
-        private static string RestoreShortcodes(string html)
-        {
-            return ShortcodeTag.Replace(html, match => match.Value.IndexOf('&') < 0 ? match.Value : System.Net.WebUtility.HtmlDecode(match.Value));
+            return WordPressHtml.Render(parsed);
         }
 
         /// <summary>画像のリンク先が手元のファイルなら、そのパス。URL・見つからないものは null（エディタのリンクの解き方と同じ）。</summary>

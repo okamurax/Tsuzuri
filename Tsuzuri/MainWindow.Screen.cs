@@ -165,7 +165,7 @@ namespace Tsuzuri
 
             for (var i = 0; i < views.Count; i++) views[i].SearchText = pages[i].Search;
 
-            _settings.LastFile = views[0].FilePath;
+            if (IsPrimary) _settings.LastFile = views[0].FilePath;
 
             RebuildStack(false);
             AfterStackChanged();

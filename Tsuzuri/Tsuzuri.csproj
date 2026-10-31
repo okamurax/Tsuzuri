@@ -124,6 +124,9 @@
     <Compile Include="MainWindow.Overlays.cs">
       <DependentUpon>MainWindow.xaml</DependentUpon>
     </Compile>
+    <Compile Include="MainWindow.Windows.cs">
+      <DependentUpon>MainWindow.xaml</DependentUpon>
+    </Compile>
     <Compile Include="MainWindow.Pages.cs">
       <DependentUpon>MainWindow.xaml</DependentUpon>
     </Compile>

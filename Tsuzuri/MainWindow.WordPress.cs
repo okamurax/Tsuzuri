@@ -81,7 +81,7 @@ namespace Tsuzuri
             }
         }
 
-        /// <summary>前の起動の一時フォルダを消す（起動したとき）。読み込んだ記事は、エディタを閉じたらそれで終わり。</summary>
+        /// <summary>前の起動の一時フォルダを消す（最初の画面が起動したとき。増やした画面は、ほかの画面の記事を消してしまうので呼ばない）。読み込んだ記事は、エディタを閉じたらそれで終わり。</summary>
         private static void CleanWordPressTemp()
         {
             try
@@ -640,6 +640,15 @@ namespace Tsuzuri
         /// <summary>記事を読み込んで開く。タイトルは1行目の見出し（# タイトル）にする。</summary>
         private async void OpenWordPressPost(WordPressSite site, int id)
         {
+            // ほかの画面で開いている記事は読み込まず、その画面を前に出す（2026-10-31。同じ記事を2か所で直して食い違わないように）。
+            var holder = WindowHoldingPost(site.Url, id);
+            if (holder != null)
+            {
+                holder.BringForward(this);
+                holder.Status("この記事はこの画面で開いています。#" + id);
+                return;
+            }
+
             Status("WordPress から読み込んでいます… #" + id);
 
             WordPressPost post;
@@ -735,7 +744,7 @@ namespace Tsuzuri
             try
             {
                 if (_wordPressSession == null)
-                    _wordPressSession = Path.Combine(WordPressTempRoot, DateTime.Now.ToString("yyyyMMdd-HHmmss") + "-" + Process.GetCurrentProcess().Id);
+                    _wordPressSession = Path.Combine(WordPressTempRoot, DateTime.Now.ToString("yyyyMMdd-HHmmss") + "-" + WindowKey);   // 画面ごとに分ける
 
                 var folder = Path.Combine(_wordPressSession, (link.Id > 0 ? link.Id.ToString(CultureInfo.InvariantCulture) : "new") + "-" + (++_wordPressCount));
                 Directory.CreateDirectory(folder);

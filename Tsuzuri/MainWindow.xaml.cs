@@ -128,10 +128,16 @@ namespace Tsuzuri
         /// <summary>起動の入口（App）で読めたものだけを受け取る。</summary>
         private readonly AppSettings _settings;
 
-        public MainWindow(AppSettings settings)
+        public MainWindow(AppSettings settings) : this(settings, null)
+        {
+        }
+
+        /// <param name="opener">ツールバーの「＋」で増やした画面なら、元の画面（同じ位置・大きさで出す）。最初の画面は null。</param>
+        private MainWindow(AppSettings settings, MainWindow opener)
         {
             _settings = settings;
             InitializeComponent();
+            RegisterWindow();
             DirtyText.Foreground = Theme.DirtyMark;
 
             // アウトラインの更新はまとめて行う。見出しの一覧はエディタ側で
@@ -175,14 +181,27 @@ namespace Tsuzuri
             };
 
             // 変更の履歴（git）を記録できなかったら知らせる。記録は裏のスレッドで動く。
-            DocumentHistory.Failed += message => Dispatcher.BeginInvoke(new Action(delegate { Status(message); }));
+            // アプリ全体の知らせなので、画面を閉じたら外す（閉じた画面に知らせない・未保存のまま閉じた文書を書き出さない）。
+            Action<string> historyFailed = message => Dispatcher.BeginInvoke(new Action(delegate { Status(message); }));
+            DocumentHistory.Failed += historyFailed;
 
             // 落ちる前・ログオフのときは、未保存の編集を別名で残す。尋ねられないので、元のファイルは書き換えない。
+            System.Windows.Threading.DispatcherUnhandledExceptionEventHandler crashed = delegate { KeepUnsavedQuietly(); };
+            SessionEndingCancelEventHandler ending = delegate { KeepUnsavedQuietly(); };
             if (Application.Current != null)
             {
-                Application.Current.DispatcherUnhandledException += delegate { KeepUnsavedQuietly(); };
-                Application.Current.SessionEnding += delegate { KeepUnsavedQuietly(); };
+                Application.Current.DispatcherUnhandledException += crashed;
+                Application.Current.SessionEnding += ending;
             }
+
+            Closed += delegate
+            {
+                DocumentHistory.Failed -= historyFailed;
+                if (Application.Current == null) return;
+
+                Application.Current.DispatcherUnhandledException -= crashed;
+                Application.Current.SessionEnding -= ending;
+            };
 
             SidebarColumn.Width = new GridLength(_settings.SidebarWidth);
 
@@ -202,7 +221,8 @@ namespace Tsuzuri
             _outlineAutoScroll.Tick += delegate { OutlineAutoScroll(); };
             OutlineTree.PreviewMouseLeftButtonUp += OutlineTree_PreviewMouseLeftButtonUp;
             OutlineTree.LostMouseCapture += delegate { EndOutlineDrag(); };
-            RestoreWindowBounds();
+            if (opener != null) PlaceLike(opener);
+            else RestoreWindowBounds();
             ApplyHistorySplit();
 
             RebuildStack(false);
@@ -213,8 +233,16 @@ namespace Tsuzuri
             // AI の会話のタブは、窓が出て落ち着いてから戻す（2026-10-28）。窓が出る前に作った端末（WebView2）は、
             // ほかのアプリに切り替えて戻るまで、日本語の変換が窓の左上に出た（＋で後から作ったタブは正しい所に出る）。
             // 戻すまでは、画面を戻すときに欄を出しても空の PowerShell のタブを足さない（_aiRestorePending）。
+            // 前回のファイル・画面・AI の会話のタブを戻すのは、最初の画面だけ。増やした画面は空で始まる（ランチャー・WordPress から開く）。
             Loaded += delegate
             {
+                RefreshWindowLists();   // ほかの画面の一覧にも、この画面を足す
+                if (!IsPrimary)
+                {
+                    ShowRest();
+                    return;
+                }
+
                 _aiRestorePending = _settings.AiTabs != null && _settings.AiTabs.Count > 0;
                 CleanWordPressTemp();   // 前の起動で読み込んだ WordPress の記事は、閉じたらそれで終わり（SPEC 20章）。開き直す前に消す
                 OpenLastFile();
@@ -350,6 +378,13 @@ namespace Tsuzuri
 
         private void OnClosing(object sender, CancelEventArgs e)
         {
+            // 最初の画面を閉じるときは、ほかの画面を先に閉じる。どれかで取りやめたら、こちらも閉じない（2026-10-31）。
+            if (IsPrimary && !CloseOtherWindows())
+            {
+                e.Cancel = true;
+                return;
+            }
+
             // 編集していなければ何も尋ねずに閉じる。編集していれば、保存するか尋ねる（2026-10-25）。
             if (!ConfirmLeaving(new MarkdownView[0], null))
             {
@@ -359,7 +394,7 @@ namespace Tsuzuri
 
             StoreHeadingBookmarks();
             RememberFileStates();
-            RememberLastScreen();   // StoreLayout が app.json に書く
+            if (IsPrimary) RememberLastScreen();   // StoreLayout が app.json に書く。増やした画面は覚えない
             StoreLayout();
             _filer.Stop();
             StopAi();

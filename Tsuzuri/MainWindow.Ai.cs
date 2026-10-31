@@ -34,8 +34,11 @@ namespace Tsuzuri
         private static readonly string AiFolder = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Tsuzuri", "ai");
 
-        /// <summary>このエディタだけのパイプの名前。2つ起動していても、それぞれのフックがそれぞれへ知らせる。</summary>
-        private static readonly string AiPipeName = "Tsuzuri-" + Process.GetCurrentProcess().Id;
+        /// <summary>この画面だけのパイプの名前。画面が2つあっても、それぞれのフックがそれぞれへ知らせる（2026-10-31。前はアプリに1つ）。</summary>
+        private string AiPipeName
+        {
+            get { return "Tsuzuri-" + WindowKey; }
+        }
 
         /// <summary>今の状態を書き出すファイル。claude を一度でも起動するまでは null（書き出さない）。</summary>
         private string _aiContextPath;
@@ -563,7 +566,7 @@ namespace Tsuzuri
         /// </summary>
         private void StoreAiTabs()
         {
-            if (_aiStopping) return;
+            if (_aiStopping || !IsPrimary) return;   // 覚えて戻すのは最初の画面の会話だけ（2026-10-31）
 
             var tabs = _aiTabs.Where(tab => tab.SessionId != null)
                               .Select(tab => new AiTabState { Session = tab.SessionId, Folder = tab.Folder })
@@ -632,14 +635,14 @@ namespace Tsuzuri
                     DeleteStaleAiFiles();
                 }
 
-                var id = Process.GetCurrentProcess().Id;
+                var id = WindowKey;   // 画面ごとに分ける（プロセスの番号-画面の番号）
                 _aiContextPath = Path.Combine(AiFolder, "context-" + id + ".md");
                 settings = Path.Combine(AiFolder, "settings-" + id + ".json");
                 instructions = Path.Combine(AiFolder, "instructions.md");
                 _aiSettingsPath = settings;
 
                 File.WriteAllText(instructions, AiInstructions, new UTF8Encoding(false));
-                File.WriteAllText(settings, AiSettings(_aiContextPath), new UTF8Encoding(false));
+                File.WriteAllText(settings, AiSettings(_aiContextPath, AiPipeName), new UTF8Encoding(false));
                 WriteAiContext(null);
             }
             catch (Exception ex)
@@ -734,9 +737,12 @@ namespace Tsuzuri
                 {
                     foreach (var path in Directory.GetFiles(AiFolder, pattern))
                     {
+                        // 名前は settings-プロセスの番号-画面の番号（2026-10-31。前は画面の番号が無かった）。プロセスの番号で見る。
                         var name = Path.GetFileNameWithoutExtension(path);
+                        var number = name.Substring(name.IndexOf('-') + 1);
+                        if (number.IndexOf('-') >= 0) number = number.Substring(0, number.IndexOf('-'));
                         int id;
-                        if (!int.TryParse(name.Substring(name.IndexOf('-') + 1), out id) || id == self.Id) continue;
+                        if (!int.TryParse(number, out id) || id == self.Id) continue;
                         if (IsEditorRunning(id, self.ProcessName)) continue;
 
                         try
@@ -786,10 +792,10 @@ namespace Tsuzuri
         ///   そのあとで今の状態のファイルを出力する。出力は Claude への文脈になる。
         ///   エディタが閉じていてつながらなければ、前に書いた状態をそのまま出す
         /// </summary>
-        private static string AiSettings(string contextPath)
+        private static string AiSettings(string contextPath, string pipeName)
         {
             var connect =
-                "$c=New-Object System.IO.Pipes.NamedPipeClientStream('.','" + AiPipeName + "',[System.IO.Pipes.PipeDirection]::InOut);";
+                "$c=New-Object System.IO.Pipes.NamedPipeClientStream('.','" + pipeName + "',[System.IO.Pipes.PipeDirection]::InOut);";
 
             // つなぐのを待つのは5秒（2026-10-27。前は1秒で、ほかのタブの頼みに応えている間の「changed」が落ちることがあった）。
             // エディタはつながりごとに次の口を開き直すので、普通はすぐつながる。エディタが閉じると中の claude も終わる（ジョブ）ので、

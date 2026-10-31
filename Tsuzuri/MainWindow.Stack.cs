@@ -97,8 +97,11 @@ namespace Tsuzuri
             _focused = _stack[0];
 
             // 次の起動で開き直すファイル（SPEC 4章）。終了のときだけでなく、開いたときにも書く（落ちた・VM ごと止めたときも残る）。
-            _settings.LastFile = path;
-            _settings.Save();
+            if (IsPrimary)
+            {
+                _settings.LastFile = path;
+                _settings.Save();
+            }
 
             RebuildStack(false);
             AfterStackChanged();
@@ -155,6 +158,15 @@ namespace Tsuzuri
             document = null;
             state = null;
 
+            // ほかの画面で開いている文書は開かず、その画面を前に出す（2026-10-31。state.json と変更の記録を2つの画面から書かないため）。
+            var holder = WindowHolding(path);
+            if (holder != null)
+            {
+                holder.BringForward(this);
+                holder.Status("この文書はこの画面で開いています: " + path);
+                return false;
+            }
+
             try
             {
                 document = PageDocument.Load(path);
@@ -202,7 +214,7 @@ namespace Tsuzuri
         // ファイルごとの状態（SPEC 4章）
         //
         // 開くとき（OpenFile）に .文書名/state.json を読んで手元に持ち、変えたら書く。書く前に読み直さない
-        // （アプリは1つしか動かないので、手元のものが正しい）。
+        // （アプリは1つしか動かず、1つの文書は1つの画面だけで開く（2026-10-31）ので、手元のものが正しい）。
         // ファイルを開き替える・アプリを閉じるときに、カーソルの行を覚え、
         // 次にそのファイルを開いたときに戻す。ファイルのルートのページの分だけ。
         // ---------------------------------------------------------------
@@ -580,7 +592,7 @@ namespace Tsuzuri
             _settings.SidebarWidth = SidebarColumn.ActualWidth;
             StoreFilerWidth();
             if (_filer != null && !string.IsNullOrEmpty(_filer.Folder)) _settings.FilerFolder = _filer.Folder;
-            _settings.LastFile = _stack.Count > 0 ? _stack[0].FilePath : null;
+            if (IsPrimary) _settings.LastFile = _stack.Count > 0 ? _stack[0].FilePath : null;   // 前回のファイルは最初の画面の分だけ
 
             StoreWindowBounds();
             _settings.Save();

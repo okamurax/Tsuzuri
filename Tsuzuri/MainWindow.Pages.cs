@@ -830,6 +830,7 @@ namespace Tsuzuri
         private void UpdateChrome()
         {
             DirtyText.Visibility = _stack.Any(view => view.IsDirty) ? Visibility.Visible : Visibility.Collapsed;
+            RefreshWindowLists();   // ツールバーの画面の一覧の題・未保存の印（2026-10-31）
 
             if (!HasDocument)
             {

@@ -250,19 +250,21 @@ namespace Tsuzuri
             WindowList.Children.Add(add);
         }
 
+        private const double WindowTabWidth = 180;
+
         private Border CreateWindowTab(MainWindow window, string label, bool closable)
         {
             var self = ReferenceEquals(window, this);
 
-            var panel = new StackPanel { Orientation = Orientation.Horizontal };
-            panel.Children.Add(new TextBlock
+            // タブの幅は名前の長さによらず同じ。短い名前は右が空き、長い名前は「…」で切る（全部の名前はツールチップに出る）。
+            var panel = new DockPanel { LastChildFill = true };
+            var text = new TextBlock
             {
                 Text = label,
                 TextTrimming = TextTrimming.CharacterEllipsis,
-                MaxWidth = 200,
                 VerticalAlignment = VerticalAlignment.Center,
                 Foreground = (Brush)FindResource(self ? "AccentText" : "TextMuted"),
-            });
+            };
 
             if (closable)
             {
@@ -281,12 +283,15 @@ namespace Tsuzuri
                     Style = (Style)FindResource("ToolButton"),
                 };
                 close.Click += delegate { window.Close(); };
+                DockPanel.SetDock(close, Dock.Right);
                 panel.Children.Add(close);
             }
+            panel.Children.Add(text);
 
             var tab = new Border
             {
                 Child = panel,
+                Width = WindowTabWidth,
                 Height = 26,
                 CornerRadius = new CornerRadius(4),
                 Padding = new Thickness(10, 0, closable ? 3 : 10, 0),

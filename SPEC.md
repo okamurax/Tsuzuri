@@ -29,15 +29,18 @@
 |---|---|
 | ランタイム | .NET Framework 4.8 |
 | UI | WPF（WinForms ではない） |
-| 配布 | exe + 必要最小限の DLL |
-| 外部ライブラリ | AvalonEdit（MIT、編集面）、Markdig（BSD-2、Markdown 解析） |
+| 配布 | exe + 必要最小限の DLL。AI の欄の端末の部品（`Terminal/`・`ConPty/`）を exe の隣に置く |
+| 外部ライブラリ | AvalonEdit（MIT、編集面）、Markdig（BSD-2、Markdown 解析・WordPress へ送る HTML）、WebView2（BSD-3、AI の欄の端末の表示）、xterm.js（MIT、AI の欄の端末）、ConPTY（MIT、AI の欄の端末） |
+| 字 | Open Sans（SIL OFL 1.1）を同梱 |
 
 WPF を選ぶ理由: スタックのスライド表示がアニメーションとレイアウトの両面で
 WinForms より遥かに容易で、AvalonEdit も WPF 向けであるため。
 .NET Framework 4.8 標準で追加ランタイム不要。
 
-WebView2 は採用しない（実質ブラウザ埋め込みであり「Web ベースにしない」方針に反する、
-別途ランタイムの配布が要る）。
+**WebView2 は AI の欄の端末だけに使う**（2026-10-24。19章）。エディタそのもの（編集面・アウトライン・ランチャー等）は WPF で作り、Web ベースにはしない。
+端末の描画は、VS Code と同じ xterm.js に任せるのが確実なため、その入れ物として使う。
+WebView2 のランタイムが無い環境では AI の欄だけが使えない（Windows 11 には入っている）。
+前は「実質ブラウザ埋め込みで『Web ベースにしない』方針に反する、別途ランタイムの配布が要る」として採用しないと決めていた（〜2026-10-24）。
 
 設定（ウィンドウ位置・前回のスタック等）は exe と同階層の `app.json` に置く。
 

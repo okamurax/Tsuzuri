@@ -249,9 +249,9 @@ namespace Tsuzuri.WordPress
         // Mac のメモ・テキストエディット等からコピーした文に付くクラス（p1・s1・t1・td1・li1）。
         private static readonly Regex MacClass = new Regex(@"^(p|s|li|ul|ol|t|td|tr|table|h)\d+$", RegexOptions.Compiled);
 
-        // claude.ai などの画面からコピーした Tailwind のクラス（text-sm・py-2・border-b-0.5・print:overflow-x-visible など）。
+        // claude.ai などの画面からコピーした Tailwind のクラス（text-sm・py-2・border-b-0.5・print:overflow-x-visible など。#7860 のチャットの画面まるごとの分も 2026-10-31 に足した）。
         private static readonly Regex TailwindClass = new Regex(
-            @"(\[|:|^font-claude|^(text|font|border|bg|p|px|py|pt|pb|pl|pr|m|mx|my|mt|mb|ml|mr|w|h|min-w|max-w|min-h|max-h|leading|tracking|whitespace|break|overflow|gap|space|rounded|shadow|list|items|justify|z|top|left|right|bottom|align|select|cursor)-|^(flex|grid|block|inline|inline-block|hidden|relative|absolute|border|rounded|shadow|truncate|underline|italic)$)",
+            @"(\[|:|^font-claude|^(text|font|border|bg|p|px|py|pt|pb|pl|pr|m|mx|my|mt|mb|ml|mr|w|h|min-w|max-w|min-h|max-h|leading|tracking|whitespace|break|overflow|gap|space|rounded|shadow|list|items|justify|z|top|left|right|bottom|align|select|cursor|flex|grid|inline|transition|duration|ease|col|row|self|content|opacity)-|^(flex|grid|block|inline|inline-block|inline-flex|hidden|relative|absolute|border|rounded|shadow|truncate|underline|italic|group|contents|transition|standard-markdown|progressive-markdown)$)",
             RegexOptions.Compiled);
 
         /// <summary>
@@ -260,7 +260,8 @@ namespace Tsuzuri.WordPress
         /// </summary>
         private static bool IsJunkClass(string element, string token)
         {
-            if (MacClass.IsMatch(token) || TailwindClass.IsMatch(token)) return true;
+            // Tailwind の負の値・強制の印（-mb-1・!px-4）も同じ。
+            if (MacClass.IsMatch(token) || TailwindClass.IsMatch(token.TrimStart('-', '!'))) return true;
 
             // クラシックエディタの画像の大きさの印（大きさはファイルそのものの大きさ）。寄せ（alignleft 等）は見た目が変わるので残す。
             return element == "img" && (token == "alignnone" || token.StartsWith("size-", StringComparison.Ordinal) || Regex.IsMatch(token, @"^wp-image-\d+$"));
@@ -277,12 +278,29 @@ namespace Tsuzuri.WordPress
             if (element == "img")
             {
                 if (name == "width" || name == "height" || name == "decoding" || name == "loading" || name == "srcset" || name == "sizes") return true;
+                if (name == "border" && value.Trim() == "0") return true;   // 枠なし（既定と同じ）
             }
 
             // クラスは、全部が「何もしないと分かっているもの」（IsJunkClass）のときだけ捨てる。1つでも分からないものがあれば残す。
             // Mac のメモ等の p1・s1（#7906・#6758）、Tailwind（#6758）、クラシックエディタの画像の size-full・wp-image-123（#7825）など。
-            // コード（pre・code）のクラスは言語や色付けのプラグインが読むので、ここでは落とさない（Code が見る）。
-            if (name == "class" && element != "pre" && element != "code")
+            // pre のクラスは言語や色付けのプラグイン（Crayon など）が読むので、ここでは落とさない（Code が見る）。
+            // ほかのサイトから貼ったコードの色付けの span（Prism の token・highlight.js の hljs-*・Crayon の crayon-*）。
+            // 色を付けるだけで、そのプラグインの枠の外では何もしない。色は消してよいと決めた（2026-10-31）。
+            if (name == "class" && element == "span" && IsHighlightClass(value)) return true;
+
+            // Crayon が表示した結果を、ページからコピーして貼ったもの（<div id="crayon-…" class="crayon-line">。#846・#5458）。行の色と番号だけ。
+            if (name == "class" && value.Split(new[] { ' ', '\t', '\n' }, StringSplitOptions.RemoveEmptyEntries).All(token => token.StartsWith("crayon-", StringComparison.Ordinal))) return true;
+            if (name == "id" && value.StartsWith("crayon-", StringComparison.Ordinal)) return true;
+
+            // 画面の部品の印（claude.ai などの画面からコピーしたもの。#7860）。読み上げ・キー操作のためで、見た目には関わらない。
+            if (name == "tabindex") return true;
+
+            // 段落の中の code は、Tailwind などの飾りだけなら捨てる（#7860。language-… は飾りではないので残る）。
+            // ただし「名前:値」（Crayon の印）が混じれば残す。pre は Code が見る。
+            if (name == "class" && element == "code")
+                return value.IndexOf(':') < 0 && value.Split(new[] { ' ', '\t', '\n' }, StringSplitOptions.RemoveEmptyEntries).All(token => IsJunkClass(element, token));
+
+            if (name == "class" && element != "pre")
                 return value.Split(new[] { ' ', '\t', '\n' }, StringSplitOptions.RemoveEmptyEntries).All(token => IsJunkClass(element, token));
 
             // 表の昔の見た目の属性（Mac から貼った表に付く。#6758）。見た目はテーマの表の CSS が決めるので、落としてもほぼ変わらない。
@@ -290,10 +308,44 @@ namespace Tsuzuri.WordPress
             if ((element == "td" || element == "th" || element == "tr") && name == "valign") return true;
 
             // auto は、中の字から向きを決める（2026-10-31。claude.ai からコピーした表を包む <div dir="auto">。#7873）。日本語・英語の文では ltr と同じ。
+            // 文字の色などの style（2026-10-31。全記事の点検で、青字の span が 151 記事・約 3,300 か所）。消してよいと決めた（利用者の判断）。
+            // 色（color）は何でも、字の大きさ・太さは本文と同じもの（1rem・400）だけ。ほかの宣言が1つでもあれば残す。
+            if (name == "style") return IsDroppableStyle(value);
+
             if (name == "dir") return value.Trim().Equals("ltr", StringComparison.OrdinalIgnoreCase) || value.Trim().Equals("auto", StringComparison.OrdinalIgnoreCase);
             if (name == "scope") return element == "th" || element == "td";
-            if (name == "role") return value.Trim().Equals("presentation", StringComparison.OrdinalIgnoreCase);
+            if (name == "role") return true;   // 読み上げのための印。見た目には関わらない（前は presentation だけ）
             return name.StartsWith("aria-", StringComparison.Ordinal) || name.StartsWith("data-", StringComparison.Ordinal);
+        }
+
+        private static bool IsHighlightClass(string value)
+        {
+            var tokens = (value ?? string.Empty).Split(new[] { ' ', '\t', '\n' }, StringSplitOptions.RemoveEmptyEntries);
+            if (tokens.Length == 0) return false;
+            if (tokens.Contains("token")) return true;   // Prism: class="token keyword"
+            return tokens.All(token => token.StartsWith("hljs", StringComparison.Ordinal)) || tokens.All(token => token.StartsWith("crayon-", StringComparison.Ordinal));
+        }
+
+        private static bool IsDroppableStyle(string value)
+        {
+            var declarations = (value ?? string.Empty).Split(';').Select(d => d.Trim()).Where(d => d.Length > 0).ToList();
+            if (declarations.Count == 0) return true;
+
+            foreach (var declaration in declarations)
+            {
+                var colon = declaration.IndexOf(':');
+                if (colon <= 0) return false;
+
+                var property = declaration.Substring(0, colon).Trim().ToLowerInvariant();
+                var setting = declaration.Substring(colon + 1).Trim().ToLowerInvariant();
+
+                if (property == "color") continue;
+                if (property == "font-size" && (setting == "1rem" || setting == "1em" || setting == "100%" || setting == "medium")) continue;
+                if (property == "font-weight" && (setting == "400" || setting == "normal")) continue;
+                return false;
+            }
+
+            return true;
         }
 
         /// <summary>HTML の決まりで、書かれていなくても閉じる要素を閉じる（&lt;p&gt; の中の塊・続く &lt;li&gt;・表のセル）。</summary>
@@ -480,9 +532,19 @@ namespace Tsuzuri.WordPress
         private static readonly Regex RawTextBlockStart = new Regex(@"^<(pre|script|style|textarea)[\s>]", RegexOptions.Compiled | RegexOptions.IgnoreCase);
         private static readonly Regex PreBody = new Regex(@"<pre[\s>].*?</pre>", RegexOptions.Compiled | RegexOptions.IgnoreCase | RegexOptions.Singleline);
 
+        /// <summary>
+        /// 段落の中で HTML のまま残す要素。中身のある要素は、タグだけを元のまま書き、中身はふつうに Markdown にする（2026-10-31）。
+        /// Markdown は段落の中の HTML ではタグだけを素通しし、タグの間の文字は Markdown として読む。前は中身も元のまま書いていたので、
+        /// 送るときに \ や * が記号として読まれ、\\wsl$ が \wsl$ に、^.*abc.* が斜体に化けた（全記事の点検で 70 記事）。
+        /// script・style・textarea の中身は文字のまま読まれる（逃がしの \ が残る）ので、元のまま。
+        /// </summary>
         private static string RawInline(Node node, string html)
         {
-            return html.Substring(node.Start, node.End - node.Start);
+            if (node.Children.Count == 0 || RawTextElements.Contains(node.Name)) return html.Substring(node.Start, node.End - node.Start);
+
+            var first = node.Children[0];
+            var last = node.Children[node.Children.Count - 1];
+            return html.Substring(node.Start, first.Start - node.Start) + Inline(node.Children, html) + html.Substring(last.End, node.End - last.End);
         }
 
         // ---------------------------------------------------------------
@@ -895,6 +957,10 @@ namespace Tsuzuri.WordPress
                     return;
                 }
 
+                case "wbr":
+                    // 改行してよい位置の印（貼った文に付いてくる。#7931）。見えないので落とす（2026-10-31）。
+                    return;
+
                 case "span":
                     // 属性の無い span は見た目に何もしないので、包みを外す。
                     if (node.Attributes.Count > 0) builder.Append(RawInline(node, html));
@@ -1031,7 +1097,10 @@ namespace Tsuzuri.WordPress
         }
 
         private static readonly Regex LineStartMarker = new Regex(
-            @"^(#{1,6}(?=[ \t]|$)|>|[-+*](?=[ \t]|$)|=+[ \t]*$|-+[ \t]*$|```|~~~)", RegexOptions.Compiled);
+            @"^(#{1,6}(?=[ \t]|$)|>|[-+=]|[*](?=[ \t]|$)|```|~~~)", RegexOptions.Compiled);
+
+        // 行頭の - + = は、何が続いても逃がす（2026-10-31）。Markdig は「文字の行」の次の「-Q」の行を見出しの下線と読み、
+        // 前の行を見出しにして「-Q」を消した（#2636。CommonMark では見出しにならないはずのもの）。逃がしても見た目は同じ。
 
         private static int TrailingBackslashes(string line)
         {
@@ -1064,6 +1133,9 @@ namespace Tsuzuri.WordPress
 
                 if (LineStartMarker.IsMatch(line)) line = "\\" + line;
                 else line = OrderedMarker.Replace(line, "$1\\$2");
+
+                // 行頭・行末の全角の空白は、Markdown が空白として削る（#53 のリストの字下げが消えた）。文字参照にする（2026-10-31）。
+                line = Regex.Replace(line, @"^\u3000+|\u3000+$", match => string.Concat(Enumerable.Repeat("&#12288;", match.Length)));
 
                 lines[i] = line;
             }

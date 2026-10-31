@@ -936,8 +936,9 @@ namespace Tsuzuri.WordPress
                         return;
                     }
 
+                    // リンクの文字に [ ] があると、括弧の閉じとして読まれてリンクが崩れる。そのときは <a> のまま（中身は Markdown）。
                     var label = Inline(node.Children, html);
-                    if (label.IndexOf('\n') >= 0 || label.Length == 0)
+                    if (label.IndexOf('\n') >= 0 || label.Length == 0 || Descendants(node).Any(d => d.IsText && d.Text.IndexOfAny(new[] { '[', ']' }) >= 0))
                     {
                         builder.Append(RawInline(node, html));
                         return;
@@ -960,7 +961,7 @@ namespace Tsuzuri.WordPress
 
                     string alt;
                     node.Attributes.TryGetValue("alt", out alt);
-                    builder.Append("![").Append(EscapeText(alt ?? string.Empty).Replace('\n', ' ')).Append("](")
+                    builder.Append("![").Append(EscapeText(alt ?? string.Empty, true).Replace('\n', ' ')).Append("](")
                            .Append(LinkTarget(src)).Append(TitlePart(node)).Append(')');
                     return;
                 }
@@ -1069,32 +1070,75 @@ namespace Tsuzuri.WordPress
 
         private static readonly Regex EntityAt = new Regex(@"\G&#?[A-Za-z0-9]+;", RegexOptions.Compiled);
 
-        /// <summary>本文の文字のうち、Markdown の記号として読まれてしまうものを逃がす。行頭の記号は FinishParagraph で。</summary>
-        private static string EscapeText(string text)
+        /// <summary>
+        /// 本文の文字のうち、Markdown の記号として読まれてしまうものだけを逃がす。行頭の記号は FinishParagraph で。
+        /// 前は記号になりうる字を一律に逃がしていて、\[crayon-…/\]・Shift\_JIS・%\~dp0・C:\\Users のように、画面が \ だらけになった（#6648。2026-10-31）。
+        /// 前後の字を見て、記号として読まれるときだけにした。前後が分からない（文字の塊の端）ときは逃がす側に倒す。
+        /// brackets は、リンクの文字・画像の説明の中（[ ] が括弧の閉じとして読まれる）。
+        /// </summary>
+        private static string EscapeText(string text, bool brackets = false)
         {
             var builder = new StringBuilder(text.Length);
             for (var i = 0; i < text.Length; i++)
             {
                 var c = text[i];
+                var previous = i > 0 ? text[i - 1] : '\0';
+                var next = i + 1 < text.Length ? text[i + 1] : '\0';
+
                 switch (c)
                 {
-                    case '\\': case '*': case '_': case '`': case '[': case ']': case '~':
+                    case '*':
+                    case '`':
                         builder.Append('\\').Append(c);
                         break;
+
+                    case '\\':
+                        // \ が逃がしの印になるのは、後ろが ASCII の記号のときと、行末（強い改行）のときだけ。C:\Users の \ はそのまま。
+                        if (next == '\0' || next == '\n' || IsAsciiPunctuation(next)) builder.Append('\\');
+                        builder.Append(c);
+                        break;
+
+                    case '_':
+                        // 単語の中の _（Shift_JIS・a_b）は斜体の印にならない。前後どちらかが文字でなければ逃がす。
+                        if (!(char.IsLetterOrDigit(previous) && char.IsLetterOrDigit(next))) builder.Append('\\');
+                        builder.Append(c);
+                        break;
+
+                    case '~':
+                        // 打消しは ~~ だけ。隣が ~ か、塊の端（隣の塊に ~ があるかもしれない）のときだけ逃がす。
+                        if (previous == '~' || next == '~' || previous == '\0' || next == '\0') builder.Append('\\');
+                        builder.Append(c);
+                        break;
+
+                    case '[':
+                        // [ だけではリンクにならない（閉じの ] の後ろの ( [ : で決まる）。行頭の [（タスクの [ ]・参照の定義）は FinishParagraph で。
+                        if (brackets) builder.Append('\\');
+                        builder.Append(c);
+                        break;
+
+                    case ']':
+                        // ](…)・][…]・]:（参照の定義）でリンクになる。塊の端も逃がす（次の塊が ( で始まるかもしれない）。
+                        if (brackets || next == '(' || next == '[' || next == ':' || next == '\0') builder.Append('\\');
+                        builder.Append(c);
+                        break;
+
                     case '&':
                         // 文字参照に見える &（&copy; と書いた文字）は逃がす。
                         if (EntityAt.Match(text, i).Success) builder.Append('\\');
                         builder.Append(c);
                         break;
+
                     case '\u00A0':
                         // &nbsp; は文字参照のまま書く。文字のままだと、Markdown が段落の頭と末尾の空白として削る（&nbsp; だけの段落・字下げが消える）。
                         builder.Append("&nbsp;");
                         break;
+
                     case '<':
-                        if (i + 1 < text.Length && (char.IsLetter(text[i + 1]) || text[i + 1] == '/' || text[i + 1] == '!' || text[i + 1] == '?'))
+                        if (next != '\0' && (char.IsLetter(next) || next == '/' || next == '!' || next == '?'))
                             builder.Append('\\');
                         builder.Append(c);
                         break;
+
                     default:
                         builder.Append(c);
                         break;
@@ -1104,11 +1148,28 @@ namespace Tsuzuri.WordPress
             return builder.ToString();
         }
 
-        private static readonly Regex LineStartMarker = new Regex(
-            @"^(#{1,6}(?=[ \t]|$)|>|[-+=]|[*](?=[ \t]|$)|```|~~~)", RegexOptions.Compiled);
+        private static bool IsAsciiPunctuation(char c)
+        {
+            return c < 128 && (char.IsPunctuation(c) || char.IsSymbol(c));
+        }
 
+        private static readonly Regex LineStartMarker = new Regex(
+            @"^(#{1,6}(?=[ \t]|$)|>|[-+=]|[*](?=[ \t]|$)|\[[ xX]\](?=[ \t]|$)|```|~~~)", RegexOptions.Compiled);
+
+        // 行頭の [ ]・[x] は、リストの中ではタスクの印になる（2026-10-31。EscapeText で [ を逃がさなくしたので）。
+        // 行頭の [ を全部逃がすと、行頭のリンク（[記事](URL)）まで文字になった（wp-check で 85 記事）。参照の定義（[a]: URL）は EscapeText が ]: を逃がす。
         // 行頭の - + = は、何が続いても逃がす（2026-10-31）。Markdig は「文字の行」の次の「-Q」の行を見出しの下線と読み、
         // 前の行を見出しにして「-Q」を消した（#2636。CommonMark では見出しにならないはずのもの）。逃がしても見た目は同じ。
+
+        /// <summary>行末の \c を c にする（\ が奇数個のときだけ。偶数個なら文字の \ を逃がしたもの）。~ は ~~ の片方なら外さない。</summary>
+        private static string UnescapeAtLineEnd(string line, char c)
+        {
+            if (line.Length < 2 || line[line.Length - 1] != c) return line;
+            if (c == '~' && line.Length >= 3 && line[line.Length - 3] == '~') return line;
+
+            var head = line.Substring(0, line.Length - 1);
+            return TrailingBackslashes(head) % 2 == 1 ? head.Substring(0, head.Length - 1) + c : line;
+        }
 
         private static int TrailingBackslashes(string line)
         {
@@ -1141,6 +1202,14 @@ namespace Tsuzuri.WordPress
 
                 if (LineStartMarker.IsMatch(line)) line = "\\" + line;
                 else line = OrderedMarker.Replace(line, "$1\\$2");
+
+                // 行末の ]・~ は、後ろに ( [ : や ~ が続きようがないので逃がさなくてよい。EscapeText は文字の塊の端で逃がす側に倒すので、ここで外す
+                // （外さないと、送ったあとの読み込みで塊の切れ目が変わり、往復のたびに \ が付いたり外れたりした。#7791）。
+                line = UnescapeAtLineEnd(line, ']');
+                line = UnescapeAtLineEnd(line, '~');
+
+                // 行頭の ~ も、~~ でなければ逃がさなくてよい（~~~ はコードの囲みなので LineStartMarker が逃がしたまま。#2414）。
+                if (line.StartsWith("\\~", StringComparison.Ordinal) && !line.StartsWith("\\~~", StringComparison.Ordinal)) line = line.Substring(1);
 
                 // 行頭・行末の全角の空白は、Markdown が空白として削る（#53 のリストの字下げが消えた）。文字参照にする（2026-10-31）。
                 line = Regex.Replace(line, @"^\u3000+|\u3000+$", match => string.Concat(Enumerable.Repeat("&#12288;", match.Length)));

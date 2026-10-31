@@ -134,6 +134,13 @@ static class Program
         "<ul><li>　(字下げ)</li></ul>",
         "<pre class=\"lang:default decode:true \">ip route default\n\npp select 1</pre>",
         "<div dir=\"auto\"><table><tr><th>a</th></tr><tr><td>1</td></tr></table></div>",
+        // 逃がしを前後を見て絞ったもの（2026-10-31。#6648）。逃がさないと記号として読まれる形と、逃がさなくてよい形の両方
+        "<p>[crayon-6ae5d5ef/] Shift_JIS %~dp0 C:\\Users\\x a\\.b end\\</p>",
+        "<p>[a](b) [c][d] [e] f~~g~~ _h_ a_b_ *i*</p>",
+        "<p>[x]: https://example.com/</p>",
+        "<ul><li>[ ] not a task</li><li>[x] not a task</li></ul>",
+        "<p><a href=\"https://example.com/\">see [1]</a> <img src=\"a.png\" alt=\"x]y[z\" /></p>",
+        "<p>a\\<br>b</p>",
     };
 
     static int CheckCases()

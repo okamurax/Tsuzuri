@@ -263,6 +263,11 @@ namespace Tsuzuri.WordPress
             // Tailwind の負の値・強制の印（-mb-1・!px-4）も同じ。
             if (MacClass.IsMatch(token) || TailwindClass.IsMatch(token.TrimStart('-', '!'))) return true;
 
+            // 貼った文に付いてきた、ほかの画面の印（2026-10-31。利用者が消してよいと決めた）。
+            // テーマの本文の枠（<div class="entry-content">。#1424）・Wikipedia の見出し（mw-headline。#2204）・Gmail の検索語の印（il。#6429）。
+            if (element == "div" && token == "entry-content") return true;
+            if (element == "span" && (token == "mw-headline" || token == "il")) return true;
+
             // クラシックエディタの画像の大きさの印（大きさはファイルそのものの大きさ）。寄せ（alignleft 等）は見た目が変わるので残す。
             return element == "img" && (token == "alignnone" || token.StartsWith("size-", StringComparison.Ordinal) || Regex.IsMatch(token, @"^wp-image-\d+$"));
         }
@@ -291,6 +296,9 @@ namespace Tsuzuri.WordPress
             // Crayon が表示した結果を、ページからコピーして貼ったもの（<div id="crayon-…" class="crayon-line">。#846・#5458）。行の色と番号だけ。
             if (name == "class" && value.Split(new[] { ' ', '\t', '\n' }, StringSplitOptions.RemoveEmptyEntries).All(token => token.StartsWith("crayon-", StringComparison.Ordinal))) return true;
             if (name == "id" && value.StartsWith("crayon-", StringComparison.Ordinal)) return true;
+
+            // Wikipedia の見出しの飛び先（.E4.BC.9A… と字を符号にした id。#2204）。記事の中からそこへのリンクは無い。
+            if (name == "id" && element == "span" && Regex.IsMatch(value, @"^(\.[0-9A-F]{2})+$")) return true;
 
             // 画面の部品の印（claude.ai などの画面からコピーしたもの。#7860）。読み上げ・キー操作のためで、見た目には関わらない。
             if (name == "tabindex") return true;

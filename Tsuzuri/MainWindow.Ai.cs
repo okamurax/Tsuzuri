@@ -574,9 +574,48 @@ namespace Tsuzuri
             var saved = SavedAiTabs;
             if (saved == null || saved.Count == 0) return false;
 
-            foreach (var state in saved.ToList()) AddAiTab(null, state);
+            // 話しかける前に閉じた会話は、claude がディスクに残していないので戻さない（2026-10-31）。
+            // claude を直接起動するようにしてから、開いただけのタブも会話の番号を覚え、次の起動で「No conversation found」が出た。
+            var restorable = saved.Where(state => ClaudeConversationExists(state.Session)).ToList();
+            if (restorable.Count < saved.Count)
+            {
+                SavedAiTabs = restorable.Count > 0 ? restorable : null;
+                _settings.Save();
+            }
+
+            if (restorable.Count == 0)
+            {
+                // 画面を戻すときに欄を出していたら、空のままにせず新しい会話を1つ開く。
+                if (AiPane.Visibility == Visibility.Visible) AddAiTab(string.Empty);
+                return false;
+            }
+
+            foreach (var state in restorable) AddAiTab(null, state);
             SelectAiTab(_aiTabs[0]);
             return true;
+        }
+
+        /// <summary>
+        /// claude がその会話を残しているか（%USERPROFILE%\.claude\projects\フォルダの名前\番号.jsonl があるか）。
+        /// claude は最初に話しかけるまで会話を書かない。調べられなければ true（今までどおり開き直してみる）。
+        /// </summary>
+        private static bool ClaudeConversationExists(string session)
+        {
+            try
+            {
+                var home = Environment.GetEnvironmentVariable("CLAUDE_CONFIG_DIR");
+                if (string.IsNullOrEmpty(home))
+                    home = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".claude");
+
+                var projects = Path.Combine(home, "projects");
+                if (!Directory.Exists(projects)) return true;
+
+                return Directory.EnumerateFiles(projects, session + ".jsonl", SearchOption.AllDirectories).Any();
+            }
+            catch (Exception)
+            {
+                return true;
+            }
         }
 
         /// <summary>

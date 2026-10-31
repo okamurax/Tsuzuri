@@ -299,7 +299,7 @@ namespace Tsuzuri
                 OpenWordPressPost(currentSite(), post.Id);
             };
 
-            Action load = () => LoadWordPressList(currentSite(), search.Text, list, note, open);
+            Action load = () => LoadWordPressList(currentSite(), search.Text, list, note, open, 1);
 
             // 開いている .md（WordPress の記事でないもの）を、新しい記事にする（2026-10-30。空の「新しい記事」の代わり）。
             var original = HasDocument && WordPressLinkOf(Active) == null ? Active : null;
@@ -493,15 +493,20 @@ namespace Tsuzuri
             return frame;
         }
 
-        /// <summary>一覧を読み込む（裏のスレッドで）。検索欄が ID・URL なら、その1件。</summary>
-        private async void LoadWordPressList(WordPressSite site, string query, StackPanel list, TextBlock note, Action<WordPressPost> open)
+        /// <summary>
+        /// 一覧を読み込む（裏のスレッドで）。検索欄が ID・URL なら、その1件。
+        /// 1回に 100 件。まだ残りがあれば、一覧の一番下に「さらに読む」を置き、押すと次の 100 件を下に足す（2026-10-31。前は 100 件で打ち切り）。
+        /// 検索は WordPress の側で全記事を探すので、古い記事は検索でも見つかる。
+        /// </summary>
+        private async void LoadWordPressList(WordPressSite site, string query, StackPanel list, TextBlock note, Action<WordPressPost> open, int page)
         {
             var ticket = ++_wordPressQuery;
-            list.Children.Clear();
+            if (page == 1) list.Children.Clear();
             note.Text = "読み込んでいます… " + site.DisplayName;
 
             var id = PostIdOf(query);
             List<WordPressPost> posts;
+            var total = -1;
             string error = null;
 
             try
@@ -509,7 +514,7 @@ namespace Tsuzuri
                 posts = await Task.Run(() =>
                 {
                     var client = new WordPressClient(site);
-                    if (id <= 0) return client.List(query);
+                    if (id <= 0) return client.List(query, page, out total);
 
                     var one = client.Find(id);
                     return one == null ? new List<WordPressPost>() : new List<WordPressPost> { one };
@@ -529,11 +534,40 @@ namespace Tsuzuri
                 return;
             }
 
-            note.Text = posts.Count == 0
-                ? "見つかりませんでした。"
-                : (string.IsNullOrWhiteSpace(query) ? "最近更新した記事（" + posts.Count + " 件）。押すと開きます。" : posts.Count + " 件。押すと開きます。");
+            // 読んでいる間に記事が更新されると、更新順の並びがずれて、前の枚と同じ記事が来ることがある。並んでいるものは足さない。
+            var shown = new HashSet<int>(list.Children.OfType<FrameworkElement>().Select(row => row.Tag).OfType<int>());
+            foreach (var post in posts)
+            {
+                if (shown.Add(post.Id)) list.Children.Add(PostRow(post, open));
+            }
 
-            foreach (var post in posts) list.Children.Add(PostRow(post, open));
+            var count = shown.Count;
+            if (count == 0)
+            {
+                note.Text = "見つかりませんでした。";
+                return;
+            }
+
+            var of = total > count ? count + " / " + total + " 件" : count + " 件";
+            note.Text = (string.IsNullOrWhiteSpace(query) ? "最近更新した記事（" + of + "）。" : of + "。") + "押すと開きます。";
+
+            // 残りがあり、この枚が満杯だったときだけ（総数が分からなくても、満杯なら続きがあるかもしれない）。
+            if (id <= 0 && posts.Count >= WordPressClient.PageSize && (total < 0 || total > count))
+            {
+                var more = new Button
+                {
+                    Content = total > count ? "さらに読む（残り " + (total - count) + " 件）" : "さらに読む",
+                    Style = (Style)FindResource("ToolButton"),
+                    HorizontalAlignment = HorizontalAlignment.Center,
+                    Margin = new Thickness(0, 6, 0, 6),
+                };
+                more.Click += delegate
+                {
+                    list.Children.Remove(more);
+                    LoadWordPressList(site, query, list, note, open, page + 1);
+                };
+                list.Children.Add(more);
+            }
         }
 
         private static readonly Regex PostIdInUrl = new Regex(@"[?&](?:p|post|page_id)=(\d+)", RegexOptions.Compiled);
@@ -583,6 +617,7 @@ namespace Tsuzuri
                 Cursor = Cursors.Hand,
                 Child = grid,
                 ToolTip = "#" + post.Id + "  " + post.Link,
+                Tag = post.Id,   // 「さらに読む」で同じ記事を二度並べないため
             };
             row.MouseEnter += delegate { row.Background = (Brush)FindResource("HoverFill"); };
             row.MouseLeave += delegate { row.Background = Brushes.Transparent; };

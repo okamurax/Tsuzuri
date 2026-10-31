@@ -45,6 +45,9 @@ namespace Tsuzuri.WordPress
         private const int TimeoutMs = 30000;
         private const string ListFields = "id,title,status,modified_gmt,link";
 
+        /// <summary>一覧で一度に読む件数。WordPress が1回で返すのは 100 件まで。</summary>
+        public const int PageSize = 100;
+
         private readonly WordPressSite _site;
 
         static WordPressClient()
@@ -58,14 +61,24 @@ namespace Tsuzuri.WordPress
             _site = site;
         }
 
-        /// <summary>最近更新した順に 100 件。search があれば WordPress の検索で絞る。下書き・非公開も含める。</summary>
-        public List<WordPressPost> List(string search)
+        /// <summary>
+        /// 最近更新した順に、page 枚目（1 から）の 100 件。search があれば WordPress の検索で絞る（全記事が対象）。下書き・非公開も含める。
+        /// total は、条件に合う記事の総数（WordPress が X-WP-Total で返す）。「さらに読む」を出すかを決めるのに使う（2026-10-31）。
+        /// </summary>
+        public List<WordPressPost> List(string search, int page, out int total)
         {
-            var query = "posts?context=edit&per_page=100&orderby=modified&order=desc&status=publish,future,draft,pending,private&_fields=" + ListFields;
+            var query = "posts?context=edit&per_page=" + PageSize + "&page=" + page
+                + "&orderby=modified&order=desc&status=publish,future,draft,pending,private&_fields=" + ListFields;
             if (!string.IsNullOrWhiteSpace(search)) query += "&search=" + Uri.EscapeDataString(search.Trim());
 
+            var count = -1;
             var posts = new List<WordPressPost>();
-            var items = Request("GET", query, null) as IEnumerable;
+            var items = Request("GET", query, null, null, null, null, response =>
+            {
+                int value;
+                if (int.TryParse(response.Headers["X-WP-Total"], NumberStyles.None, CultureInfo.InvariantCulture, out value)) count = value;
+            }) as IEnumerable;
+            total = count;
             if (items == null) return posts;
 
             foreach (var item in items)
@@ -133,7 +146,7 @@ namespace Tsuzuri.WordPress
             var ascii = new string(fileName.Select(c => c < 128 && c != '"' && c != '\\' ? c : '_').ToArray());
             var disposition = "attachment; filename=\"" + ascii + "\"; filename*=UTF-8''" + Uri.EscapeDataString(fileName);
 
-            var result = Request("POST", "media", null, data, MediaType(fileName), disposition) as Dictionary<string, object>;
+            var result = Request("POST", "media", null, data, MediaType(fileName), disposition, null) as Dictionary<string, object>;
             var url = result == null ? null : Str(result, "source_url");
             if (string.IsNullOrEmpty(url)) throw new WordPressException("画像をアップロードしましたが、URL が返ってきませんでした: " + fileName);
             return url;
@@ -157,11 +170,12 @@ namespace Tsuzuri.WordPress
 
         private object Request(string method, string path, Dictionary<string, object> body)
         {
-            return Request(method, path, body, null, null, null);
+            return Request(method, path, body, null, null, null, null);
         }
 
         /// <param name="raw">JSON の代わりに送るバイト列（メディア）。</param>
-        private object Request(string method, string path, Dictionary<string, object> body, byte[] raw, string rawType, string disposition)
+        /// <param name="inspect">返事のヘッダーを見る（一覧の総数など）。要らなければ null。</param>
+        private object Request(string method, string path, Dictionary<string, object> body, byte[] raw, string rawType, string disposition, Action<HttpWebResponse> inspect)
         {
             var url = _site.Url.TrimEnd('/') + "/wp-json/wp/v2/" + path;
 
@@ -198,6 +212,7 @@ namespace Tsuzuri.WordPress
 
                 using (var response = (HttpWebResponse)request.GetResponse())
                 {
+                    if (inspect != null) inspect(response);
                     return serializer.DeserializeObject(ReadBody(response));
                 }
             }

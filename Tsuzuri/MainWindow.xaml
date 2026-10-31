@@ -22,19 +22,9 @@
         <Border DockPanel.Dock="Top" Height="40"
                 Background="{StaticResource ChromeBackground}"
                 MouseLeftButtonDown="Toolbar_MouseLeftButtonDown">
-            <!-- 左は開いている文書に対する操作、右端はウィンドウ全体の機能（ランチャー・AI）と終了（2026-10-31。前はランチャー・AI をページの上端の段に置いていた） -->
+            <!-- 左から、開いている文書に対する操作｜ウィンドウ全体の機能（ランチャー・AI）｜終了。全部を左に寄せる（2026-11-01。前は右端、その前はページの上端の段に置いていた） -->
             <DockPanel Margin="8,0,8,0" VerticalAlignment="Center" LastChildFill="False"
                        TextElement.FontSize="13">
-                <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
-                    <!-- Tag は MarkdownView.LauncherToggleTag。ランチャーの外を押すと閉じるが、このボタンは除く -->
-                    <Button x:Name="LauncherButton" Content="ランチャー(_L)" Style="{StaticResource ToolButton}" Click="Launcher_Click"
-                            Tag="LauncherToggle"
-                            ToolTip="ランチャーとファイラーを、別のウィンドウで出す。もう一度押すと閉じる" />
-                    <Button Content="AI(_A)" Style="{StaticResource ToolButton}" Click="Ai_Click"
-                            ToolTip="右に AI の欄を出し入れする。Claude Code と話して、開いている文書を直させる。もう一度押すと隠す（会話は残る）" />
-                    <Border Width="1" Height="16" Margin="8,0,8,0" VerticalAlignment="Center" Background="{StaticResource BorderBrushSoft}" />
-                    <Button Content="終了(_X)"   Style="{StaticResource ToolButton}" Click="Exit_Click" />
-                </StackPanel>
                 <StackPanel Orientation="Horizontal">
                     <Button Content="保存(_S)"   Style="{StaticResource ToolButton}" Click="Save_Click" />
                     <Button Content="サブページ作成(_E)" Style="{StaticResource ToolButton}" Click="Extract_Click"
@@ -51,6 +41,15 @@
                             ToolTip="WordPress の記事を選んで開く・開いている .md を新しい記事にする。WordPress への反映は、このメニューの「アップロード」だけ（保存では送らない）" />
                     <Button Content="エクスポート(_W)" Style="{StaticResource ToolButton}" Click="Export_Click"
                             ToolTip="Word 文書 (.docx) に書き出す。範囲・用紙・向き・余白を選んでから。サブページは本文に戻し、添付は隣のフォルダにコピーする" />
+                    <Border Width="1" Height="16" Margin="8,0,8,0" VerticalAlignment="Center" Background="{StaticResource BorderBrushSoft}" />
+                    <!-- Tag は MarkdownView.LauncherToggleTag。ランチャーの外を押すと閉じるが、このボタンは除く -->
+                    <Button x:Name="LauncherButton" Content="ランチャー(_L)" Style="{StaticResource ToolButton}" Click="Launcher_Click"
+                            Tag="LauncherToggle"
+                            ToolTip="ランチャーとファイラーを、別のウィンドウで出す。もう一度押すと閉じる" />
+                    <Button Content="AI(_A)" Style="{StaticResource ToolButton}" Click="Ai_Click"
+                            ToolTip="右に AI の欄を出し入れする。Claude Code と話して、開いている文書を直させる。もう一度押すと隠す（会話は残る）" />
+                    <Border Width="1" Height="16" Margin="8,0,8,0" VerticalAlignment="Center" Background="{StaticResource BorderBrushSoft}" />
+                    <Button Content="終了(_X)"   Style="{StaticResource ToolButton}" Click="Exit_Click" />
                 </StackPanel>
             </DockPanel>
         </Border>

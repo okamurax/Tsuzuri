@@ -203,13 +203,21 @@ namespace Tsuzuri
         /// </summary>
         private bool RestoreLastScreen()
         {
-            if (_settings.Collapsed != null)
+            if (SavedCollapsed != null)
             {
-                foreach (var path in _settings.Collapsed) _collapsedPaths.Add(path);
+                foreach (var path in SavedCollapsed) _collapsedPaths.Add(path);
             }
 
-            var screen = _settings.Screen;
+            var screen = SavedScreen;
             if (screen == null) return false;
+
+            // WordPress の記事は、一時ファイルを閉じたときに消しているので、WordPress から読み込み直す（2026-10-31）。
+            if (screen.WordPressPost > 0)
+            {
+                RestorePanels(screen);
+                ReopenWordPressPost(screen.WordPressSite, screen.WordPressPost);
+                return true;
+            }
 
             var result = RestoreScreen(screen, false);
             if (result == ScreenRestored) return true;
@@ -221,8 +229,22 @@ namespace Tsuzuri
         /// <summary>終了するとき、今の画面の状態とたたんでいた見出しを覚える（app.json に書くのは StoreLayout）。</summary>
         private void RememberLastScreen()
         {
-            _settings.Screen = CaptureScreen();
-            _settings.Collapsed = _collapsedPaths.Count > 0 ? _collapsedPaths.ToList() : null;
+            var screen = CaptureScreen();
+
+            // WordPress の記事は一時ファイルなので、ページの並びではなく記事を覚える（起動したときに読み込み直す。2026-10-31）。
+            var link = _stack.Count > 0 ? WordPressLinkOf(_stack[0]) : null;
+            if (link != null)
+            {
+                screen.Pages = new List<PageState>();
+                if (link.Id > 0)
+                {
+                    screen.WordPressSite = link.Site.Url;
+                    screen.WordPressPost = link.Id;
+                }
+            }
+
+            SavedScreen = screen;
+            SavedCollapsed = _collapsedPaths.Count > 0 ? _collapsedPaths.ToList() : null;
         }
     }
 }

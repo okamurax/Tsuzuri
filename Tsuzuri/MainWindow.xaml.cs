@@ -128,16 +128,17 @@ namespace Tsuzuri
         /// <summary>起動の入口（App）で読めたものだけを受け取る。</summary>
         private readonly AppSettings _settings;
 
-        public MainWindow(AppSettings settings) : this(settings, null)
+        public MainWindow(AppSettings settings) : this(settings, null, null)
         {
         }
 
-        /// <param name="opener">ツールバーの「＋」で増やした画面なら、元の画面（同じ位置・大きさで出す）。最初の画面は null。</param>
-        private MainWindow(AppSettings settings, MainWindow opener)
+        /// <param name="opener">増やした画面なら、元の画面（同じ位置・大きさで出す）。最初の画面は null。</param>
+        /// <param name="session">起動のときに戻す画面なら、その覚え。「＋」で新しく増やした画面は null。</param>
+        private MainWindow(AppSettings settings, MainWindow opener, WindowSession session)
         {
             _settings = settings;
             InitializeComponent();
-            RegisterWindow();
+            RegisterWindow(session);
             DirtyText.Foreground = Theme.DirtyMark;
 
             // アウトラインの更新はまとめて行う。見出しの一覧はエディタ側で
@@ -233,19 +234,22 @@ namespace Tsuzuri
             // AI の会話のタブは、窓が出て落ち着いてから戻す（2026-10-28）。窓が出る前に作った端末（WebView2）は、
             // ほかのアプリに切り替えて戻るまで、日本語の変換が窓の左上に出た（＋で後から作ったタブは正しい所に出る）。
             // 戻すまでは、画面を戻すときに欄を出しても空の PowerShell のタブを足さない（_aiRestorePending）。
-            // 前回のファイル・画面・AI の会話のタブを戻すのは、最初の画面だけ。増やした画面は空で始まる（ランチャー・WordPress から開く）。
+            // 終了したときの画面・AI の会話のタブを戻す。最初の画面は、そのあとでほかの画面を作り直す（2026-10-31）。
+            // 「＋」で新しく増やした画面は、覚えが空なので何も開かない（ランチャー・WordPress から開く）。
             Loaded += delegate
             {
                 RefreshWindowLists();   // ほかの画面の一覧にも、この画面を足す
+                _aiRestorePending = SavedAiTabs != null && SavedAiTabs.Count > 0;
+
                 if (!IsPrimary)
                 {
-                    ShowRest();
+                    if (!RestoreLastScreen()) ShowRest();
                     return;
                 }
 
-                _aiRestorePending = _settings.AiTabs != null && _settings.AiTabs.Count > 0;
                 CleanWordPressTemp();   // 前の起動で読み込んだ WordPress の記事は、閉じたらそれで終わり（SPEC 20章）。開き直す前に消す
                 OpenLastFile();
+                RestoreOtherWindows();
             };
             ContentRendered += delegate
             {
@@ -388,13 +392,14 @@ namespace Tsuzuri
             // 編集していなければ何も尋ねずに閉じる。編集していれば、保存するか尋ねる（2026-10-25）。
             if (!ConfirmLeaving(new MarkdownView[0], null))
             {
+                if (IsPrimary && _closingAll) CancelClosingAll();
                 e.Cancel = true;
                 return;
             }
 
             StoreHeadingBookmarks();
             RememberFileStates();
-            if (IsPrimary) RememberLastScreen();   // StoreLayout が app.json に書く。増やした画面は覚えない
+            RememberLastScreen();   // StoreLayout が app.json に書く。増やした画面を「終了」で閉じたときは、閉じたあとで覚えごと消す
             StoreLayout();
             _filer.Stop();
             StopAi();

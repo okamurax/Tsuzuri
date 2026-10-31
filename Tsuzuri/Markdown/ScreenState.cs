@@ -26,6 +26,16 @@ namespace Tsuzuri.Markdown
         /// <summary>AI の欄を出していたか。出していれば、戻すときに欄を出す（中の PowerShell は起動し直す。claude は起動しない）。</summary>
         [DataMember(Name = "ai", EmitDefaultValue = false)]
         public bool Ai { get; set; }
+
+        /// <summary>
+        /// WordPress の記事を開いていたら、そのサイトの URL と記事の番号（2026-10-31）。一時ファイルは閉じたら消すので、Pages は空にして、
+        /// 起動したときに WordPress から読み込み直す。新しい記事（まだ WordPress に作っていない）は覚えない。
+        /// </summary>
+        [DataMember(Name = "wordpressSite", EmitDefaultValue = false)]
+        public string WordPressSite { get; set; }
+
+        [DataMember(Name = "wordpressPost", EmitDefaultValue = false)]
+        public int WordPressPost { get; set; }
     }
 
     /// <summary>開いていた1ページぶん。</summary>

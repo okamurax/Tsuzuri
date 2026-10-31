@@ -173,6 +173,8 @@ namespace Tsuzuri
             }
 
             // ファイルを開いていなければ、利用者のフォルダで起動する。
+            // WordPress の記事なら、記事ごとの一時フォルダではなく、その上の決まったフォルダで起動する（2026-10-31）。
+            // claude は初めてのフォルダで「信頼するか」を尋ねるので、記事を開くたびに尋ねられていた。記事のファイルはその下にあるので書き換えられる。
             tab.View = new TerminalView(
                 () =>
                 {
@@ -183,7 +185,7 @@ namespace Tsuzuri
                 () => restore != null && !string.IsNullOrEmpty(restore.Folder) && Directory.Exists(restore.Folder)
                     ? restore.Folder
                     : HasDocument
-                        ? Path.GetDirectoryName(Active.FilePath)
+                        ? (WordPressLinkOf(Active) != null ? WordPressTempRoot : Path.GetDirectoryName(Active.FilePath))
                         : Environment.GetFolderPath(Environment.SpecialFolder.UserProfile));
             tab.View.Visibility = Visibility.Collapsed;
             AiTerminals.Children.Add(tab.View);
@@ -554,12 +556,12 @@ namespace Tsuzuri
         /// </summary>
         private void StoreAiTabs()
         {
-            if (_aiStopping || !IsPrimary) return;   // 覚えて戻すのは最初の画面の会話だけ（2026-10-31）
+            if (_aiStopping) return;
 
             var tabs = _aiTabs.Where(tab => tab.SessionId != null)
                               .Select(tab => new AiTabState { Session = tab.SessionId, Folder = tab.Folder })
                               .ToList();
-            _settings.AiTabs = tabs.Count > 0 ? tabs : null;
+            SavedAiTabs = tabs.Count > 0 ? tabs : null;   // 画面ごとに覚える（2026-10-31）
             _settings.Save();
         }
 
@@ -569,7 +571,7 @@ namespace Tsuzuri
         /// </summary>
         private bool RestoreAiTabs()
         {
-            var saved = _settings.AiTabs;
+            var saved = SavedAiTabs;
             if (saved == null || saved.Count == 0) return false;
 
             foreach (var state in saved.ToList()) AddAiTab(null, state);

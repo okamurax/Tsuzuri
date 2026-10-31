@@ -5,6 +5,7 @@ using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
+using Tsuzuri.Markdown;
 
 namespace Tsuzuri
 {
@@ -13,7 +14,8 @@ namespace Tsuzuri
     // 1つのアプリの中で、この画面（MainWindow）を丸ごともう1つ作る。中の作りは変えず、画面ごとに今までと同じに動く。
     // 別の exe を起動しないのは、app.json を2つのアプリが別々に書いて、ランチャーの登録などを消し合わないため（設定はメモリの上で1つを共有する）。
     // ・1つの文書は1つの画面だけで開く（リンクで右に開いた .md・WordPress の記事も）。.文書名/state.json と変更の記録を、2つの画面から書かないため
-    // ・前回のファイル・終了時の画面・AI の会話のタブを覚えて戻すのは、最初の画面だけ。増やした画面は、閉じたら終わり
+    // ・終了したときに開いていた画面は、次の起動で全部戻す（ページの並び・AI の会話のタブ。WordPress の記事は読み込み直す）。
+    //   最初の画面の分は app.json の Screen・Collapsed・AiTabs、増やした画面の分は Windows に覚える。画面を「終了」で閉じたら、その分は消す
     // ・最初の画面を閉じたら、全部の画面を閉じる
     // ・画面は全部同じ位置・大きさに重ね、ツールバーの一覧で前に出す（見た目はタブの切り替え）
     public partial class MainWindow
@@ -26,10 +28,16 @@ namespace Tsuzuri
         /// <summary>何番目に作った画面か（1 始まり）。1 が最初の画面。</summary>
         private int _windowNumber;
 
+        /// <summary>増やした画面の、次の起動で戻すもの（app.json の Windows の1つ）。最初の画面は null（app.json の上のほうの項目を使う）。</summary>
+        private WindowSession _session;
+
+        /// <summary>最初の画面を閉じて、全部の画面を閉じている最中か。このときは、閉じた画面の覚え（Windows）を消さない（次の起動で戻す）。</summary>
+        private static bool _closingAll;
+
         /// <summary>ツールバーの一覧を最後に組んだときの中身。変わったときだけ組み直す。</summary>
         private string _windowListSignature;
 
-        /// <summary>最初の画面か。前回のファイル・終了時の画面・AI の会話のタブを覚えて戻すのは、この画面だけ。</summary>
+        /// <summary>最初の画面か。前回のファイル（LastFile）を覚えるのと、起動のときにほかの画面を作るのは、この画面だけ。</summary>
         private bool IsPrimary
         {
             get { return _windowNumber == 1; }
@@ -41,17 +49,81 @@ namespace Tsuzuri
             get { return Process.GetCurrentProcess().Id + "-" + _windowNumber; }
         }
 
-        /// <summary>コンストラクタから。一覧に載せ、閉じたら外す。</summary>
-        private void RegisterWindow()
+        /// <summary>
+        /// コンストラクタから。一覧に載せ、閉じたら外す。増やした画面は、次の起動で戻すものを app.json の Windows に置く
+        /// （session は、起動のときに戻す画面ならその覚え。新しく増やした画面なら null で、空の覚えを作る）。
+        /// </summary>
+        private void RegisterWindow(WindowSession session)
         {
             _windowNumber = ++_windowsCreated;
             OpenWindows.Add(this);
 
+            if (!IsPrimary)
+            {
+                _session = session ?? new WindowSession();
+                if (!_settings.Windows.Contains(_session)) _settings.Windows.Add(_session);
+            }
+
             Closed += delegate
             {
                 OpenWindows.Remove(this);
+
+                // 「終了」でこの画面だけを閉じたなら、次の起動では戻さない。全部を閉じている最中なら残す。
+                if (_session != null && !_closingAll)
+                {
+                    _settings.Windows.Remove(_session);
+                    _settings.Save();
+                }
+
                 RefreshWindowLists();
             };
+        }
+
+        /// <summary>次の起動で戻す、終了したときの画面（最初の画面は app.json の Screen、増やした画面は Windows の1つ）。</summary>
+        private ScreenState SavedScreen
+        {
+            get { return _session != null ? _session.Screen : _settings.Screen; }
+            set
+            {
+                if (_session != null) _session.Screen = value;
+                else _settings.Screen = value;
+            }
+        }
+
+        private List<string> SavedCollapsed
+        {
+            get { return _session != null ? _session.Collapsed : _settings.Collapsed; }
+            set
+            {
+                if (_session != null) _session.Collapsed = value;
+                else _settings.Collapsed = value;
+            }
+        }
+
+        /// <summary>次の起動で戻す、AI の会話のタブ。</summary>
+        private List<AiTabState> SavedAiTabs
+        {
+            get { return _session != null ? _session.AiTabs : _settings.AiTabs; }
+            set
+            {
+                if (_session != null) _session.AiTabs = value;
+                else _settings.AiTabs = value;
+            }
+        }
+
+        /// <summary>最初の画面が起動したとき、前回終了したときに開いていたほかの画面を作り直す（それぞれ自分の覚えで戻す）。最後に最初の画面を前に出す。</summary>
+        private void RestoreOtherWindows()
+        {
+            var sessions = _settings.Windows.ToList();
+            if (sessions.Count == 0) return;
+
+            foreach (var session in sessions)
+            {
+                var window = new MainWindow(_settings, this, session);
+                window.Show();
+            }
+
+            Dispatcher.BeginInvoke(new Action(delegate { Activate(); }), System.Windows.Threading.DispatcherPriority.ApplicationIdle);
         }
 
         /// <summary>増やした画面を、元の画面と同じ位置・大きさで出す（前回の位置は使わない）。</summary>
@@ -74,7 +146,7 @@ namespace Tsuzuri
         /// <summary>ツールバーの「＋」。空の画面を1つ増やして前に出す。開くのは、その画面のランチャー・WordPress から。</summary>
         private void NewWindow_Click(object sender, RoutedEventArgs e)
         {
-            var window = new MainWindow(_settings, this);
+            var window = new MainWindow(_settings, this, null);
             window.Show();
             window.Activate();
         }
@@ -180,17 +252,28 @@ namespace Tsuzuri
         /// </summary>
         private bool CloseOtherWindows()
         {
+            _closingAll = true;
+
             foreach (var window in OpenWindows.Where(other => !ReferenceEquals(other, this)).ToList())
             {
                 window.Close();
                 if (OpenWindows.Contains(window))
                 {
+                    CancelClosingAll();
                     window.BringForward(null);
                     return false;
                 }
             }
 
             return true;
+        }
+
+        /// <summary>全部を閉じるのを途中でやめた。もう閉じた画面の覚えは消す（開いていない画面を次の起動で戻さない）。</summary>
+        private void CancelClosingAll()
+        {
+            _closingAll = false;
+            _settings.Windows.RemoveAll(session => !OpenWindows.Any(window => ReferenceEquals(window._session, session)));
+            _settings.Save();
         }
     }
 }

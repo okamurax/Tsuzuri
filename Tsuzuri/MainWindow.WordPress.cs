@@ -92,6 +92,42 @@ namespace Tsuzuri
             {
                 // 使用中などで消せなくても、次の起動で消す。
             }
+
+            // フォルダそのものは作っておく。記事の画面の AI の会話は、ここで動いていたので、ここで続きとして開き直す（2026-10-31）。
+            try
+            {
+                Directory.CreateDirectory(WordPressTempRoot);
+            }
+            catch (Exception)
+            {
+            }
+        }
+
+        /// <summary>
+        /// 起動したとき、終了したときに開いていた記事を WordPress から読み込み直す（2026-10-31）。
+        /// サイトは wordpress.json から URL で探す。読めない・見つからなければ知らせて開かない。
+        /// </summary>
+        private void ReopenWordPressPost(string url, int id)
+        {
+            WordPressSite site = null;
+            try
+            {
+                var settings = WordPressSettings.Load();
+                if (settings != null)
+                    site = settings.Sites.FirstOrDefault(each => string.Equals((each.Url ?? string.Empty).TrimEnd('/'), (url ?? string.Empty).TrimEnd('/'),
+                                                                               StringComparison.OrdinalIgnoreCase));
+            }
+            catch (Exception)
+            {
+            }
+
+            if (site == null)
+            {
+                Status("前に開いていた WordPress の記事を開き直せませんでした（wordpress.json にそのサイトがありません）。#" + id);
+                return;
+            }
+
+            OpenWordPressPost(site, id);
         }
 
         /// <summary>この起動の一時フォルダを消す（エディタを閉じるとき）。消せなければ（AI の欄の claude が掴んでいる等）、次の起動で消す。</summary>

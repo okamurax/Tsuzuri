@@ -89,6 +89,13 @@ namespace Tsuzuri
         [DataMember(Name = "aiTabs", EmitDefaultValue = false)]
         public List<AiTabState> AiTabs { get; set; }
 
+        /// <summary>
+        /// 増やした画面（2026-10-31）。作った順。最初の画面の分は上の Screen・Collapsed・AiTabs。
+        /// 終了したときに開いていた画面を、次の起動で全部戻すため。画面を「終了」で閉じたら、その分は消す。
+        /// </summary>
+        [DataMember(Name = "windows", EmitDefaultValue = false)]
+        public List<WindowSession> Windows { get; set; }
+
         // 前回のエクスポートの選び方は、文書ごとに .文書名/state.json に覚える（2026-10-16。前はここ）。
 
         public AppSettings()
@@ -113,6 +120,13 @@ namespace Tsuzuri
 
             // 会話の番号は Guid の形のものだけ（コマンドに書き込むので、ほかのものは捨てる）。
             if (AiTabs != null) AiTabs.RemoveAll(tab => tab == null || !Guid.TryParse(tab.Session, out _));
+
+            if (Windows == null) Windows = new List<WindowSession>();
+            Windows.RemoveAll(window => window == null);
+            foreach (var window in Windows)
+            {
+                if (window.AiTabs != null) window.AiTabs.RemoveAll(tab => tab == null || !Guid.TryParse(tab.Session, out _));
+            }
 
             if (SidebarWidth < 110 || SidebarWidth > 2000) SidebarWidth = 190;
             if (FilerWidth < 180 || FilerWidth > 2000) FilerWidth = 300;
@@ -251,6 +265,20 @@ namespace Tsuzuri
         {
             get { return Column + "," + Row; }
         }
+    }
+
+    /// <summary>増やした画面1つの、次の起動で戻すもの（AppSettings.Windows。2026-10-31）。中身は最初の画面の Screen・Collapsed・AiTabs と同じ。</summary>
+    [DataContract]
+    public sealed class WindowSession
+    {
+        [DataMember(Name = "screen", EmitDefaultValue = false)]
+        public ScreenState Screen { get; set; }
+
+        [DataMember(Name = "collapsed", EmitDefaultValue = false)]
+        public List<string> Collapsed { get; set; }
+
+        [DataMember(Name = "aiTabs", EmitDefaultValue = false)]
+        public List<AiTabState> AiTabs { get; set; }
     }
 
     /// <summary>AI の欄の会話のタブ1つ（AppSettings.AiTabs）。</summary>

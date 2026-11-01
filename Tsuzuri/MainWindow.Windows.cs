@@ -20,6 +20,8 @@ namespace Tsuzuri
     //   最初の画面を × で閉じたら、次の画面が最初の画面を引き継ぐ（前回のファイル・app.json の上のほうの項目）
     // ・画面は全部同じ位置・大きさに重ね、ツールバーの一段下のタブで前に出す
     // ・前に出ている画面のほかは隠す（2026-11-01）。タスクバーのボタンも Alt+Tab も1つで、切り替えはタブだけ
+    // ・タブを右クリック →「退避する」で、画面を閉じて覚えだけを残す（2026-11-01）。起動しても作らず、AI の会話も始めない。
+    //   タブは薄く残り、押すとその覚えから画面を作り直す（ページの並び・AI の会話も戻す。WordPress の記事は読み込み直す）
     public partial class MainWindow
     {
         /// <summary>開いている画面。作った順。先頭が最初の画面。</summary>
@@ -35,6 +37,12 @@ namespace Tsuzuri
 
         /// <summary>「終了」で全部の画面を閉じている最中か。このときは、閉じた画面の覚え（Windows）を消さない（次の起動で戻す）。</summary>
         private static bool _closingAll;
+
+        /// <summary>退避するために閉じている最中か。閉じ終えたら、覚えを消さずに退避の印を付ける。</summary>
+        private bool _suspending;
+
+        /// <summary>退避したときのタブの名前。</summary>
+        private string _suspendTitle;
 
         /// <summary>前に出ている画面（ほかの画面は隠してある）。最後に前に出た画面。</summary>
         private static MainWindow _frontWindow;
@@ -93,8 +101,18 @@ namespace Tsuzuri
                         OpenWindows[Math.Min(index, OpenWindows.Count - 1)].BringForward(this);
                 }
 
+                if (_suspending)
+                {
+                    // 退避: 覚えは消さずに印を付ける。最初の画面なら、覚えを app.json の上のほうの項目から移し、次の画面が最初の画面を引き継ぐ。
+                    var kept = _session ?? new WindowSession { Screen = _settings.Screen, Collapsed = _settings.Collapsed, AiTabs = _settings.AiTabs };
+                    kept.Suspended = true;
+                    kept.Title = _suspendTitle;
+                    if (wasPrimary && OpenWindows.Count > 0) OpenWindows[0].PromoteToPrimary();
+                    if (!_settings.Windows.Contains(kept)) _settings.Windows.Add(kept);
+                    _settings.Save();
+                }
                 // タブの × でこの画面だけを閉じたなら、次の起動では戻さない。「終了」で全部を閉じている最中なら残す。
-                if (!_closingAll)
+                else if (!_closingAll)
                 {
                     if (_session != null) _settings.Windows.Remove(_session);
                     else if (wasPrimary && OpenWindows.Count > 0) OpenWindows[0].PromoteToPrimary();
@@ -169,7 +187,7 @@ namespace Tsuzuri
         /// <summary>最初の画面が起動したとき、前回終了したときに開いていたほかの画面を作り直す（それぞれ自分の覚えで戻す）。最後に最初の画面を前に出す。</summary>
         private void RestoreOtherWindows()
         {
-            var sessions = _settings.Windows.ToList();
+            var sessions = _settings.Windows.Where(session => !session.Suspended).ToList();   // 退避している画面は作らない（タブだけ出す）
             if (sessions.Count == 0) return;
 
             foreach (var session in sessions)
@@ -271,7 +289,9 @@ namespace Tsuzuri
         private void BuildWindowList()
         {
             var labels = OpenWindows.Select(window => window.WindowLabel()).ToList();
-            var signature = string.Join("\n", labels) + "\n" + OpenWindows.IndexOf(this);
+            var suspended = _settings.Windows.Where(session => session.Suspended).ToList();
+            var signature = string.Join("\n", labels) + "\n" + OpenWindows.IndexOf(this) + "\n"
+                            + string.Join("\n", suspended.Select(session => session.GetHashCode() + ":" + session.Title));
             if (signature == _windowListSignature) return;
 
             _windowListSignature = signature;
@@ -279,6 +299,9 @@ namespace Tsuzuri
 
             for (var i = 0; i < OpenWindows.Count; i++)
                 WindowList.Children.Add(CreateWindowTab(OpenWindows[i], labels[i], OpenWindows.Count > 1));
+
+            // 退避している画面は、開いている画面の右に薄く並べる。
+            foreach (var session in suspended) WindowList.Children.Add(CreateSuspendedTab(session));
 
             var add = new Button
             {
@@ -350,7 +373,108 @@ namespace Tsuzuri
             };
             tab.MouseEnter += delegate { if (!self) tab.Background = (Brush)FindResource("HoverFill"); };
             tab.MouseLeave += delegate { if (!self) tab.Background = Brushes.Transparent; };
+
+            // 右クリックで「退避する」。画面が1つだけなら退避できない（何も見えなくなる）。
+            tab.MouseRightButtonUp += (sender, e) =>
+            {
+                e.Handled = true;
+                var suspend = new MenuItem
+                {
+                    Header = "退避する",
+                    ToolTip = "この画面を閉じて、状態だけを残す（AI の会話も止める）。タブは薄く残り、押すと元の状態で開き直す",
+                    IsEnabled = OpenWindows.Count > 1,
+                };
+                suspend.Click += delegate { window.Suspend(); };
+                var menu = new ContextMenu { PlacementTarget = tab, Placement = System.Windows.Controls.Primitives.PlacementMode.Bottom };
+                menu.Items.Add(suspend);
+                menu.IsOpen = true;
+            };
             return tab;
+        }
+
+        /// <summary>退避している画面のタブ。薄く出す。押すとその覚えから画面を作り直し、× で覚えごと捨てる。</summary>
+        private Border CreateSuspendedTab(WindowSession session)
+        {
+            var panel = new DockPanel { LastChildFill = true };
+
+            var close = new Button
+            {
+                Content = "\uE711",
+                ToolTip = "退避している状態を捨てる（ファイルはそのまま。AI の会話は claude --resume で開ける）",
+                FontFamily = IconFont,
+                FontSize = 9,
+                Width = 20,
+                Height = 20,
+                Padding = new Thickness(0),
+                Margin = new Thickness(6, 0, 0, 0),
+                Focusable = false,
+                VerticalAlignment = VerticalAlignment.Center,
+                Style = (Style)FindResource("ToolButton"),
+            };
+            close.Click += delegate
+            {
+                _settings.Windows.Remove(session);
+                _settings.Save();
+                RefreshWindowLists();
+            };
+            DockPanel.SetDock(close, Dock.Right);
+            panel.Children.Add(close);
+
+            panel.Children.Add(new TextBlock
+            {
+                Text = string.IsNullOrEmpty(session.Title) ? "（空）" : session.Title,
+                FontStyle = FontStyles.Italic,
+                TextTrimming = TextTrimming.CharacterEllipsis,
+                VerticalAlignment = VerticalAlignment.Center,
+                Foreground = (Brush)FindResource("TextMuted"),
+            });
+
+            var tab = new Border
+            {
+                Child = panel,
+                Width = WindowTabWidth,
+                Height = 26,
+                Opacity = 0.6,
+                CornerRadius = new CornerRadius(4),
+                Padding = new Thickness(10, 0, 3, 0),
+                Margin = new Thickness(0, 0, 4, 0),
+                Cursor = System.Windows.Input.Cursors.Hand,
+                VerticalAlignment = VerticalAlignment.Center,
+                Background = Brushes.Transparent,
+                ToolTip = "退避中: " + session.Title + "。押すと、退避したときの状態で開き直す（AI の会話も戻す）",
+            };
+            tab.MouseLeftButtonDown += (sender, e) =>
+            {
+                e.Handled = true;
+                Resume(session);
+            };
+            tab.MouseEnter += delegate { tab.Background = (Brush)FindResource("HoverFill"); };
+            tab.MouseLeave += delegate { tab.Background = Brushes.Transparent; };
+            return tab;
+        }
+
+        /// <summary>この画面を退避する（閉じて覚えだけを残す）。未保存なら、閉じるときと同じく尋ねる。取りやめたら退避しない。</summary>
+        private void Suspend()
+        {
+            if (OpenWindows.Count < 2) return;
+
+            _suspendTitle = WindowLabel();
+            if (_suspendTitle.EndsWith(" *", StringComparison.Ordinal)) _suspendTitle = _suspendTitle.Substring(0, _suspendTitle.Length - 2);
+            _suspending = true;
+            Close();
+            if (OpenWindows.Contains(this)) _suspending = false;   // 保存するかで取りやめた
+        }
+
+        /// <summary>退避している画面を、その覚えから作り直して前に出す。</summary>
+        private void Resume(WindowSession session)
+        {
+            session.Suspended = false;
+            session.Title = null;
+            _settings.Save();
+
+            var window = new MainWindow(_settings, this, session);
+            window.BringForward(this);
+            RefreshWindowLists();
         }
 
         /// <summary>一覧に出す名前。開いているファイル（いちばん左のページ）の題。WordPress の記事なら頭に「WP:」、未保存なら後ろに「*」。</summary>
@@ -398,7 +522,7 @@ namespace Tsuzuri
         private void CancelClosingAll()
         {
             _closingAll = false;
-            _settings.Windows.RemoveAll(session => !OpenWindows.Any(window => ReferenceEquals(window._session, session)));
+            _settings.Windows.RemoveAll(session => !session.Suspended && !OpenWindows.Any(window => ReferenceEquals(window._session, session)));
             _settings.Save();
         }
     }

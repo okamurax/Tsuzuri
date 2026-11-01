@@ -127,8 +127,6 @@ namespace Tsuzuri
   - ファイル全体・ほかのページ・全部のページを相手にするのは、利用者がそう言ったとき（「ファイル全体を見て」「全部のページで」「p5 を」など）だけ。
   - 書くのも範囲の中。範囲の外は別のページで、とくにファイルの末尾に足すと最後のページの中身になる。
     ファイルの末尾に足すのは、新しいサブページを作るときだけ。書いたら、ページの範囲の中に入ったかを読み直して確かめる。
-- ファイルを開いていない画面からも話しかけられる。そのとき新しい文書を頼まれたら、作業フォルダに .md を作る（場所を言われればそこに）。
-  作った .md は、エディタがその画面で開く。開いたあとは、ほかの文書と同じく、そのページを相手にする。
 - 返事は日本語で、欄は狭いので短めに書く。";
 
         /// <summary>ツールバーの右端の「AI」。AI の欄を出し入れする。タブが1つも無ければ、claude を起動したタブを1つ開く。</summary>
@@ -140,8 +138,51 @@ namespace Tsuzuri
                 return;
             }
 
-            if (_aiTabs.Count == 0 && !_aiRestorePending) AddAiTab(string.Empty);   // claude を直接起動する（2026-10-31。前は PowerShell だけ）
+            if (_aiTabs.Count == 0 && !_aiRestorePending)
+            {
+                if (!CanStartAi()) return;
+                AddAiTab(string.Empty);   // claude を直接起動する（2026-10-31。前は PowerShell だけ）
+            }
             ShowAiPane();
+        }
+
+        /// <summary>
+        /// 新しい会話を始めてよいか。ファイル（WordPress の記事も）を開いていれば、そのまま始める。
+        /// 何も開いていない画面なら、Windows のファイルを作る画面で .md を作って開き、その文書のフォルダで始める（2026-11-01）。
+        /// 作るのをやめたら始めない。何も開かずに claude を起動すると利用者のフォルダで動き、そこを信頼するか尋ねられる・作業の範囲が広すぎる・
+        /// あとで開いた文書のフォルダの外になる、ため（Claude に作らせてから開く案は、AI の動きに頼るのでやめた）。
+        /// 前の起動の会話を戻すときは、その会話のフォルダで起動するので構わない。
+        /// </summary>
+        private bool CanStartAi()
+        {
+            if (HasDocument) return true;
+
+            var dialog = new Microsoft.Win32.SaveFileDialog
+            {
+                Title = "AI と使う Markdown を作る",
+                Filter = "Markdown (*.md)|*.md",
+                DefaultExt = ".md",
+                FileName = "新しい文書.md",
+                OverwritePrompt = false,   // 今あるファイルを選んだら、書き換えずにそれを開く
+            };
+            if (_filer != null && !string.IsNullOrEmpty(_filer.Folder) && Directory.Exists(_filer.Folder))
+                dialog.InitialDirectory = _filer.Folder;
+
+            if (dialog.ShowDialog(this) != true) return false;
+
+            try
+            {
+                if (!File.Exists(dialog.FileName)) File.WriteAllText(dialog.FileName, string.Empty, new UTF8Encoding(false));
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(this, "ファイルを作れませんでした。" + Environment.NewLine + ex.Message, "AI",
+                    MessageBoxButton.OK, MessageBoxImage.Warning);
+                return false;
+            }
+
+            OpenRoot(dialog.FileName);
+            return HasDocument;
         }
 
         /// <summary>起動したあと、前の会話のタブをまだ戻していないか（窓が出て落ち着いてから戻す。MainWindow のコンストラクタ）。</summary>
@@ -189,8 +230,6 @@ namespace Tsuzuri
                     ? restore.Folder
                     : HasDocument
                         ? (WordPressLinkOf(Active) != null ? WordPressTempRoot : Path.GetDirectoryName(Active.FilePath))
-                        : !string.IsNullOrEmpty(_settings.FilerFolder) && Directory.Exists(_settings.FilerFolder)
-                            ? _settings.FilerFolder   // 何も開いていなければ、ファイラーで見ていたフォルダ（新しい文書をそこに作らせる。2026-11-01）
                         : Environment.GetFolderPath(Environment.SpecialFolder.UserProfile));
             tab.View.Visibility = Visibility.Collapsed;
             AiTerminals.Children.Add(tab.View);
@@ -308,7 +347,7 @@ namespace Tsuzuri
                 };
                 var style = Application.Current != null ? Application.Current.Resources["ToolButton"] as Style : null;
                 if (style != null) _aiAddButton.Style = style;
-                _aiAddButton.Click += delegate { AddAiTab(string.Empty); };   // メニューは出さず、claude を直接起動する（2026-10-31）
+                _aiAddButton.Click += delegate { if (CanStartAi()) AddAiTab(string.Empty); };   // メニューは出さず、claude を直接起動する（2026-10-31）
             }
 
             AiTabs.Children.Clear();
@@ -451,7 +490,11 @@ namespace Tsuzuri
             if (restorable.Count == 0)
             {
                 // 画面を戻すときに欄を出していたら、空のままにせず新しい会話を1つ開く。
-                if (AiPane.Visibility == Visibility.Visible) AddAiTab(string.Empty);
+                if (AiPane.Visibility == Visibility.Visible)
+                {
+                    if (HasDocument) AddAiTab(string.Empty);
+                    else HideAiPane();   // 何も開いていなければ新しい会話は始めない（CanStartAi）
+                }
                 return false;
             }
 
@@ -695,14 +738,8 @@ namespace Tsuzuri
             // つなぐのを待つのは5秒（2026-10-27。前は1秒で、ほかのタブの頼みに応えている間の「changed」が落ちることがあった）。
             // エディタはつながりごとに次の口を開き直すので、普通はすぐつながる。エディタが閉じると中の claude も終わる（ジョブ）ので、
             // パイプが無くて5秒待つことはまず無い。
-            // 書き換えたファイルの場所も送る（2026-11-01）。何も開いていない画面で Claude が .md を作ったら、その画面で開くため。
-            // 中身（JSON）は標準入力に来る。読めなければ場所なしで送る（今までどおり読み直すだけ）。
-            var notify =
-                "$p='';try{$m=New-Object System.IO.MemoryStream;[Console]::OpenStandardInput().CopyTo($m);" +
-                "$j=[System.Text.Encoding]::UTF8.GetString($m.ToArray())|ConvertFrom-Json;" +
-                "if($j.tool_input.file_path){$p=[string]$j.tool_input.file_path}}catch{};" +
-                connect +
-                "try{$c.Connect(5000);$w=New-Object System.IO.StreamWriter($c);$w.WriteLine('changed'+[char]9+$p);$w.Flush()}catch{};$c.Dispose()";
+            var notify = connect +
+                "try{$c.Connect(5000);$w=New-Object System.IO.StreamWriter($c);$w.WriteLine('changed');$w.Flush()}catch{};$c.Dispose()";
 
             var quoted = Quote(contextPath);
             var context = connect +
@@ -814,9 +851,7 @@ namespace Tsuzuri
                     }
                     else
                     {
-                        var tab = request != null ? request.IndexOf('\t') : -1;
-                        var path = tab >= 0 ? request.Substring(tab + 1).Trim() : null;
-                        Dispatcher.BeginInvoke(new Action(delegate { OnAiChanged(path); }), DispatcherPriority.Background);
+                        Dispatcher.BeginInvoke(new Action(ReloadChangedDocuments), DispatcherPriority.Background);
                     }
                 }
             }
@@ -824,22 +859,6 @@ namespace Tsuzuri
             {
                 // つないですぐ切られた・エディタを閉じている途中等。フックは前の状態を出す。
             }
-        }
-
-        /// <summary>
-        /// Claude がファイルを書き換えた（フックの「changed」）。外で変わった文書を読み直す。
-        /// 何も開いていない画面で .md を作ったなら、それを開く（2026-11-01。空の画面で話し始めて文書を作ってもらう流れ）。
-        /// </summary>
-        private void OnAiChanged(string path)
-        {
-            ReloadChangedDocuments();
-
-            if (HasDocument || string.IsNullOrEmpty(path)) return;
-            if (!string.Equals(Path.GetExtension(path), ".md", StringComparison.OrdinalIgnoreCase)) return;
-            if (!Path.IsPathRooted(path) || !File.Exists(path)) return;
-
-            OpenRoot(path);
-            if (HasDocument) Status("AI が作ったファイルを開きました: " + path);
         }
 
         /// <summary>
@@ -956,8 +975,7 @@ namespace Tsuzuri
             var view = Active;
             if (view == null || view.Owner == null)
             {
-                text.Append("ファイルは開いていない。新しい文書を頼まれたら、作業フォルダ（claude を起動したフォルダ）に .md で作る。")
-                    .Append("作ると、エディタがこの画面で開く。\n");
+                text.Append("ファイルは開いていない。\n");
                 return text.ToString();
             }
 

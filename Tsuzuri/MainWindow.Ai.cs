@@ -75,8 +75,9 @@ namespace Tsuzuri
             public string Folder;
 
             /// <summary>
-            /// claude のセッションの名前（1・2…。2026-11-01）。claude --name で付け、タブの見出しに出す。
-            /// ほかの会話に「2 にこの会話の要約を渡して」のように頼むときの宛先になる（Claude Code のセッション間のメッセージ）。
+            /// claude のセッションの名前（#1・#2…。2026-11-01）。claude --name で付け、タブの見出しに出す。
+            /// ほかの会話に「#2 にこの会話の要約を渡して」のように頼むときの宛先になる（Claude Code のセッション間のメッセージ）。
+            /// # を付けるのは、話の中の数（「2 つ」「2 章」）と取り違えないため。
             /// アプリの中で（全部の画面を通して）重ねない。
             /// </summary>
             public string Name;
@@ -118,8 +119,8 @@ namespace Tsuzuri
   ネットワーク上の場所（\\Mac\...）では、-c safe.directory=* を付けないと git に断られる。
   <履歴> の場所は、話しかけるたびに付いてくるエディタの今の状態に書いてある。前回進めたところを踏まえて助言するのに使う。
   この履歴にコミットしたり、書き換えたりしない（記録はエディタがする）。
-- AI の欄には、ほかの会話のタブもある。タブの見出しは、それぞれの claude のセッションの名前（1・2…）。
-  利用者が「2 に〜を渡して」「1 に頼んで」と言ったら、その名前のセッションに SendMessage で送る（相手は ListAgents で探せる）。
+- AI の欄には、ほかの会話のタブもある。タブの見出しは、それぞれの claude のセッションの名前（#1・#2…）。
+  利用者が「#2 に〜を渡して」「#1 に頼んで」と言ったら、その名前のセッションに SendMessage で送る（相手は ListAgents で探せる）。
 - 返事は日本語で、欄は狭いので短めに書く。";
 
         /// <summary>ツールバーの右端の「AI」。AI の欄を出し入れする。タブが1つも無ければ、claude を起動したタブを1つ開く。</summary>
@@ -160,7 +161,8 @@ namespace Tsuzuri
             {
                 tab.SessionId = restore.Session;
                 tab.Folder = restore.Folder;
-                if (!AiTabNameUsed(restore.Name)) tab.Name = restore.Name;
+                var name = restore.Name != null && !restore.Name.StartsWith("#", StringComparison.Ordinal) ? "#" + restore.Name : restore.Name;   // 前の「1」は「#1」に
+                if (!AiTabNameUsed(name)) tab.Name = name;
                 start = "--resume " + restore.Session;   // 番号は Guid の形のものだけ（AppSettings）
             }
             if (tab.Name == null) tab.Name = NewAiTabName();
@@ -269,12 +271,12 @@ namespace Tsuzuri
             return OpenWindows.Any(window => window._aiTabs.Any(tab => tab.Name == name));
         }
 
-        /// <summary>新しいタブの名前。使っていないいちばん小さい番号（1・2…）。閉じたタブの番号は、次のタブが使う。</summary>
+        /// <summary>新しいタブの名前。使っていないいちばん小さい番号（#1・#2…）。閉じたタブの番号は、次のタブが使う。</summary>
         private static string NewAiTabName()
         {
             var number = 1;
-            while (AiTabNameUsed(number.ToString(CultureInfo.InvariantCulture))) number++;
-            return number.ToString(CultureInfo.InvariantCulture);
+            while (AiTabNameUsed("#" + number.ToString(CultureInfo.InvariantCulture))) number++;
+            return "#" + number.ToString(CultureInfo.InvariantCulture);
         }
 
         /// <summary>タブの段を並べ直す（タブ、その右に「＋」）。</summary>

@@ -20,7 +20,7 @@ namespace Tsuzuri
     //   最初の画面を × で閉じたら、次の画面が最初の画面を引き継ぐ（前回のファイル・app.json の上のほうの項目）
     // ・画面は全部同じ位置・大きさに重ね、ツールバーの一段下のタブで前に出す
     // ・前に出ている画面のほかは隠す（2026-11-01）。タスクバーのボタンも Alt+Tab も1つで、切り替えはタブだけ
-    // ・タブを右クリック →「退避する」で、画面を閉じて覚えだけを残す（2026-11-01）。起動しても作らず、AI の会話も始めない。
+    // ・タブを右クリック →「休止する」で、画面を閉じて覚えだけを残す（2026-11-01）。起動しても作らず、AI の会話も始めない。
     //   タブは薄く残り、押すとその覚えから画面を作り直す（ページの並び・AI の会話も戻す。WordPress の記事は読み込み直す）
     public partial class MainWindow
     {
@@ -38,10 +38,10 @@ namespace Tsuzuri
         /// <summary>「終了」で全部の画面を閉じている最中か。このときは、閉じた画面の覚え（Windows）を消さない（次の起動で戻す）。</summary>
         private static bool _closingAll;
 
-        /// <summary>退避するために閉じている最中か。閉じ終えたら、覚えを消さずに退避の印を付ける。</summary>
+        /// <summary>休止するために閉じている最中か。閉じ終えたら、覚えを消さずに休止の印を付ける。</summary>
         private bool _suspending;
 
-        /// <summary>退避したときのタブの名前。</summary>
+        /// <summary>休止したときのタブの名前。</summary>
         private string _suspendTitle;
 
         /// <summary>前に出ている画面（ほかの画面は隠してある）。最後に前に出た画面。</summary>
@@ -103,7 +103,7 @@ namespace Tsuzuri
 
                 if (_suspending)
                 {
-                    // 退避: 覚えは消さずに印を付ける。最初の画面なら、覚えを app.json の上のほうの項目から移し、次の画面が最初の画面を引き継ぐ。
+                    // 休止: 覚えは消さずに印を付ける。最初の画面なら、覚えを app.json の上のほうの項目から移し、次の画面が最初の画面を引き継ぐ。
                     var kept = _session ?? new WindowSession { Screen = _settings.Screen, Collapsed = _settings.Collapsed, AiTabs = _settings.AiTabs };
                     kept.Suspended = true;
                     kept.Title = _suspendTitle;
@@ -187,7 +187,7 @@ namespace Tsuzuri
         /// <summary>最初の画面が起動したとき、前回終了したときに開いていたほかの画面を作り直す（それぞれ自分の覚えで戻す）。最後に最初の画面を前に出す。</summary>
         private void RestoreOtherWindows()
         {
-            var sessions = _settings.Windows.Where(session => !session.Suspended).ToList();   // 退避している画面は作らない（タブだけ出す）
+            var sessions = _settings.Windows.Where(session => !session.Suspended).ToList();   // 休止している画面は作らない（タブだけ出す）
             if (sessions.Count == 0) return;
 
             foreach (var session in sessions)
@@ -296,12 +296,13 @@ namespace Tsuzuri
 
             _windowListSignature = signature;
             WindowList.Children.Clear();
+            SuspendedList.Children.Clear();
 
             for (var i = 0; i < OpenWindows.Count; i++)
                 WindowList.Children.Add(CreateWindowTab(OpenWindows[i], labels[i], OpenWindows.Count > 1));
 
-            // 退避している画面は、開いている画面の右に薄く並べる。
-            foreach (var session in suspended) WindowList.Children.Add(CreateSuspendedTab(session));
+            // 休止している画面は、段の右端に薄く並べる。
+            foreach (var session in suspended) SuspendedList.Children.Add(CreateSuspendedTab(session));
 
             var add = new Button
             {
@@ -314,6 +315,9 @@ namespace Tsuzuri
         }
 
         private const double WindowTabWidth = 180;
+
+        /// <summary>画面のタブを掴んでこれだけ動かしたら、離したときに休止する（ピクセル）。</summary>
+        private const double SuspendDragDistance = 16;
 
         private Border CreateWindowTab(MainWindow window, string label, bool closable)
         {
@@ -365,23 +369,73 @@ namespace Tsuzuri
                 ToolTip = window.WindowTip(),
             };
 
-            // 押したときに切り替える。段の空いているところはウィンドウを動かすので、ここで受け止めて段に回さない（× のボタンは自分で受け取る）。
+            // 押して離したら切り替える。掴んで少し動かしたら休止する（2026-11-01）。
+            // 段の空いているところはウィンドウを動かすので、ここで受け止めて段に回さない（× のボタンは自分で受け取る）。
+            var shift = new TranslateTransform();
+            tab.RenderTransform = shift;
+            Point? grabbed = null;
+            var dragging = false;
             tab.MouseLeftButtonDown += (sender, e) =>
             {
                 e.Handled = true;
-                window.BringForward(this);
+                grabbed = e.GetPosition(WindowList);
+                dragging = false;
+                tab.CaptureMouse();
+            };
+            tab.MouseMove += (sender, e) =>
+            {
+                if (grabbed == null || !tab.IsMouseCaptured) return;
+
+                var moved = e.GetPosition(WindowList) - grabbed.Value;
+                if (!dragging && OpenWindows.Count > 1
+                    && (Math.Abs(moved.X) >= SuspendDragDistance || Math.Abs(moved.Y) >= SuspendDragDistance))
+                    dragging = true;
+                if (!dragging) return;
+
+                // 掴んだタブを手に付いてこさせ、薄くする（離せば休止する印）。
+                shift.X = moved.X;
+                shift.Y = moved.Y;
+                tab.Opacity = 0.5;
+            };
+            tab.MouseLeftButtonUp += (sender, e) =>
+            {
+                if (grabbed == null) return;
+                e.Handled = true;
+                grabbed = null;
+                tab.ReleaseMouseCapture();
+
+                if (!dragging)
+                {
+                    window.BringForward(this);
+                    return;
+                }
+
+                dragging = false;
+                window.Suspend();
+
+                // 保存するかで取りやめたら、タブを元の場所に戻す。
+                shift.X = shift.Y = 0;
+                tab.Opacity = 1;
+            };
+            tab.LostMouseCapture += delegate
+            {
+                if (grabbed == null) return;
+                grabbed = null;
+                dragging = false;
+                shift.X = shift.Y = 0;
+                tab.Opacity = 1;
             };
             tab.MouseEnter += delegate { if (!self) tab.Background = (Brush)FindResource("HoverFill"); };
             tab.MouseLeave += delegate { if (!self) tab.Background = Brushes.Transparent; };
 
-            // 右クリックで「退避する」。画面が1つだけなら退避できない（何も見えなくなる）。
+            // 右クリックで「休止する」。画面が1つだけなら休止できない（何も見えなくなる）。
             tab.MouseRightButtonUp += (sender, e) =>
             {
                 e.Handled = true;
                 var suspend = new MenuItem
                 {
-                    Header = "退避する",
-                    ToolTip = "この画面を閉じて、状態だけを残す（AI の会話も止める）。タブは薄く残り、押すと元の状態で開き直す",
+                    Header = "休止する",
+                    ToolTip = "この画面を閉じて、状態だけを残す（AI の会話も止める）。タブは右端に薄く残り、押すと元の状態で開き直す。タブを掴んで少し動かしても休止する",
                     IsEnabled = OpenWindows.Count > 1,
                 };
                 suspend.Click += delegate { window.Suspend(); };
@@ -392,7 +446,7 @@ namespace Tsuzuri
             return tab;
         }
 
-        /// <summary>退避している画面のタブ。薄く出す。押すとその覚えから画面を作り直し、× で覚えごと捨てる。</summary>
+        /// <summary>休止している画面のタブ。薄く出す。押すとその覚えから画面を作り直し、× で覚えごと捨てる。</summary>
         private Border CreateSuspendedTab(WindowSession session)
         {
             var panel = new DockPanel { LastChildFill = true };
@@ -400,7 +454,7 @@ namespace Tsuzuri
             var close = new Button
             {
                 Content = "\uE711",
-                ToolTip = "退避している状態を捨てる（ファイルはそのまま。AI の会話は claude --resume で開ける）",
+                ToolTip = "休止している状態を捨てる（ファイルはそのまま。AI の会話は claude --resume で開ける）",
                 FontFamily = IconFont,
                 FontSize = 9,
                 Width = 20,
@@ -441,7 +495,7 @@ namespace Tsuzuri
                 Cursor = System.Windows.Input.Cursors.Hand,
                 VerticalAlignment = VerticalAlignment.Center,
                 Background = Brushes.Transparent,
-                ToolTip = "退避中: " + session.Title + "。押すと、退避したときの状態で開き直す（AI の会話も戻す）",
+                ToolTip = "休止中: " + session.Title + "。押すと、休止したときの状態で開き直す（AI の会話も戻す）",
             };
             tab.MouseLeftButtonDown += (sender, e) =>
             {
@@ -453,7 +507,7 @@ namespace Tsuzuri
             return tab;
         }
 
-        /// <summary>この画面を退避する（閉じて覚えだけを残す）。未保存なら、閉じるときと同じく尋ねる。取りやめたら退避しない。</summary>
+        /// <summary>この画面を休止する（閉じて覚えだけを残す）。未保存なら、閉じるときと同じく尋ねる。取りやめたら休止しない。</summary>
         private void Suspend()
         {
             if (OpenWindows.Count < 2) return;
@@ -465,7 +519,7 @@ namespace Tsuzuri
             if (OpenWindows.Contains(this)) _suspending = false;   // 保存するかで取りやめた
         }
 
-        /// <summary>退避している画面を、その覚えから作り直して前に出す。</summary>
+        /// <summary>休止している画面を、その覚えから作り直して前に出す。</summary>
         private void Resume(WindowSession session)
         {
             session.Suspended = false;

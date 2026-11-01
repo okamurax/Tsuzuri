@@ -59,8 +59,11 @@
         <Border DockPanel.Dock="Top" Height="30"
                 Background="{StaticResource ChromeBackground}"
                 MouseLeftButtonDown="Toolbar_MouseLeftButtonDown">
-            <StackPanel x:Name="WindowList" Orientation="Horizontal" Margin="8,0,8,2" VerticalAlignment="Center"
-                        TextElement.FontSize="13" />
+            <!-- 左に開いている画面のタブと「＋」、右端に休止している画面のタブ（2026-11-01） -->
+            <DockPanel Margin="8,0,8,2" VerticalAlignment="Center" LastChildFill="False" TextElement.FontSize="13">
+                <StackPanel x:Name="SuspendedList" DockPanel.Dock="Right" Orientation="Horizontal" />
+                <StackPanel x:Name="WindowList" Orientation="Horizontal" />
+            </DockPanel>
         </Border>
 
         <!-- ============ ステータスバー。角丸の作業面の外、紺の枠の上に出す ============ -->

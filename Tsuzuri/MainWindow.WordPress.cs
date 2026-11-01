@@ -545,7 +545,7 @@ namespace Tsuzuri
         }
 
         /// <summary>
-        /// 一覧を読み込む（裏のスレッドで）。検索欄が ID・URL なら、その1件。
+        /// 一覧を読み込む（裏のスレッドで）。検索欄が URL なら、その1件。数字だけなら、その ID の1件と、その数字で検索した結果。
         /// 1回に 100 件。まだ残りがあれば、一覧の一番下に「さらに読む」を置き、押すと次の 100 件を下に足す（2026-10-31。前は 100 件で打ち切り）。
         /// 検索は WordPress の側で全記事を探すので、古い記事は検索でも見つかる。
         /// </summary>
@@ -556,6 +556,7 @@ namespace Tsuzuri
             note.Text = "読み込んでいます… " + site.DisplayName;
 
             var id = PostIdOf(query);
+            var searchToo = id > 0 && IsNumberOnly(query);   // 数字だけなら ID でも文字でも探す。URL は ID だけ
             List<WordPressPost> posts;
             var total = -1;
             string error = null;
@@ -566,9 +567,29 @@ namespace Tsuzuri
                 {
                     var client = new WordPressClient(site);
                     if (id <= 0) return client.List(query, page, out total);
+                    if (!searchToo)
+                    {
+                        var one = client.Find(id);
+                        return one == null ? new List<WordPressPost>() : new List<WordPressPost> { one };
+                    }
 
-                    var one = client.Find(id);
-                    return one == null ? new List<WordPressPost>() : new List<WordPressPost> { one };
+                    // 数字だけなら、その ID の記事を先頭に置き、続けて同じ文字で検索した結果を並べる（2026-11-01）。
+                    // 前は ID としてだけ探したので、「050」のように題名にある数字で探すと見つからなかった。
+                    var found = new List<WordPressPost>();
+                    if (page == 1)
+                    {
+                        try
+                        {
+                            var byId = client.Find(id);
+                            if (byId != null) found.Add(byId);
+                        }
+                        catch (Exception)
+                        {
+                            // その ID の記事が無い。検索の結果だけを出す
+                        }
+                    }
+                    found.AddRange(client.List(query, page, out total));
+                    return found;
                 });
             }
             catch (Exception ex)
@@ -603,7 +624,7 @@ namespace Tsuzuri
             note.Text = (string.IsNullOrWhiteSpace(query) ? "最近更新した記事（" + of + "）。" : of + "。") + "押すと開きます。";
 
             // 残りがあり、この枚が満杯だったときだけ（総数が分からなくても、満杯なら続きがあるかもしれない）。
-            if (id <= 0 && posts.Count >= WordPressClient.PageSize && (total < 0 || total > count))
+            if ((id <= 0 || searchToo) && posts.Count >= WordPressClient.PageSize && (total < 0 || total > count))
             {
                 var more = new Button
                 {
@@ -632,6 +653,13 @@ namespace Tsuzuri
 
             var match = PostIdInUrl.Match(query);
             return match.Success && int.TryParse(match.Groups[1].Value, out id) ? id : 0;
+        }
+
+        /// <summary>検索欄が数字だけ（先頭の # は除く）か。</summary>
+        private static bool IsNumberOnly(string query)
+        {
+            query = (query ?? string.Empty).Trim().TrimStart('#');
+            return query.Length > 0 && query.All(c => c >= '0' && c <= '9');
         }
 
         private Border PostRow(WordPressPost post, Action<WordPressPost> open)

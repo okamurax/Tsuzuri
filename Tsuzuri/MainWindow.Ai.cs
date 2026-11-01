@@ -138,8 +138,25 @@ namespace Tsuzuri
                 return;
             }
 
-            if (_aiTabs.Count == 0 && !_aiRestorePending) AddAiTab(string.Empty);   // claude を直接起動する（2026-10-31。前は PowerShell だけ）
+            if (_aiTabs.Count == 0 && !_aiRestorePending)
+            {
+                if (!CanStartAi()) return;
+                AddAiTab(string.Empty);   // claude を直接起動する（2026-10-31。前は PowerShell だけ）
+            }
             ShowAiPane();
+        }
+
+        /// <summary>
+        /// 新しい会話を始めてよいか。ファイル（WordPress の記事も）を開いていなければ始めず、そう知らせる（2026-11-01）。
+        /// 何も開いていないと claude を利用者のフォルダで起動することになり、そこを信頼するか尋ねられる・作業の範囲が広すぎる・
+        /// あとで開いた文書のフォルダの外になる、ため。前の起動の会話を戻すときは、その会話のフォルダで起動するので構わない。
+        /// </summary>
+        private bool CanStartAi()
+        {
+            if (HasDocument) return true;
+
+            Status("AI の会話は、ファイルか WordPress の記事を開いてから始めてください（その文書のフォルダで Claude Code を起動します）。");
+            return false;
         }
 
         /// <summary>起動したあと、前の会話のタブをまだ戻していないか（窓が出て落ち着いてから戻す。MainWindow のコンストラクタ）。</summary>
@@ -304,7 +321,7 @@ namespace Tsuzuri
                 };
                 var style = Application.Current != null ? Application.Current.Resources["ToolButton"] as Style : null;
                 if (style != null) _aiAddButton.Style = style;
-                _aiAddButton.Click += delegate { AddAiTab(string.Empty); };   // メニューは出さず、claude を直接起動する（2026-10-31）
+                _aiAddButton.Click += delegate { if (CanStartAi()) AddAiTab(string.Empty); };   // メニューは出さず、claude を直接起動する（2026-10-31）
             }
 
             AiTabs.Children.Clear();
@@ -447,7 +464,11 @@ namespace Tsuzuri
             if (restorable.Count == 0)
             {
                 // 画面を戻すときに欄を出していたら、空のままにせず新しい会話を1つ開く。
-                if (AiPane.Visibility == Visibility.Visible) AddAiTab(string.Empty);
+                if (AiPane.Visibility == Visibility.Visible)
+                {
+                    if (HasDocument) AddAiTab(string.Empty);
+                    else HideAiPane();   // 何も開いていなければ新しい会話は始めない（CanStartAi）
+                }
                 return false;
             }
 

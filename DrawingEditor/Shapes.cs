@@ -596,6 +596,43 @@ namespace DrawingEditor
             return total > 1e-12 ? walked / total : 0;
         }
 
+        /// <summary>つないだ線の端を、相手の図形の今の位置へ動かす。相手が無くなっていたら、つながりを外す（線はその場に残す）。
+        /// 描く面（DrawingCanvas）と、画面を出さずに画像を作るとき（DrawingEditorHost.RenderPng。2026-11-01）で使う。</summary>
+        public static void UpdateConnections(IList<Shape> shapes)
+        {
+            var byId = new Dictionary<string, Shape>();
+            foreach (var shape in shapes)
+            {
+                if (!string.IsNullOrEmpty(shape.Id) && !byId.ContainsKey(shape.Id)) byId[shape.Id] = shape;
+            }
+
+            // 線の端に線をつないでいることもあるので、2回まわして追いつかせる。
+            for (var pass = 0; pass < 2; pass++)
+            {
+                foreach (var shape in shapes)
+                {
+                    if (!shape.IsSegment) continue;
+
+                    Shape target;
+                    if (shape.StartShape != null)
+                    {
+                        if (byId.TryGetValue(shape.StartShape, out target) && !ReferenceEquals(target, shape))
+                            shape.Start = Geometry.AnchorPoint(target, shape.StartU, shape.StartV);
+                        else
+                            shape.StartShape = null;
+                    }
+
+                    if (shape.EndShape != null)
+                    {
+                        if (byId.TryGetValue(shape.EndShape, out target) && !ReferenceEquals(target, shape))
+                            shape.End = Geometry.AnchorPoint(target, shape.EndU, shape.EndV);
+                        else
+                            shape.EndShape = null;
+                    }
+                }
+            }
+        }
+
         /// <summary>つないだ位置（U・V）の今の点。四角・丸は枠の中の割合、直線・寸法線は始点からの道のりの割合（折れ目をたどる）。</summary>
         public static Point AnchorPoint(Shape shape, double u, double v)
         {

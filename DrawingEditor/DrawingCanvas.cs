@@ -2296,40 +2296,10 @@ namespace DrawingEditor
             }
         }
 
-        /// <summary>つないだ線の端を、相手の図形の今の位置へ動かす。相手が無くなっていたら、つながりを外す（線はその場に残す）。</summary>
+        /// <summary>つないだ線の端を、相手の図形の今の位置へ動かす（Geometry.UpdateConnections）。</summary>
         private void UpdateConnections()
         {
-            var byId = new Dictionary<string, Shape>();
-            foreach (var shape in _shapes)
-            {
-                if (!string.IsNullOrEmpty(shape.Id) && !byId.ContainsKey(shape.Id)) byId[shape.Id] = shape;
-            }
-
-            // 線の端に線をつないでいることもあるので、2回まわして追いつかせる。
-            for (var pass = 0; pass < 2; pass++)
-            {
-                foreach (var shape in _shapes)
-                {
-                    if (!shape.IsSegment) continue;
-
-                    Shape target;
-                    if (shape.StartShape != null)
-                    {
-                        if (byId.TryGetValue(shape.StartShape, out target) && !ReferenceEquals(target, shape))
-                            shape.Start = Geometry.AnchorPoint(target, shape.StartU, shape.StartV);
-                        else
-                            shape.StartShape = null;
-                    }
-
-                    if (shape.EndShape != null)
-                    {
-                        if (byId.TryGetValue(shape.EndShape, out target) && !ReferenceEquals(target, shape))
-                            shape.End = Geometry.AnchorPoint(target, shape.EndU, shape.EndV);
-                        else
-                            shape.EndShape = null;
-                    }
-                }
-            }
+            Geometry.UpdateConnections(_shapes);
         }
 
         /// <summary>動かす線のうち、moving に入っていない図形とのつながりを外す（線そのものを動かしたとき）。</summary>

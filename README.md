@@ -108,6 +108,7 @@ B のリンクを踏む     [A帯][B | C]
 - 話しかけるたびに、開いているファイル・見ているページ・カーソルの行・選んでいる文字が Claude に渡る。「この節を直して」で通じる
 - 話しかけたとき、未保存の編集があれば先に保存する（Claude が最新の内容を読めるように）
 - 会話はタブで複数持てる。次に起動したときは、前の会話のタブを戻す
+- 「ここに構成図を描いて」と頼むと、図エディタの図として描く（Claude が図の JSON を書き、Tsuzuri が画像にする）。出来た図は押せば図エディタで手直しできる
 - タブの名前（#1・#2…）は claude のセッションの名前。「#2 にこの会話の要約を渡して」のように、ほかのタブの会話に頼める（Claude Code のセッション間のメッセージ。Windows では 2.1.234 以上）
 
 Claude Code は別に入れてください（`claude` が PowerShell から動く状態）。入っていなければ、この欄は普通の PowerShell として使えます。
@@ -189,6 +190,7 @@ Tsuzuri/
 ├ Views/                 編集面（AvalonEdit の拡張）、ランチャー、ファイラー、端末
 ├ Export/                Word への書き出し
 ├ WordPress/             WordPress の REST API、HTML → Markdown の変換、送る HTML（WordPressHtml）
+├ Ai/                    AI に図を頼まれたときに読ませる、図の書き方（drawing-format.md）
 ├ Terminal/              AI の欄の端末の画面（xterm.js）
 └ ConPty/                AI の欄の端末で使う ConPTY（conpty.dll・OpenConsole.exe）
 TableEditor/             表エディタ（WPF。本体から DLL として読み込む）

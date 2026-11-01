@@ -76,6 +76,13 @@ namespace Tsuzuri
             /// <summary>中で動いている claude の会話の番号と、そのフォルダ。claude を起動していなければ null（次の起動で戻さない）。</summary>
             public string SessionId;
             public string Folder;
+
+            /// <summary>
+            /// claude のセッションの名前（1・2…。2026-11-01）。claude --name で付け、タブの見出しに出す。
+            /// ほかの会話に「2 にこの会話の要約を渡して」のように頼むときの宛先になる（Claude Code のセッション間のメッセージ）。
+            /// アプリの中で（全部の画面を通して）重ねない。
+            /// </summary>
+            public string Name;
         }
 
         /// <summary>エディタを閉じている最中か。閉じるときに claude が終わっても、開いていたタブの覚えを消さないようにする。</summary>
@@ -129,6 +136,8 @@ namespace Tsuzuri
   ネットワーク上の場所（\\Mac\...）では、-c safe.directory=* を付けないと git に断られる。
   <履歴> の場所は、話しかけるたびに付いてくるエディタの今の状態に書いてある。前回進めたところを踏まえて助言するのに使う。
   この履歴にコミットしたり、書き換えたりしない（記録はエディタがする）。
+- AI の欄には、ほかの会話のタブもある。タブの見出しは、それぞれの claude のセッションの名前（1・2…）。
+  利用者が「2 に〜を渡して」「1 に頼んで」と言ったら、その名前のセッションに SendMessage で送る（相手は ListAgents で探せる）。
 - 返事は日本語で、欄は狭いので短めに書く。";
 
         /// <summary>ツールバーの右端の「AI」。AI の欄を出し入れする。タブが1つも無ければ、claude を起動したタブを1つ開く。</summary>
@@ -169,8 +178,10 @@ namespace Tsuzuri
             {
                 tab.SessionId = restore.Session;
                 tab.Folder = restore.Folder;
+                if (!AiTabNameUsed(restore.Name)) tab.Name = restore.Name;
                 start = "--resume " + restore.Session;   // 番号は Guid の形のものだけ（AppSettings）
             }
+            if (tab.Name == null) tab.Name = NewAiTabName();
 
             // ファイルを開いていなければ、利用者のフォルダで起動する。
             // WordPress の記事なら、記事ごとの一時フォルダではなく、その上の決まったフォルダで起動する（2026-10-31）。
@@ -178,7 +189,7 @@ namespace Tsuzuri
             tab.View = new TerminalView(
                 () =>
                 {
-                    var command = AiCommandLine(first ? start : null, tab.Id);
+                    var command = AiCommandLine(first ? start : null, tab.Id, tab.Name);
                     first = false;
                     return command;
                 },
@@ -190,8 +201,8 @@ namespace Tsuzuri
             tab.View.Visibility = Visibility.Collapsed;
             AiTerminals.Children.Add(tab.View);
 
-            // 名前は端末のタイトル（Windows Terminal と同じ。2026-10-26。前は「会話 1」）。Claude Code は会話の中身に合わせてタイトルを付ける。
-            tab.Title = new TextBlock { Text = "PowerShell", VerticalAlignment = VerticalAlignment.Center, FontSize = 12 };
+            // 見出しはセッションの名前（2026-11-01。前は端末のタイトル。端末のタイトルはツールチップに出す）。
+            tab.Title = new TextBlock { Text = tab.Name, VerticalAlignment = VerticalAlignment.Center, FontSize = 12 };
             tab.Header = CreateAiTabHeader(tab);
             tab.View.TitleChanged += title => SetAiTabTitle(tab, title);
             tab.View.Focused += () => OnAiTerminalFocused(tab);
@@ -376,24 +387,28 @@ namespace Tsuzuri
         private static readonly FontFamily IconFont = new FontFamily("Segoe Fluent Icons, Segoe MDL2 Assets");
 
         /// <summary>
-        /// タブの名前を端末のタイトルにする。頭の飾りの記号（Claude Code が動いている間に回す印など）は外し、
-        /// PowerShell のタイトル（Windows PowerShell・パスなど）は「PowerShell」にまとめる。長ければ切り、全文はツールチップに出す。
+        /// 端末のタイトルが変わった。タブのツールチップに、セッションの名前と並べて出す。
         /// </summary>
         private static void SetAiTabTitle(AiTab tab, string title)
         {
+            // 見出しはセッションの名前のまま。端末のタイトル（Claude Code が会話の中身に合わせて付ける）はツールチップに出す（2026-11-01）。
             var text = (title ?? string.Empty).Trim();
-            var start = 0;
-            while (start < text.Length && !char.IsLetterOrDigit(text[start])) start++;
-            text = text.Substring(start).Trim();
+            tab.Header.ToolTip = "セッションの名前: " + tab.Name + (text.Length > 0 ? Environment.NewLine + text : string.Empty);
+        }
 
-            if (text.Length == 0 || text.IndexOf("powershell", StringComparison.OrdinalIgnoreCase) >= 0
-                || text.IndexOf(":\\", StringComparison.Ordinal) >= 0 || text.StartsWith("\\\\", StringComparison.Ordinal))
-                text = "PowerShell";
+        /// <summary>アプリの中の（全部の画面の）AI の欄のタブで、その名前を使っているか。</summary>
+        private static bool AiTabNameUsed(string name)
+        {
+            if (string.IsNullOrEmpty(name)) return true;
+            return OpenWindows.Any(window => window._aiTabs.Any(tab => tab.Name == name));
+        }
 
-            // 切るのは文字（サロゲートペア・結合文字をまとめた1字）の単位で数える（2026-10-27）。char で切ると、絵文字などが半分に割れて化けた。
-            var letters = new StringInfo(text);
-            tab.Title.Text = letters.LengthInTextElements > 18 ? letters.SubstringByTextElements(0, 18) + "…" : text;
-            tab.Header.ToolTip = string.IsNullOrEmpty(title) ? null : title;
+        /// <summary>新しいタブの名前。使っていないいちばん小さい番号（1・2…）。閉じたタブの番号は、次のタブが使う。</summary>
+        private static string NewAiTabName()
+        {
+            var number = 1;
+            while (AiTabNameUsed(number.ToString(CultureInfo.InvariantCulture))) number++;
+            return number.ToString(CultureInfo.InvariantCulture);
         }
 
         /// <summary>タブの段を並べ直す（タブ、その右に「＋」）。</summary>
@@ -559,7 +574,7 @@ namespace Tsuzuri
             if (_aiStopping) return;
 
             var tabs = _aiTabs.Where(tab => tab.SessionId != null)
-                              .Select(tab => new AiTabState { Session = tab.SessionId, Folder = tab.Folder })
+                              .Select(tab => new AiTabState { Session = tab.SessionId, Folder = tab.Folder, Name = tab.Name })
                               .ToList();
             SavedAiTabs = tabs.Count > 0 ? tabs : null;   // 画面ごとに覚える（2026-10-31）
             _settings.Save();
@@ -626,7 +641,7 @@ namespace Tsuzuri
         /// </summary>
         /// <param name="start">PowerShell が起動したら続けて動かす claude の引数（AddAiTab）。null なら何も動かさない。</param>
         /// <param name="tabId">タブの番号（AiTab.Id）。環境変数 MDEDITOR_AI_TAB で claude のフックに渡す。</param>
-        private string AiCommandLine(string start, string tabId)
+        private string AiCommandLine(string start, string tabId, string name)
         {
             // Claude Code の入る場所（%USERPROFILE%\.local\bin）を PATH の先頭に足す。中の PowerShell はこのアプリの PATH を受け継ぐが、
             // 入れる前から動いていたアプリ（や、それを起動した Visual Studio）の PATH には入っていず、claude が見つからなかった（2026-10-24）。
@@ -686,7 +701,8 @@ namespace Tsuzuri
             // 起動したときに出していた claude の使い方の1行は外した（2026-10-30。タブが戻るので「続き」の案内は要らず、履歴は claude --resume）。
             var command = "$env:MDEDITOR_AI_TAB=" + Quote(tabId) + ";"
                          + "function claude { & " + Quote(claude) + " --settings " + Quote(settings)
-                         + " --append-system-prompt-file " + Quote(instructions) + " @args }";
+                         + " --append-system-prompt-file " + Quote(instructions)
+                         + (string.IsNullOrEmpty(name) ? string.Empty : " --name " + Quote(name)) + " @args }";
             if (start != null) command += ";claude " + start;
             return powershell + " -NoExit -EncodedCommand " + Convert.ToBase64String(Encoding.Unicode.GetBytes(command));
         }

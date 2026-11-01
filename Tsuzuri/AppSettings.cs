@@ -292,5 +292,9 @@ namespace Tsuzuri
         /// <summary>claude が動いていたフォルダ。会話はフォルダごとに記録されるので、同じフォルダで開き直す。</summary>
         [DataMember(Name = "folder", EmitDefaultValue = false)]
         public string Folder { get; set; }
+
+        /// <summary>claude のセッションの名前（1・2…。タブの見出し。2026-11-01）。次の起動でも同じ名前にする。</summary>
+        [DataMember(Name = "name", EmitDefaultValue = false)]
+        public string Name { get; set; }
     }
 }

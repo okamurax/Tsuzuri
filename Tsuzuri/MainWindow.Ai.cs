@@ -121,6 +121,9 @@ namespace Tsuzuri
   この履歴にコミットしたり、書き換えたりしない（記録はエディタがする）。
 - AI の欄には、ほかの会話のタブもある。タブの見出しは、それぞれの claude のセッションの名前（#1・#2…）。
   利用者が「#2 に〜を渡して」「#1 に頼んで」と言ったら、その名前のセッションに SendMessage で送る（相手は ListAgents で探せる）。
+- 「このページに」「ここに」書くように言われたら、見ているページの範囲（今の状態の「見ているページ」に書いた行）の中に書く。
+  範囲の外は別のページ。とくにファイルの末尾に足すと、最後のページの中身になる。ファイルの末尾に足すのは、新しいサブページを作るときだけ。
+  書いたら、ページの範囲の中に入ったかを読み直して確かめる。
 - 返事は日本語で、欄は狭いので短めに書く。";
 
         /// <summary>ツールバーの右端の「AI」。AI の欄を出し入れする。タブが1つも無ければ、claude を起動したタブを1つ開く。</summary>
@@ -935,8 +938,15 @@ namespace Tsuzuri
             var history = DocumentHistory.GitDirOf(document.FilePath);
             if (Directory.Exists(history))
                 text.Append("変更の履歴: git -c safe.directory=* --git-dir=\"").Append(history).Append("\" log -p -- \"").Append(Path.GetFileName(document.FilePath)).Append("\"\n");
+            // ページの範囲は終わりまで書く（2026-11-01）。「このページに書いて」で、ファイルの末尾（最後のページ）に足さないように。
             text.Append("見ているページ: ").Append(PageLabel(view));
-            if (before > 0) text.Append("（ファイルの ").Append(before).Append(" 行目の印から）");
+            int first, last;
+            bool toEnd;
+            if (document.LineRangeOf(view.PageId, out first, out last, out toEnd))
+            {
+                text.Append("（中身はファイルの ").Append(first).Append("〜").Append(last).Append(" 行目");
+                text.Append(toEnd ? "。ファイルの末尾まで" : "。" + (last + 1) + " 行目からは別のページ").Append('）');
+            }
             text.Append('\n');
 
             text.Append("カーソル: ページの ").Append(line).Append(" 行目");

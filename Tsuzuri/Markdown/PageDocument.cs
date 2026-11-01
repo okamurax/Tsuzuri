@@ -399,6 +399,37 @@ namespace Tsuzuri.Markdown
             return -1;
         }
 
+        /// <summary>
+        /// 書き出したときに、このページの中身がファイルの何行目から何行目までか（1 始まり。印の行は含めない。2026-11-01）。
+        /// 終わりは次の印の行の手前、最後のページならファイルの末尾。toEnd は最後のページか。ページが無ければ false。
+        /// </summary>
+        public bool LineRangeOf(string id, out int first, out int last, out bool toEnd)
+        {
+            first = last = 0;
+            toEnd = false;
+
+            var lines = Serialize().Replace("\r\n", "\n").Split('\n');
+            var start = 0;   // 中身の1行目の、0 始まりの位置
+            if (!string.IsNullOrEmpty(id))
+            {
+                var marker = "<!--page: " + id + "-->";
+                start = Array.IndexOf(lines, marker) + 1;
+                if (start == 0) return false;
+            }
+            else if (!Contains(id))
+            {
+                return false;
+            }
+
+            var end = start;
+            while (end < lines.Length && !(lines[end].StartsWith("<!--page: ", StringComparison.Ordinal) && lines[end].EndsWith("-->", StringComparison.Ordinal))) end++;
+
+            first = start + 1;
+            last = Math.Max(first, end);
+            toEnd = end >= lines.Length;
+            return true;
+        }
+
         // =====================================================================
         // ページの出し入れ
         // =====================================================================

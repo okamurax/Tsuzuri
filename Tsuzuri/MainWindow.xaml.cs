@@ -184,6 +184,16 @@ namespace Tsuzuri
                 Save_Click(this, null);
             };
 
+            // Ctrl+PageUp で前の画面、Ctrl+PageDown で次の画面（タブの並び。端で反対の端へ回る。2026-11-01）。
+            // AI の欄の端末にキーボードがあるときも切り替える（端末ではまず使わないキー）。
+            PreviewKeyDown += (sender, e) =>
+            {
+                if (Keyboard.Modifiers != ModifierKeys.Control || (e.Key != Key.PageUp && e.Key != Key.PageDown)) return;
+
+                e.Handled = true;
+                SwitchWindow(e.Key == Key.PageUp ? -1 : 1);
+            };
+
             // 変更の履歴（git）を記録できなかったら知らせる。記録は裏のスレッドで動く。
             // アプリ全体の知らせなので、画面を閉じたら外す（閉じた画面に知らせない・未保存のまま閉じた文書を書き出さない）。
             Action<string> historyFailed = message => Dispatcher.BeginInvoke(new Action(delegate { Status(message); }));

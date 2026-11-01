@@ -254,6 +254,16 @@ namespace Tsuzuri
             if (!IsVisible) BringForward(FrontWindow());
         }
 
+        /// <summary>タブの並びで、隣の画面に切り替える（-1 で前、1 で次。端で反対の端へ回る）。休止している画面は飛ばす。</summary>
+        private void SwitchWindow(int step)
+        {
+            if (OpenWindows.Count < 2) return;
+
+            var index = OpenWindows.IndexOf(this);
+            var next = OpenWindows[((index + step) % OpenWindows.Count + OpenWindows.Count) % OpenWindows.Count];
+            next.BringForward(this);
+        }
+
         /// <summary>
         /// その .md を開いている、ほかの画面。無ければ null。
         /// 1つの文書を2つの画面で開くと、.文書名/state.json（ブックマーク・カーソル）を互いに上書きし、別々に直して食い違うため、開かずにその画面を前に出す。

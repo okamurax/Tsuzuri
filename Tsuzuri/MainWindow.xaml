@@ -258,19 +258,8 @@
                                    Text="Claude に話しかけると、渡したファイルとカーソルの位置をここに出します" />
                     </Border>
                     <!-- タブごとの端末を重ねて置き、選んでいるものだけを出す（外すと WebView2 が作り直しになるため、隠すだけにする）。
-                         上下2段にするときは、下に出すタブの端末を 2 の段に移す（入れ物は同じなので作り直しにならない。2026-10-28） -->
-                    <Grid x:Name="AiTerminals">
-                        <Grid.RowDefinitions>
-                            <RowDefinition x:Name="AiUpperRow" Height="*" />
-                            <RowDefinition x:Name="AiRowSplitterRow" Height="0" />
-                            <RowDefinition x:Name="AiLowerRow" Height="0" />
-                        </Grid.RowDefinitions>
-                        <GridSplitter x:Name="AiRowSplitter" Grid.Row="1" Height="4" Visibility="Collapsed"
-                                      Style="{StaticResource RowSplitter}" ResizeDirection="Rows"
-                                      HorizontalAlignment="Stretch" VerticalAlignment="Stretch"
-                                      DragCompleted="AiRowSplitter_DragCompleted"
-                                      MouseDoubleClick="AiRowSplitter_MouseDoubleClick" />
-                    </Grid>
+                         上下2段に出す機能は 2026-11-01 にやめた -->
+                    <Grid x:Name="AiTerminals" />
                 </DockPanel>
             </Border>
 

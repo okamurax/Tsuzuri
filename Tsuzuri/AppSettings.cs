@@ -38,9 +38,6 @@ namespace Tsuzuri
         [DataMember(Name = "historySplit", EmitDefaultValue = false)]
         public double HistorySplit { get; set; }
 
-        /// <summary>AI の欄を上下2段にしたときの、上の段の高さの割合（2026-10-28）。0 なら未保存で半分ずつ。</summary>
-        [DataMember(Name = "aiSplit", EmitDefaultValue = false)]
-        public double AiSplit { get; set; }
         /// <summary>ファイラーで最後に見ていたフォルダ。</summary>
         [DataMember(Name = "filerFolder")]
         public string FilerFolder { get; set; }
@@ -131,7 +128,6 @@ namespace Tsuzuri
             if (SidebarWidth < 110 || SidebarWidth > 2000) SidebarWidth = 190;
             if (FilerWidth < 180 || FilerWidth > 2000) FilerWidth = 300;
             if (AiWidth < 200 || AiWidth > 4000) AiWidth = 560;
-            if (!(AiSplit >= 0.15 && AiSplit <= 0.85)) AiSplit = 0.5;   // NaN もここで直す
             if (!(HistorySplit >= 0.1 && HistorySplit <= 0.9)) HistorySplit = 0.5;
 
             // 壊れた値や小さすぎる大きさは「未保存」に戻す。最小サイズ（640×400）を下回るものは使わない。

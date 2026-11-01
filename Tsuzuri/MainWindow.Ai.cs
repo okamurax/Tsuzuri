@@ -67,9 +67,6 @@ namespace Tsuzuri
             public Border Header;
             public TextBlock Title;
 
-            /// <summary>見出しの頭の印。下の段に出しているときだけ見せる（2026-10-28）。</summary>
-            public TextBlock Marker;
-
             /// <summary>タブを見分ける番号。中の PowerShell に環境変数で渡し、claude のフックがどのタブの会話かを知らせてくる（2026-10-27）。</summary>
             public readonly string Id = Guid.NewGuid().ToString("N");
 
@@ -93,21 +90,6 @@ namespace Tsuzuri
 
         /// <summary>選んでいるタブ（2段のときは上の段のタブ）。無ければ null。</summary>
         private AiTab _aiTab;
-
-        /// <summary>
-        /// 下の段に出しているタブ。1段なら null（2026-10-28。必要なときだけ上下2段にする）。
-        /// タブを右クリックして「下に表示」で2段にし、「下から外す」か、どちらかの段のタブを閉じると1段に戻る。
-        /// </summary>
-        private AiTab _aiLowerTab;
-
-        /// <summary>2段のとき、下の段で打っているか（最後にキーボードを受け取った端末）。タブを押すと、こちらの段のタブが替わる。</summary>
-        private bool _aiLowerActive;
-
-        /// <summary>打っている段のタブ。1段なら _aiTab。</summary>
-        private AiTab ActiveAiTab
-        {
-            get { return _aiLowerTab != null && _aiLowerActive ? _aiLowerTab : _aiTab; }
-        }
 
         /// <summary>タブの段の「＋」。初めて欄を出すときに作る。</summary>
         private Button _aiAddButton;
@@ -205,7 +187,6 @@ namespace Tsuzuri
             tab.Title = new TextBlock { Text = tab.Name, VerticalAlignment = VerticalAlignment.Center, FontSize = 12 };
             tab.Header = CreateAiTabHeader(tab);
             tab.View.TitleChanged += title => SetAiTabTitle(tab, title);
-            tab.View.Focused += () => OnAiTerminalFocused(tab);
             _aiTabs.Add(tab);
             RebuildAiTabStrip();
             SelectAiTab(tab);
@@ -232,20 +213,7 @@ namespace Tsuzuri
             if (style != null) close.Style = style;
             close.Click += delegate { CloseAiTab(tab); };
 
-            tab.Marker = new TextBlock
-            {
-                Text = "",
-                ToolTip = "下の段に出しています",
-                FontFamily = IconFont,
-                FontSize = 9,
-                Margin = new Thickness(0, 0, 5, 0),
-                VerticalAlignment = VerticalAlignment.Center,
-                Foreground = (Brush)FindResource("TextMuted"),
-                Visibility = Visibility.Collapsed,
-            };
-
             var panel = new StackPanel { Orientation = Orientation.Horizontal };
-            panel.Children.Add(tab.Marker);
             panel.Children.Add(tab.Title);
             panel.Children.Add(close);
 
@@ -266,121 +234,19 @@ namespace Tsuzuri
                 if (IsButtonClick(e.OriginalSource as DependencyObject)) return;   // × は閉じる
                 SelectAiTab(tab);
             };
-            header.MouseRightButtonUp += (sender, e) =>
-            {
-                e.Handled = true;
-                ShowAiTabMenu(tab);
-            };
             return header;
         }
 
-        /// <summary>タブを右クリックしたときのメニュー（2026-10-28）。下の段に出す・下から外す。</summary>
-        private void ShowAiTabMenu(AiTab tab)
-        {
-            var menu = new ContextMenu { PlacementTarget = tab.Header, Placement = System.Windows.Controls.Primitives.PlacementMode.Bottom };
-            if (ReferenceEquals(tab, _aiLowerTab))
-            {
-                menu.Items.Add(AiMenuItem("下から外す", "1段に戻す（このタブは動き続ける）", UnsplitAi));
-            }
-            else
-            {
-                var below = AiMenuItem("下に表示", "このタブを下の段に出し、上下2段にする", () => ShowAiTabBelow(tab));
-                below.IsEnabled = _aiTabs.Count > 1;   // 上の段に出すタブが無い
-                menu.Items.Add(below);
-            }
-            menu.IsOpen = true;
-        }
-
-        /// <summary>
-        /// タブを下の段に出す。上の段に出していたタブなら、上には隣のタブを出す（2段のときは上下を入れ替える）。
-        /// 出したら、下の段で打てるようにする。
-        /// </summary>
-        private void ShowAiTabBelow(AiTab tab)
-        {
-            if (_aiTabs.Count < 2) return;
-
-            if (ReferenceEquals(tab, _aiTab))
-            {
-                var index = _aiTabs.IndexOf(tab);
-                _aiTab = _aiLowerTab ?? _aiTabs[index > 0 ? index - 1 : 1];
-            }
-
-            _aiLowerTab = tab;
-            _aiLowerActive = true;
-            ShowAiTabs();
-            if (AiPane.Visibility == Visibility.Visible) FocusAiTerminal(tab);
-        }
-
-        /// <summary>1段に戻す。上の段のタブを残す（下に出していたタブは隠すだけで、動き続ける）。</summary>
-        private void UnsplitAi()
-        {
-            _aiLowerTab = null;
-            _aiLowerActive = false;
-            ShowAiTabs();
-            if (_aiTab != null && AiPane.Visibility == Visibility.Visible) FocusAiTerminal(_aiTab);
-        }
-
-        /// <summary>端末がキーボードを受け取った。2段なら、どちらの段で打っているかを覚え、タブの色を合わせる。</summary>
-        private void OnAiTerminalFocused(AiTab tab)
-        {
-            if (_aiLowerTab == null) return;
-
-            var lower = ReferenceEquals(tab, _aiLowerTab);
-            if (!lower && !ReferenceEquals(tab, _aiTab)) return;
-            if (_aiLowerActive == lower) return;
-
-            _aiLowerActive = lower;
-            ShowAiTabs();
-        }
-
-        /// <summary>
-        /// 選んでいるタブの端末だけを出し、ほかは隠す（隠しても動き続ける）。2段なら、下の段のタブの端末を下の段に移す
-        /// （同じ Grid の中で段を替えるだけなので、WebView2 は作り直しにならない）。
-        /// タブの色: 打っている段のタブは青、もう一方の段に出しているタブは薄い地、出していないタブは地なし。
-        /// </summary>
+        /// <summary>選んでいるタブの端末だけを出し、ほかは隠す（隠しても動き続ける）。選んでいるタブは青。</summary>
         private void ShowAiTabs()
         {
-            var split = _aiLowerTab != null;
-            AiUpperRow.Height = new GridLength(split ? _settings.AiSplit : 1, GridUnitType.Star);
-            AiRowSplitterRow.Height = new GridLength(split ? 4 : 0);
-            AiLowerRow.Height = split ? new GridLength(1 - _settings.AiSplit, GridUnitType.Star) : new GridLength(0);
-            AiRowSplitter.Visibility = split ? Visibility.Visible : Visibility.Collapsed;
-
-            var active = ActiveAiTab;
             foreach (var other in _aiTabs)
             {
-                var lower = ReferenceEquals(other, _aiLowerTab);
-                var shown = lower || ReferenceEquals(other, _aiTab);
-                var selected = ReferenceEquals(other, active);
-
-                Grid.SetRow(other.View, lower ? 2 : 0);
-                other.View.Visibility = shown ? Visibility.Visible : Visibility.Collapsed;
-                other.Header.Background = selected ? (Brush)FindResource("AccentFill") : shown ? (Brush)FindResource("HoverFill") : Brushes.Transparent;
-                other.Title.Foreground = (Brush)FindResource(selected ? "AccentText" : shown ? "TextPrimary" : "TextMuted");
-                other.Marker.Visibility = lower ? Visibility.Visible : Visibility.Collapsed;
+                var selected = ReferenceEquals(other, _aiTab);
+                other.View.Visibility = selected ? Visibility.Visible : Visibility.Collapsed;
+                other.Header.Background = selected ? (Brush)FindResource("AccentFill") : Brushes.Transparent;
+                other.Title.Foreground = (Brush)FindResource(selected ? "AccentText" : "TextMuted");
             }
-        }
-
-        /// <summary>上下の仕切りを動かしたら、上の段の割合を覚える。</summary>
-        private void AiRowSplitter_DragCompleted(object sender, System.Windows.Controls.Primitives.DragCompletedEventArgs e)
-        {
-            if (e.VerticalChange == 0) return;   // 押しただけ（ダブルクリックの2回目の離しも来る）
-
-            var total = AiUpperRow.ActualHeight + AiLowerRow.ActualHeight;
-            if (total < 1) return;
-
-            _settings.AiSplit = Math.Max(0.15, Math.Min(0.85, AiUpperRow.ActualHeight / total));
-            _settings.Save();
-            ShowAiTabs();   // 動かしたときの段の高さ（ピクセルの値の割合）を、覚えた割合に置き直す
-        }
-
-        /// <summary>上下の仕切りをダブルクリックしたら、ちょうど半分ずつに戻す（2026-10-28）。</summary>
-        private void AiRowSplitter_MouseDoubleClick(object sender, MouseButtonEventArgs e)
-        {
-            e.Handled = true;
-            _settings.AiSplit = 0.5;
-            _settings.Save();
-            ShowAiTabs();
         }
 
         /// <summary>アイコンのフォント（ファイラー・検索欄の ↑↓ と同じ）。</summary>
@@ -438,27 +304,10 @@ namespace Tsuzuri
             AiTabs.Children.Add(_aiAddButton);
         }
 
-        private static MenuItem AiMenuItem(string header, string tip, Action click)
-        {
-            var item = new MenuItem { Header = header, ToolTip = tip };
-            item.Click += delegate { click(); };
-            return item;
-        }
-
-        /// <summary>
-        /// タブを選ぶ。そのタブの端末を出し、ほかは隠す（隠しても動き続ける）。
-        /// 2段のとき: 上下どちらかに出しているタブなら、その段で打てるようにする。出していないタブなら、打っている段のタブと替える。
-        /// </summary>
+        /// <summary>タブを選ぶ。そのタブの端末を出し、ほかは隠す（隠しても動き続ける）。</summary>
         private void SelectAiTab(AiTab tab)
         {
-            if (_aiLowerTab == null) _aiTab = tab;
-            else if (!ReferenceEquals(tab, _aiTab) && !ReferenceEquals(tab, _aiLowerTab))
-            {
-                if (_aiLowerActive) _aiLowerTab = tab;
-                else _aiTab = tab;
-            }
-            _aiLowerActive = ReferenceEquals(tab, _aiLowerTab);
-
+            _aiTab = tab;
             ShowAiTabs();
             if (AiPane.Visibility == Visibility.Visible) FocusAiTerminal(tab);
         }
@@ -495,7 +344,7 @@ namespace Tsuzuri
             Keyboard.Focus(_aiFocusSink);
             Dispatcher.BeginInvoke(new Action(delegate
             {
-                if (ReferenceEquals(ActiveAiTab, tab) && AiPane.Visibility == Visibility.Visible) tab.View.FocusTerminal();
+                if (ReferenceEquals(_aiTab, tab) && AiPane.Visibility == Visibility.Visible) tab.View.FocusTerminal();
             }), DispatcherPriority.Background);
         }
 
@@ -515,23 +364,12 @@ namespace Tsuzuri
             if (_aiTabs.Count == 0)
             {
                 _aiTab = null;
-                _aiLowerTab = null;
                 ShowAiTabs();
                 HideAiPane();
                 return;
             }
 
-            // 2段のときにどちらかの段のタブを閉じたら、残った段のタブで1段に戻す。
-            if (ReferenceEquals(_aiLowerTab, tab))
-            {
-                UnsplitAi();
-            }
-            else if (ReferenceEquals(_aiTab, tab) && _aiLowerTab != null)
-            {
-                _aiTab = _aiLowerTab;
-                UnsplitAi();
-            }
-            else if (ReferenceEquals(_aiTab, tab))
+            if (ReferenceEquals(_aiTab, tab))
             {
                 SelectAiTab(_aiTabs[Math.Min(index, _aiTabs.Count - 1)]);
             }
@@ -714,7 +552,7 @@ namespace Tsuzuri
             AiSplitterColumn.Width = new GridLength(4);
             AiColumn.Width = new GridLength(_settings.AiWidth);
 
-            if (ActiveAiTab != null) FocusAiTerminal(ActiveAiTab);
+            if (_aiTab != null) FocusAiTerminal(_aiTab);
         }
 
         private void HideAiPane()

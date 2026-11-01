@@ -83,8 +83,6 @@ namespace Tsuzuri.Views
         /// <summary>端末のタイトルが変わった（中のプログラムが付けたもの。PowerShell・Claude Code など）。AI の欄のタブの名前にする。</summary>
         public event Action<string> TitleChanged;
 
-        /// <summary>端末がキーボードを受け取った（押した・タブを選んだ）。AI の欄を2段にしたとき、どちらの段で打っているかを知る（2026-10-28）。</summary>
-        public event Action Focused;
 
         public bool IsRunning
         {
@@ -128,7 +126,6 @@ namespace Tsuzuri.Views
 
             Stop();
             TitleChanged = null;
-            Focused = null;
             ReleaseWeb();
             Child = null;
         }
@@ -333,11 +330,6 @@ namespace Tsuzuri.Views
                     message.TryGetValue("title", out title);
                     var changed = TitleChanged;
                     if (changed != null && title is string) changed((string)title);
-                    break;
-
-                case "focused":
-                    var focused = Focused;
-                    if (focused != null) focused();
                     break;
 
                 case "link":

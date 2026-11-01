@@ -30,7 +30,8 @@ namespace Tsuzuri
         // ツールバー（SPEC 11章）
         //
         // メニューバーは持たない。操作はすべてツールバー・右クリック・
-        // ドラッグ&ドロップから届く。ファイルを開く・新しく作るのはファイラーとランチャーから（2026-10-14。「新規」「開く」はやめた）。
+        // ドラッグ&ドロップから届く。ファイルを開くのはファイラーとランチャーから（2026-10-14。「新規」「開く」はやめた）。
+        // 新しく作るのは、ファイラーの右クリックと、ツールバーの「新規作成」（2026-11-01 に戻した）。
         // ---------------------------------------------------------------
 
         /// <summary>
@@ -102,13 +103,84 @@ namespace Tsuzuri
             CloseAllWindows();
         }
 
-        /// <summary>ツールバーの右端の「ランチャー」（2026-10-31。前はページの上端の段）。ランチャーとファイラーを出し入れする（SPEC 4章）。</summary>
+        /// <summary>
+        /// ツールバーの左端の「新規作成」（2026-11-01。SPEC 4章）。.md を作り、新しい画面（タブ）で開く。
+        /// 何も開いていない画面なら、新しい画面を作らずにその画面で開く。ほかの画面で開いている文書を選んだら、その画面を前に出す。
+        /// </summary>
+        private void New_Click(object sender, RoutedEventArgs e)
+        {
+            var path = AskNewDocument("新しい Markdown を作る");
+            if (path == null) return;
+
+            if (!HasDocument)
+            {
+                OpenRoot(path);
+                return;
+            }
+
+            if (_stack.Any(view => SamePath(view.FilePath, path)))
+            {
+                Status("この文書はこの画面で開いています: " + path);
+                return;
+            }
+
+            var holder = WindowHolding(path);
+            if (holder != null)
+            {
+                holder.BringForward(this);
+                holder.Status("この文書はこの画面で開いています: " + path);
+                return;
+            }
+
+            // 開くのは、新しい画面の支度（Loaded）が済んでから。
+            var window = new MainWindow(_settings, this, null);
+            window.Loaded += delegate { window.OpenRoot(path); };
+            window.BringForward(this);
+        }
+
+        /// <summary>
+        /// Windows のファイルを作る画面で .md の場所と名前を決めてもらい、作る（2026-11-01）。作ったファイルのパスを返す。やめたら null。
+        /// 作り方はファイラーの「新しいファイル…」と同じ（見出し「# 名前」を書き、.文書名/ も黙って作る）。
+        /// 今あるファイルを選んだら、書き換えずにそのパスを返す（呼び出し側はそれを開く）。
+        /// ツールバーの「新規作成」と、何も開いていない画面で AI を始めるとき（CanStartAi）に使う。
+        /// </summary>
+        private string AskNewDocument(string title)
+        {
+            var dialog = new Microsoft.Win32.SaveFileDialog
+            {
+                Title = title,
+                Filter = "Markdown (*.md)|*.md",
+                DefaultExt = ".md",
+                FileName = "新しい文書.md",
+                OverwritePrompt = false,   // 今あるファイルを選んだら、書き換えずにそれを開く
+            };
+            if (_filer != null && !string.IsNullOrEmpty(_filer.Folder) && Directory.Exists(_filer.Folder))
+                dialog.InitialDirectory = _filer.Folder;
+
+            if (dialog.ShowDialog(this) != true) return null;
+
+            var path = dialog.FileName;
+            if (File.Exists(path)) return path;
+
+            if (!TryCreatePage(path, Path.GetFileNameWithoutExtension(path))) return null;
+            try
+            {
+                Directory.CreateDirectory(Attachments.FolderOf(path));
+            }
+            catch (Exception)
+            {
+                // 作れなければ開くときに尋ねる（CreateFromFiler と同じ）
+            }
+            return path;
+        }
+
+        /// <summary>ツールバーの「ランチャー」（2026-10-31。前はページの上端の段）。ランチャーとファイラーを出し入れする（SPEC 4章）。</summary>
         private void Launcher_Click(object sender, RoutedEventArgs e)
         {
             ToggleLauncher();
         }
 
-        /// <summary>ツールバーの右端の「AI」（2026-10-31。前はページの上端の段）。AI の欄を出し入れする（SPEC 19章）。</summary>
+        /// <summary>ツールバーの「AI」（2026-10-31。前はページの上端の段）。AI の欄を出し入れする（SPEC 19章）。</summary>
         private void Ai_Click(object sender, RoutedEventArgs e)
         {
             ToggleAi();

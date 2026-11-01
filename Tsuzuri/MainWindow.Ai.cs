@@ -148,7 +148,7 @@ namespace Tsuzuri
 
         /// <summary>
         /// 新しい会話を始めてよいか。ファイル（WordPress の記事も）を開いていれば、そのまま始める。
-        /// 何も開いていない画面なら、Windows のファイルを作る画面で .md を作って開き、その文書のフォルダで始める（2026-11-01）。
+        /// 何も開いていない画面なら、Windows のファイルを作る画面で .md を作って開き（AskNewDocument。ツールバーの「新規作成」と同じ作り方）、その文書のフォルダで始める（2026-11-01）。
         /// 作るのをやめたら始めない。何も開かずに claude を起動すると利用者のフォルダで動き、そこを信頼するか尋ねられる・作業の範囲が広すぎる・
         /// あとで開いた文書のフォルダの外になる、ため（Claude に作らせてから開く案は、AI の動きに頼るのでやめた）。
         /// 前の起動の会話を戻すときは、その会話のフォルダで起動するので構わない。
@@ -156,32 +156,9 @@ namespace Tsuzuri
         private bool CanStartAi()
         {
             if (HasDocument) return true;
-
-            var dialog = new Microsoft.Win32.SaveFileDialog
-            {
-                Title = "AI と使う Markdown を作る",
-                Filter = "Markdown (*.md)|*.md",
-                DefaultExt = ".md",
-                FileName = "新しい文書.md",
-                OverwritePrompt = false,   // 今あるファイルを選んだら、書き換えずにそれを開く
-            };
-            if (_filer != null && !string.IsNullOrEmpty(_filer.Folder) && Directory.Exists(_filer.Folder))
-                dialog.InitialDirectory = _filer.Folder;
-
-            if (dialog.ShowDialog(this) != true) return false;
-
-            try
-            {
-                if (!File.Exists(dialog.FileName)) File.WriteAllText(dialog.FileName, string.Empty, new UTF8Encoding(false));
-            }
-            catch (Exception ex)
-            {
-                MessageBox.Show(this, "ファイルを作れませんでした。" + Environment.NewLine + ex.Message, "AI",
-                    MessageBoxButton.OK, MessageBoxImage.Warning);
-                return false;
-            }
-
-            OpenRoot(dialog.FileName);
+            var path = AskNewDocument("AI と使う Markdown を作る");
+            if (path == null) return false;
+            OpenRoot(path);
             return HasDocument;
         }
 

@@ -22,10 +22,12 @@
         <Border DockPanel.Dock="Top" Height="40"
                 Background="{StaticResource ChromeBackground}"
                 MouseLeftButtonDown="Toolbar_MouseLeftButtonDown">
-            <!-- 左から、開いている文書に対する操作｜ウィンドウ全体の機能（ランチャー・AI）｜終了。全部を左に寄せる（2026-11-01。前は右端、その前はページの上端の段に置いていた） -->
+            <!-- 左から、新規作成と開いている文書に対する操作｜ウィンドウ全体の機能（ランチャー・AI）｜終了。全部を左に寄せる（2026-11-01。前は右端、その前はページの上端の段に置いていた） -->
             <DockPanel Margin="8,0,8,0" VerticalAlignment="Center" LastChildFill="False"
                        TextElement.FontSize="13">
                 <StackPanel Orientation="Horizontal">
+                    <Button Content="新規作成(_O)" Style="{StaticResource ToolButton}" Click="New_Click"
+                            ToolTip="Markdown のファイルを作って、この画面で開く。今あるファイルを選んだら、書き換えずにそれを開く" />
                     <Button Content="保存(_S)"   Style="{StaticResource ToolButton}" Click="Save_Click" />
                     <Button Content="サブページ作成(_E)" Style="{StaticResource ToolButton}" Click="Extract_Click"
                             ToolTip="選択した範囲をサブページに移し、その場にリンクを残す。選択が無ければ、カーソルの行の文字をリンクにして空のサブページを作る" />

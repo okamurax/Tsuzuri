@@ -1036,6 +1036,40 @@ namespace Tsuzuri.Views
                 ScheduleTableRefresh();
         }
 
+        /// <summary>
+        /// 記号を隠している行で Enter を押したとき、見えている文字と隠れている記号の間で改行しないよう、カーソルを寄せる（2026-11-02）。
+        /// ・カーソルより後ろが隠れた記号だけ（見出しの閉じの `#`、行末のリンクの `](…)` など）なら行末へ。見た目どおり、行の後ろに新しい行ができる
+        /// ・カーソルより前が隠れた記号だけ（見出しの `## `、行頭のリンクの `[` など）なら行頭へ。見た目どおり、行の前に空の行ができる
+        /// 前は記号の手前で切れ、`## [予定` と `](#p3)` に分かれるなど、見出しやリンクが壊れていた。
+        /// 置き換えて見せている記号（箇条書きの •、画像の題）は見えている文字なので、寄せる対象にしない。選択があるとき・記号を出している行では何もしない。
+        /// </summary>
+        private void StepOverHiddenEdge()
+        {
+            if (!TextArea.Selection.IsEmpty) return;
+
+            var number = TextArea.Caret.Line;
+            var ranges = GetHiddenRanges(number);   // 記号を出している行は null
+            if (ranges == null || ranges.Count == 0) return;
+
+            var line = Document.GetLineByNumber(number);
+            var column = CaretOffset - line.Offset;
+
+            Func<int, bool> hidden = index => ranges.Any(range =>
+                string.IsNullOrEmpty(range.Replacement) && index >= range.Start && index < range.Start + range.Length);
+
+            if (column < line.Length && Enumerable.Range(column, line.Length - column).All(hidden))
+            {
+                CaretOffset = line.EndOffset;
+                return;
+            }
+
+            if (column > 0 && Enumerable.Range(0, column).All(hidden))
+            {
+                _allowBeforeIndent = true;   // 行頭に置いたカーソルを、字下げの後ろへ戻させない
+                CaretOffset = line.Offset;
+            }
+        }
+
         /// <summary>キーボードで触り始めた。キャレットの行を生ソースにし、以後ついて回る。</summary>
         private void FollowCaret()
         {
@@ -1060,8 +1094,13 @@ namespace Tsuzuri.Views
                 case Key.PageUp:
                 case Key.PageDown:
                 case Key.Back:
-                case Key.Delete:
                 case Key.Enter:
+                    // 記号を出す前に、隠れた記号の手前・後ろで改行しないようにカーソルを寄せる（記号を出すと隠れていたかが分からなくなる）。
+                    if ((Keyboard.Modifiers & ModifierKeys.Control) == 0) StepOverHiddenEdge();
+                    FollowCaret();
+                    return;
+
+                case Key.Delete:
                 case Key.Tab:
                 case Key.ImeProcessed:      // 日本語入力の変換中
                     FollowCaret();

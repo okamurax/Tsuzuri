@@ -21,7 +21,7 @@ namespace Tsuzuri
 {
     // MainWindow の一部: AI（Claude Code）と並べて使う（SPEC 19章。2026-10-24）。
     //
-    // 段の右端の「AI」（ランチャーの隣）で、本文の右に AI の欄（Views/TerminalView）を出し入れする。
+    // ツールバーの「AI」（ランチャーの隣）で、本文の右に AI の欄（Views/TerminalView）を出し入れする。
     // 欄の中は端末（WebView2 の中の xterm.js と ConPTY）で、Claude Code の画面がそのまま動く。
     // 見張り続けることはせず、次のきっかけだけで動く。
     // ・話しかけたとき: Claude Code のフックが名前付きパイプで頼んでくる。保存して今の状態を書き出し、フックがそれを Claude に渡す
@@ -92,7 +92,7 @@ namespace Tsuzuri
         /// <summary>AI の欄の会話のタブ。左から。隠しても claude は動いたまま。</summary>
         private readonly List<AiTab> _aiTabs = new List<AiTab>();
 
-        /// <summary>選んでいるタブ（2段のときは上の段のタブ）。無ければ null。</summary>
+        /// <summary>選んでいるタブ。無ければ null。</summary>
         private AiTab _aiTab;
 
         /// <summary>タブの段の「＋」。初めて欄を出すときに作る。</summary>
@@ -142,7 +142,7 @@ namespace Tsuzuri
         /// <summary>図の書き方（2026-11-01。SPEC 19章）。exe の隣に置き、図を頼まれたときだけ Claude に読ませる（毎回は渡さない）。</summary>
         private static readonly string AiDrawingFormat = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Ai", "drawing-format.md");
 
-        /// <summary>ツールバーの右端の「AI」。AI の欄を出し入れする。タブが1つも無ければ、claude を起動したタブを1つ開く。</summary>
+        /// <summary>ツールバーの「AI」。AI の欄を出し入れする。タブが1つも無ければ、claude を起動したタブを1つ開く。</summary>
         private void ToggleAi()
         {
             if (AiPane.Visibility == Visibility.Visible)
@@ -531,8 +531,8 @@ namespace Tsuzuri
 
         /// <summary>
         /// 欄の端末で起動するコマンド。中は普通の PowerShell（2026-10-24。まず端末として確実に動かし、動いてから下を付け直した）。
-        /// その中で claude と打つと、今の状態を渡すフック（AiSettings）と指示を付けた Claude Code が起動する。
-        /// PowerShell の関数 claude で、本物の claude.exe を設定付きで呼び直す。欄の外で起動した claude には付かない。
+        /// タブを作ると、今の状態を渡すフック（AiSettings）と指示を付けた Claude Code をすぐ起動する（start）。claude が終わったあとも、
+        /// その PowerShell で claude と打てば同じ設定で起動する（PowerShell の関数 claude で、本物の claude.exe を設定付きで呼び直す）。欄の外で起動した claude には付かない。
         /// 設定を書けなければ、関数は置かず、ただの PowerShell にする（claude も設定なしで動く）。
         /// </summary>
         /// <param name="start">PowerShell が起動したら続けて動かす claude の引数（AddAiTab）。null なら何も動かさない。</param>
@@ -557,7 +557,7 @@ namespace Tsuzuri
             {
                 if (start == null) return powershell;
 
-                // 「＋」で claude の起動を選んだのに見つからなければ、黙って PowerShell だけにせず知らせる（2026-10-27）。
+                // claude を起動するはずが見つからなければ、黙って PowerShell だけにせず知らせる（2026-10-27）。
                 Status("claude（Claude Code）が見つかりませんでした。PowerShell だけを起動します。");
                 var missing = "Write-Host " + Quote("claude（Claude Code）が見つかりませんでした（" + local + " にも PATH にもありません）。"
                                                    + "入れてから、＋ で会話を開き直してください。") + " -ForegroundColor Yellow";

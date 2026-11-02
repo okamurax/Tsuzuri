@@ -10,18 +10,18 @@ using Tsuzuri.Views;
 
 namespace Tsuzuri
 {
-    // MainWindow の一部: 画面を増やす（2026-10-31。試作）。
+    // MainWindow の一部: 画面を増やす（2026-10-31）。
     //
     // 1つのアプリの中で、この画面（MainWindow）を丸ごともう1つ作る。中の作りは変えず、画面ごとに今までと同じに動く。
     // 別の exe を起動しないのは、app.json を2つのアプリが別々に書いて、ランチャーの登録などを消し合わないため（設定はメモリの上で1つを共有する）。
-    // ・1つの文書は1つの画面だけで開く（リンクで右に開いた .md・WordPress の記事も）。.文書名/state.json と変更の記録を、2つの画面から書かないため
+    // ・1つの文書は1つの画面だけで開く（リンクで右に開いた .md・WordPress の記事も。休止している画面の分も）。.文書名/state.json と変更の記録を、2つの画面から書かないため
     // ・終了したときに開いていた画面は、次の起動で全部戻す（ページの並び・AI の会話のタブ。WordPress の記事は読み込み直す）。
-    //   最初の画面の分は app.json の Screen・Collapsed・AiTabs、増やした画面の分は Windows に覚える。タブの × で閉じたら、その分は消す
+    //   最初の画面の分は app.json の Screen・Collapsed・AiTabs、増やした画面の分は Windows に覚える。タブの × で閉じたら、その分は消す（「終了」・ログオフでは残す）
     // ・タブの × は、その画面だけを閉じる。ツールバーの「終了」は、アプリごと（全部の画面を）閉じる（2026-10-31）
     //   最初の画面を × で閉じたら、次の画面が最初の画面を引き継ぐ（前回のファイル・app.json の上のほうの項目）
     // ・画面は全部同じ位置・大きさに重ね、ツールバーの一段下のタブで前に出す
     // ・前に出ている画面のほかは隠す（2026-11-01）。タスクバーのボタンも Alt+Tab も1つで、切り替えはタブだけ
-    // ・タブを右クリック →「休止する」で、画面を閉じて覚えだけを残す（2026-11-01）。起動しても作らず、AI の会話も始めない。
+    // ・タブを掴んで少し動かすか、右クリック →「休止する」で、画面を閉じて覚えだけを残す（2026-11-01）。起動しても作らず、AI の会話も始めない。
     //   タブは薄く残り、押すとその覚えから画面を作り直す（ページの並び・AI の会話も戻す。WordPress の記事は読み込み直す）
     public partial class MainWindow
     {
@@ -48,7 +48,7 @@ namespace Tsuzuri
         /// <summary>前に出ている画面（ほかの画面は隠してある）。最後に前に出た画面。</summary>
         private static MainWindow _frontWindow;
 
-        /// <summary>ツールバーの一覧を最後に組んだときの中身。変わったときだけ組み直す。</summary>
+        /// <summary>画面のタブの段を最後に組んだときの中身。変わったときだけ組み直す。</summary>
         private string _windowListSignature;
 
         /// <summary>
@@ -218,7 +218,7 @@ namespace Tsuzuri
             WindowState = other.WindowState == WindowState.Maximized ? WindowState.Maximized : WindowState.Normal;
         }
 
-        /// <summary>ツールバーの「＋」。空の画面を1つ増やして前に出す。開くのは、その画面のランチャー・WordPress から。</summary>
+        /// <summary>画面のタブの段の「＋」。空の画面を1つ増やして前に出す。開くのは、その画面のランチャー・WordPress・新規作成から。</summary>
         private void NewWindow_Click(object sender, RoutedEventArgs e)
         {
             var window = new MainWindow(_settings, this, null);

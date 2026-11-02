@@ -88,7 +88,8 @@ namespace Tsuzuri
 
         /// <summary>
         /// 増やした画面（2026-10-31）。作った順。最初の画面の分は上の Screen・Collapsed・AiTabs。
-        /// 終了したときに開いていた画面を、次の起動で全部戻すため。画面を「終了」で閉じたら、その分は消す。
+        /// 終了したときに開いていた画面を、次の起動で全部戻すため。画面をタブの × で閉じたら、その分は消す（「終了」・ログオフでは残す）。
+        /// 休止している画面（Suspended）もここに置く。
         /// </summary>
         [DataMember(Name = "windows", EmitDefaultValue = false)]
         public List<WindowSession> Windows { get; set; }

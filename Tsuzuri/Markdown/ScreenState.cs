@@ -23,7 +23,7 @@ namespace Tsuzuri.Markdown
         [DataMember(Name = "launcher", EmitDefaultValue = false)]
         public bool Launcher { get; set; }
 
-        /// <summary>AI の欄を出していたか。出していれば、戻すときに欄を出す（中の PowerShell は起動し直す。claude は起動しない）。</summary>
+        /// <summary>AI の欄を出していたか。出していれば、戻すときに欄を出す（会話のタブは app.json の aiTabs から claude --resume で戻す）。</summary>
         [DataMember(Name = "ai", EmitDefaultValue = false)]
         public bool Ai { get; set; }
 

@@ -211,7 +211,7 @@
     send({ type: 'input', data: data });
   });
   term.onResize((size) => send({ type: 'resize', cols: size.cols, rows: size.rows }));
-  term.onTitleChange((title) => send({ type: 'title', title: title }));   // 端末のタイトル。AI の欄のタブの名前にする
+  term.onTitleChange((title) => send({ type: 'title', title: title }));   // 端末のタイトル。AI の欄のタブのツールチップに出す
 
   // 欄の幅が変わったら、桁数と行数を合わせ直す。
   new ResizeObserver(() => { try { fit.fit(); } catch (e) { } }).observe(document.getElementById('terminal'));

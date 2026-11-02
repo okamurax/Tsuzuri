@@ -80,7 +80,7 @@ namespace Tsuzuri.Views
             Loaded += delegate { Initialize(); };
         }
 
-        /// <summary>端末のタイトルが変わった（中のプログラムが付けたもの。PowerShell・Claude Code など）。AI の欄のタブの名前にする。</summary>
+        /// <summary>端末のタイトルが変わった（中のプログラムが付けたもの。PowerShell・Claude Code など）。AI の欄のタブのツールチップに出す。</summary>
         public event Action<string> TitleChanged;
 
 

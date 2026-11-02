@@ -27,7 +27,7 @@
                        TextElement.FontSize="13">
                 <StackPanel Orientation="Horizontal">
                     <Button Content="新規作成(_O)" Style="{StaticResource ToolButton}" Click="New_Click"
-                            ToolTip="Markdown のファイルを作って、この画面で開く。今あるファイルを選んだら、書き換えずにそれを開く" />
+                            ToolTip="Markdown のファイルを作って、新しい画面（タブ）で開く（何も開いていない画面なら、その画面で）。今あるファイルを選んだら、書き換えずにそれを開く" />
                     <Button Content="保存(_S)"   Style="{StaticResource ToolButton}" Click="Save_Click" />
                     <Button Content="サブページ作成(_E)" Style="{StaticResource ToolButton}" Click="Extract_Click"
                             ToolTip="選択した範囲をサブページに移し、その場にリンクを残す。選択が無ければ、カーソルの行の文字をリンクにして空のサブページを作る" />
@@ -47,7 +47,7 @@
                     <!-- Tag は MarkdownView.LauncherToggleTag。ランチャーの外を押すと閉じるが、このボタンは除く -->
                     <Button x:Name="LauncherButton" Content="ランチャー(_L)" Style="{StaticResource ToolButton}" Click="Launcher_Click"
                             Tag="LauncherToggle"
-                            ToolTip="ランチャーとファイラーを、別のウィンドウで出す。もう一度押すと閉じる" />
+                            ToolTip="ランチャーとファイラーを、本文の上半分に重ねて出す。もう一度押すと閉じる" />
                     <Button Content="AI(_A)" Style="{StaticResource ToolButton}" Click="Ai_Click"
                             ToolTip="右に AI の欄を出し入れする。Claude Code と話して、開いている文書を直させる。もう一度押すと隠す（会話は残る）" />
                     <Border Width="1" Height="16" Margin="8,0,8,0" VerticalAlignment="Center" Background="{StaticResource BorderBrushSoft}" />
@@ -56,7 +56,7 @@
             </DockPanel>
         </Border>
 
-        <!-- ============ 画面の一覧（2026-10-31。試作）。ツールバーの一段下。開いている画面の名前と「＋」。押すとその画面を前に出す ============ -->
+        <!-- ============ 画面のタブ（2026-10-31）。ツールバーの一段下。開いている画面のタブと「＋」、右端に休止している画面のタブ。押すとその画面を前に出す ============ -->
         <!-- ツールバーに並べると右へ行き過ぎたので段を分けた。空いているところはツールバーと同じく、ドラッグで移動・ダブルクリックで最大化。中身は MainWindow.Windows.cs が組む -->
         <Border DockPanel.Dock="Top" Height="30"
                 Background="{StaticResource ChromeBackground}"

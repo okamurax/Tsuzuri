@@ -315,7 +315,7 @@ namespace Tsuzuri
                 Foreground = (Brush)FindResource("TextPrimary"),
                 CaretBrush = (Brush)FindResource("TextPrimary"),
                 VerticalContentAlignment = VerticalAlignment.Center,
-                ToolTip = "タイトル・本文の言葉で探す。投稿の ID や URL（?p=123）も入れられる。Enter で探す",
+                ToolTip = "タイトル・本文の言葉で探す。投稿の ID や URL（?p=123）も入れられる（数字だけなら、その ID の記事と、その数字で検索した結果の両方を出す）。Enter で探す",
             };
             var searchFrame = new Border
             {
@@ -559,6 +559,9 @@ namespace Tsuzuri
 
             var id = PostIdOf(query);
             var searchToo = id > 0 && IsNumberOnly(query);   // 数字だけなら ID でも文字でも探す。URL は ID だけ
+            var words = searchToo ? query.Trim().TrimStart('#') : query;   // 「#050」は「050」で探す
+            if (page == 1) list.Tag = null;
+            var byIdOnly = false;   // ID で見つけた記事が、文字の検索の結果に無い（件数に数えない）
             List<WordPressPost> posts;
             var total = -1;
             string error = null;
@@ -590,7 +593,10 @@ namespace Tsuzuri
                             // その ID の記事が無い。検索の結果だけを出す
                         }
                     }
-                    found.AddRange(client.List(query, page, out total));
+
+                    var searched = client.List(words, page, out total);
+                    byIdOnly = found.Count > 0 && searched.All(post => post.Id != found[0].Id);
+                    found.AddRange(searched);
                     return found;
                 });
             }
@@ -615,22 +621,28 @@ namespace Tsuzuri
                 if (shown.Add(post.Id)) list.Children.Add(PostRow(post, open));
             }
 
+            // 件数・残りは文字の検索の総数と比べるので、ID で見つけただけの1件は数えない（2026-11-02。前は「101 / 100 件」になりえた）。
+            if (page == 1 && byIdOnly) list.Tag = posts[0].Id;
+            var extra = list.Tag as int?;
+            if (extra != null && page > 1 && posts.Any(post => post.Id == extra.Value)) list.Tag = extra = null;   // 後の枚で検索にも出た
+
             var count = shown.Count;
+            var searchedCount = count - (extra != null ? 1 : 0);
             if (count == 0)
             {
                 note.Text = "見つかりませんでした。";
                 return;
             }
 
-            var of = total > count ? count + " / " + total + " 件" : count + " 件";
+            var of = total > searchedCount ? searchedCount + " / " + total + " 件" + (extra != null ? "（ほかに ID の1件）" : string.Empty) : count + " 件";
             note.Text = (string.IsNullOrWhiteSpace(query) ? "最近更新した記事（" + of + "）。" : of + "。") + "押すと開きます。";
 
             // 残りがあり、この枚が満杯だったときだけ（総数が分からなくても、満杯なら続きがあるかもしれない）。
-            if ((id <= 0 || searchToo) && posts.Count >= WordPressClient.PageSize && (total < 0 || total > count))
+            if ((id <= 0 || searchToo) && posts.Count - (page == 1 && byIdOnly ? 1 : 0) >= WordPressClient.PageSize && (total < 0 || total > searchedCount))
             {
                 var more = new Button
                 {
-                    Content = total > count ? "さらに読む（残り " + (total - count) + " 件）" : "さらに読む",
+                    Content = total > searchedCount ? "さらに読む（残り " + (total - searchedCount) + " 件）" : "さらに読む",
                     Style = (Style)FindResource("ToolButton"),
                     HorizontalAlignment = HorizontalAlignment.Center,
                     Margin = new Thickness(0, 6, 0, 6),

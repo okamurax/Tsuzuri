@@ -25,6 +25,9 @@ namespace Tsuzuri.Markdown
         public static readonly Brush Heading     = Freeze("#FFEEEFF2");
         public static readonly Brush Muted       = Freeze("#FF93979F");
         public static readonly Brush MarkerFaint = Freeze("#FF525863");
+
+        /// <summary>画像の題（画像の上に出す名前）。薄い字（Muted）よりさらに引っ込める。記号（MarkerFaint）よりは読める（2026-11-02）。</summary>
+        public static readonly Brush ImageCaption = Freeze("#FF6B717C");
         public static readonly Brush Link        = Freeze("#FF5D89EA");
         public static readonly Brush CodeFore    = Freeze("#FFCE9178");
         public static readonly Brush CodeBack    = Freeze("#FF20283A");

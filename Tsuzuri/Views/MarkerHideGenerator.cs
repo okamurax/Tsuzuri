@@ -426,7 +426,7 @@ namespace Tsuzuri.Views
 
             public override TextRun CreateTextRun(int startVisualColumn, ITextRunConstructionContext context)
             {
-                TextRunProperties.SetForegroundBrush(Theme.Muted);
+                TextRunProperties.SetForegroundBrush(Theme.ImageCaption);
                 TextRunProperties.SetTextDecorations(null);
                 return base.CreateTextRun(startVisualColumn, context);
             }

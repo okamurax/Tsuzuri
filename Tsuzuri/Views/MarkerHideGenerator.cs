@@ -245,8 +245,12 @@ namespace Tsuzuri.Views
                 {
                     if (range.Start != 0 || !Fits(range, line.Length)) continue;
 
+                    // 画像の題は字下げに含めず、題の要素で描く（2026-11-02）。字下げの要素は空白として扱われるので、
+                    // 題まで含めると、題の後で折り返す画像の段が字下げの位置に揃わず、左端から出ていた。
+                    if (range.Caption) break;
+
                     var text = range.Replacement.Length > 0 ? range.Replacement : null;
-                    return new IndentElement(indent, range.Length, text, range.Caption ? Theme.Muted : null);
+                    return new IndentElement(indent, range.Length, text);
                 }
             }
 
@@ -290,24 +294,15 @@ namespace Tsuzuri.Views
         {
             private readonly double _indent;
             private readonly string _text;
-            private readonly Brush _brush;
 
-            /// <param name="brush">字の色。null なら本文の色（画像の題は薄い色）。</param>
-            public IndentElement(double indent, int documentLength, string text, Brush brush = null) : base(1, documentLength)
+            public IndentElement(double indent, int documentLength, string text) : base(1, documentLength)
             {
                 _indent = indent;
                 _text = text;
-                _brush = brush;
             }
 
             public override TextRun CreateTextRun(int startVisualColumn, ITextRunConstructionContext context)
             {
-                if (_brush != null)
-                {
-                    TextRunProperties.SetForegroundBrush(_brush);
-                    TextRunProperties.SetTextDecorations(null);
-                }
-
                 return new IndentRun(_indent, _text, TextRunProperties, context.TextView);
             }
 

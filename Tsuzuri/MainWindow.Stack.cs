@@ -77,6 +77,9 @@ namespace Tsuzuri
         {
             path = ShellActions.CanonicalPath(path);   // 入口でパスの書き方を揃える。中では文字列で比べる
 
+            // ほかの画面が開いている文書なら、その画面を出すだけ。保存するかを尋ねる前に見る（2026-11-02。前は尋ねてから開かなかった）。
+            if (ShowHolderOf(path)) return;
+
             // 今のページは全部閉じる。同じファイルを開き直すときも、ディスクから読み直す。
             if (!ConfirmLeaving(new MarkdownView[0], null)) return;
 
@@ -158,14 +161,8 @@ namespace Tsuzuri
             document = null;
             state = null;
 
-            // ほかの画面で開いている文書は開かず、その画面を前に出す（2026-10-31。state.json と変更の記録を2つの画面から書かないため）。
-            var holder = WindowHolding(path);
-            if (holder != null)
-            {
-                holder.BringForward(this);
-                holder.Status("この文書はこの画面で開いています: " + path);
-                return false;
-            }
+            // ほかの画面（休止している画面も）で開いている文書は開かず、その画面を前に出す（2026-10-31。state.json と変更の記録を2つの画面から書かないため）。
+            if (ShowHolderOf(path)) return false;
 
             try
             {
@@ -589,12 +586,17 @@ namespace Tsuzuri
 
         private void StoreLayout()
         {
-            _settings.SidebarWidth = SidebarColumn.ActualWidth;
-            StoreFilerWidth();
-            if (_filer != null && !string.IsNullOrEmpty(_filer.Folder)) _settings.FilerFolder = _filer.Folder;
-            if (IsPrimary) _settings.LastFile = _stack.Count > 0 ? _stack[0].FilePath : null;   // 前回のファイルは最初の画面の分だけ
+            // 幅・ファイラーのフォルダ・窓の位置は全部の画面で共有する。書くのは前に出ている画面だけ（2026-11-02）。
+            // 前は閉じる画面がどれも書いたので、「終了」では最後に閉じる最初の画面（隠れていた）の古い値が勝っていた。
+            if (ReferenceEquals(FrontWindow(), this))
+            {
+                _settings.SidebarWidth = SidebarColumn.ActualWidth;
+                StoreFilerWidth();
+                if (_filer != null && !string.IsNullOrEmpty(_filer.Folder)) _settings.FilerFolder = _filer.Folder;
+                StoreWindowBounds();
+            }
 
-            StoreWindowBounds();
+            if (IsPrimary) _settings.LastFile = _stack.Count > 0 ? _stack[0].FilePath : null;   // 前回のファイルは最初の画面の分だけ
             _settings.Save();
         }
 
@@ -714,7 +716,7 @@ namespace Tsuzuri
         private UIElement CreatePlaceholder()
         {
             var text = new TextBlock();
-            text.Text = "右上の「ランチャー」からファイルを選んでください";
+            text.Text = "ツールバーの「ランチャー」からファイルを選ぶか、「新規作成」で作ってください";
             text.FontSize = 15;
             text.HorizontalAlignment = HorizontalAlignment.Center;
             text.VerticalAlignment = VerticalAlignment.Center;

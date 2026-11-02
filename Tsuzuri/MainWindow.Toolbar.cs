@@ -124,13 +124,7 @@ namespace Tsuzuri
                 return;
             }
 
-            var holder = WindowHolding(path);
-            if (holder != null)
-            {
-                holder.BringForward(this);
-                holder.Status("この文書はこの画面で開いています: " + path);
-                return;
-            }
+            if (ShowHolderOf(ShellActions.CanonicalPath(path))) return;
 
             // 開くのは、新しい画面の支度（Loaded）が済んでから。
             var window = new MainWindow(_settings, this, null);

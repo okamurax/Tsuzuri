@@ -82,7 +82,7 @@
                            Foreground="{StaticResource TextMuted}"
                            TextTrimming="CharacterEllipsis"
                            VerticalAlignment="Center"
-                           Text="右上の「ランチャー」からファイルを選んでください。" />
+                           Text="ツールバーの「ランチャー」からファイルを選ぶか、「新規作成」で作ってください。" />
 
                 <!-- 未保存の印。保存はファイル単位なので、ページごとではなくここに1つ出す -->
                 <TextBlock x:Name="DirtyText" Grid.Column="1"

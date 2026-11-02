@@ -201,7 +201,15 @@ namespace Tsuzuri
 
             // 落ちる前・ログオフのときは、未保存の編集を別名で残す。尋ねられないので、元のファイルは書き換えない。
             System.Windows.Threading.DispatcherUnhandledExceptionEventHandler crashed = delegate { KeepUnsavedQuietly(); };
-            SessionEndingCancelEventHandler ending = delegate { KeepUnsavedQuietly(); };
+            // ログオフ・シャットダウンでは Closing が来ないまま全部の画面が閉じる（Closed は来る）。「終了」と同じに扱い、
+            // 閉じた画面の覚えを消さない・最初の画面を引き継がせない（2026-11-02。前は × で閉じた扱いになり、最後の1画面しか戻らなかった）。
+            SessionEndingCancelEventHandler ending = delegate
+            {
+                _closingAll = true;
+                KeepUnsavedQuietly();
+                RememberLastScreen();
+                _settings.Save();
+            };
             if (Application.Current != null)
             {
                 Application.Current.DispatcherUnhandledException += crashed;
@@ -270,12 +278,33 @@ namespace Tsuzuri
             {
                 if (!_aiRestorePending) return;
 
-                Dispatcher.BeginInvoke(new Action(delegate
-                {
-                    _aiRestorePending = false;
-                    if (RestoreAiTabs() && AiPane.Visibility != Visibility.Visible) ShowAiPane();
-                }), DispatcherPriority.ApplicationIdle);
+                Dispatcher.BeginInvoke(new Action(RestoreAiTabsWhenShown), DispatcherPriority.ApplicationIdle);
             };
+        }
+
+        /// <summary>
+        /// 前の会話のタブを戻す。画面が隠れていれば、初めて前に出たときに戻す（2026-11-02）。
+        /// 起動のときに戻したほかの画面は隠れるので、隠れた窓の中で端末（WebView2）を作ると、日本語の変換が窓の左上に出るおそれがある。
+        /// </summary>
+        private void RestoreAiTabsWhenShown()
+        {
+            if (!_aiRestorePending || !OpenWindows.Contains(this)) return;
+
+            if (!IsVisible)
+            {
+                DependencyPropertyChangedEventHandler shown = null;
+                shown = delegate
+                {
+                    if (!IsVisible) return;
+                    IsVisibleChanged -= shown;
+                    Dispatcher.BeginInvoke(new Action(RestoreAiTabsWhenShown), DispatcherPriority.ApplicationIdle);
+                };
+                IsVisibleChanged += shown;
+                return;
+            }
+
+            _aiRestorePending = false;
+            if (RestoreAiTabs() && AiPane.Visibility != Visibility.Visible) ShowAiPane();
         }
 
         /// <summary>
@@ -392,23 +421,24 @@ namespace Tsuzuri
 
             StatusText.Text = HasDocument
                 ? Active.FilePath
-                : "右上の「ランチャー」からファイルを選んでください。";
+                : "ツールバーの「ランチャー」からファイルを選ぶか、「新規作成」で作ってください。";
         }
 
         private void OnClosing(object sender, CancelEventArgs e)
         {
             // 「終了」で最初の画面を閉じるときは、ほかの画面を先に閉じる。どれかで取りやめたら、こちらも閉じない（2026-10-31）。
             // タブの × で閉じるときは、この画面だけ（最初の画面なら、次の画面が引き継ぐ）。
-            if (IsPrimary && _closingAll && !CloseOtherWindows())
-            {
-                e.Cancel = true;
-                return;
-            }
-
+            // 最初の画面の保存を先に尋ねる（2026-11-02）。前はほかの画面を閉じてから尋ね、ここで取りやめると、もう閉じた画面の覚えが消えていた。
             // 編集していなければ何も尋ねずに閉じる。編集していれば、保存するか尋ねる（2026-10-25）。
             if (!ConfirmLeaving(new MarkdownView[0], null))
             {
                 if (_closingAll) CancelClosingAll();
+                e.Cancel = true;
+                return;
+            }
+
+            if (IsPrimary && _closingAll && !CloseOtherWindows())
+            {
                 e.Cancel = true;
                 return;
             }

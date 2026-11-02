@@ -115,8 +115,10 @@ namespace Tsuzuri
             }
             finally
             {
-                // 読み込めても読み込めなくても、ここからは今の画面を覚える（読み込めなければ空の画面として覚える。知らせは LoadWordPressPost が出す）。
+                // ここからは今の画面を覚える。ただし読み込めなかったら（回線が無いなど）、何かを開くまでは記事の覚えを残す
+                // （2026-11-02。前は空の画面で上書きし、次の起動・休止からの再開で記事が戻らなかった）。知らせは LoadWordPressPost が出す。
                 _wordPressRestoring = false;
+                _keepSavedScreen = !HasDocument;
                 _screenReady = true;
             }
         }
@@ -726,13 +728,7 @@ namespace Tsuzuri
         private async Task LoadWordPressPost(WordPressSite site, int id)
         {
             // ほかの画面で開いている記事は読み込まず、その画面を前に出す（2026-10-31。同じ記事を2か所で直して食い違わないように）。
-            var holder = WindowHoldingPost(site.Url, id);
-            if (holder != null)
-            {
-                holder.BringForward(this);
-                holder.Status("この記事はこの画面で開いています。#" + id);
-                return;
-            }
+            if (ShowHolderOfPost(site.Url, id)) return;
 
             Status("WordPress から読み込んでいます… #" + id);
 
@@ -745,11 +741,17 @@ namespace Tsuzuri
             }
             catch (Exception ex)
             {
+                if (!OpenWindows.Contains(this)) return;   // 読み込んでいる間に画面を閉じた
+
+                ShowBeforeAsking();
                 MessageBox.Show(this, "WordPress から読み込めませんでした。" + Environment.NewLine + ex.Message, "WordPress",
                     MessageBoxButton.OK, MessageBoxImage.Warning);
                 Status("読み込めませんでした。");
                 return;
             }
+
+            // 読み込んでいる間に画面を閉じた・休止したら、開かない（2026-11-02。前は閉じた画面で開き、消した一時フォルダを作り直していた）。
+            if (!OpenWindows.Contains(this)) return;
 
             var link = new WordPressLink
             {

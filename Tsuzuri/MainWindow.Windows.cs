@@ -6,6 +6,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
 using Tsuzuri.Markdown;
+using Tsuzuri.Views;
 
 namespace Tsuzuri
 {
@@ -234,7 +235,9 @@ namespace Tsuzuri
             Activate();
             _frontWindow = this;
 
-            foreach (var other in OpenWindows.Where(window => !ReferenceEquals(window, this) && window.IsVisible).ToList())
+            // ダイアログを出している画面は隠さない（起動のとき、戻している画面が「フォルダを作りますか」などを尋ねている最中に、
+            // 最初の画面を前に出すことがある。隠すと、尋ねている窓が見えなくなる。2026-11-02）。後ろに重なって残るだけ。
+            foreach (var other in OpenWindows.Where(window => !ReferenceEquals(window, this) && window.IsVisible && !window.IsShowingDialog()).ToList())
                 other.Hide();
         }
 
@@ -270,19 +273,83 @@ namespace Tsuzuri
         /// </summary>
         private MainWindow WindowHolding(string path)
         {
-            return OpenWindows.FirstOrDefault(window => !ReferenceEquals(window, this)
-                                                       && window._stack.Any(view => SamePath(view.FilePath, path)));
+            return OpenWindows.FirstOrDefault(window => !ReferenceEquals(window, this) && window.Holds(path));
         }
 
         /// <summary>その WordPress の記事を開いている、ほかの画面。無ければ null。記事は一時ファイルの場所が画面ごとに違うので、サイトと番号で見る。</summary>
         private MainWindow WindowHoldingPost(string siteUrl, int id)
         {
-            return OpenWindows.FirstOrDefault(window => !ReferenceEquals(window, this) && window._stack.Any(view =>
+            return OpenWindows.FirstOrDefault(window => !ReferenceEquals(window, this) && window.HoldsPost(siteUrl, id));
+        }
+
+        private bool Holds(string path)
+        {
+            return _stack.Any(view => SamePath(view.FilePath, path));
+        }
+
+        private bool HoldsPost(string siteUrl, int id)
+        {
+            return _stack.Any(view =>
             {
-                var link = window.WordPressLinkOf(view);
-                return link != null && link.Id == id
-                       && string.Equals(link.Site.Url, siteUrl, StringComparison.OrdinalIgnoreCase);
-            }));
+                var link = WordPressLinkOf(view);
+                return link != null && link.Id == id && string.Equals(link.Site.Url, siteUrl, StringComparison.OrdinalIgnoreCase);
+            });
+        }
+
+        /// <summary>
+        /// その .md を開いていた、休止している画面。無ければ null（2026-11-02）。休止している画面も「1つの文書は1つの画面だけ」に数える。
+        /// 数えないと、休止中にほかの画面で開いたあと再開したとき、再開した画面が文書を開けず、休止の覚えが空の画面で消えていた。
+        /// </summary>
+        private WindowSession SuspendedHolding(string path)
+        {
+            return _settings.Windows.FirstOrDefault(session => session.Suspended && session.Screen != null && session.Screen.Pages != null
+                && session.Screen.Pages.Any(page => page != null && !string.IsNullOrEmpty(page.File)
+                                                    && SamePath(ShellActions.CanonicalPath(page.File), path)));
+        }
+
+        private WindowSession SuspendedHoldingPost(string siteUrl, int id)
+        {
+            return _settings.Windows.FirstOrDefault(session => session.Suspended && session.Screen != null
+                && session.Screen.WordPressPost == id
+                && string.Equals(session.Screen.WordPressSite, siteUrl, StringComparison.OrdinalIgnoreCase));
+        }
+
+        /// <summary>
+        /// その .md をほかの画面が開いていれば、その画面を前に出して true（休止している画面なら再開する）。開く前に呼ぶ（2026-11-02。前は3か所に同じ処理があった）。
+        /// </summary>
+        private bool ShowHolderOf(string path)
+        {
+            var holder = WindowHolding(path);
+            if (holder != null)
+            {
+                holder.BringForward(this);
+                holder.Status("この文書はこの画面で開いています: " + path);
+                return true;
+            }
+
+            var suspended = SuspendedHolding(path);
+            if (suspended == null) return false;
+
+            Resume(suspended);
+            return true;
+        }
+
+        /// <summary>その WordPress の記事をほかの画面が開いていれば、その画面を前に出して true（休止している画面なら再開する）。</summary>
+        private bool ShowHolderOfPost(string siteUrl, int id)
+        {
+            var holder = WindowHoldingPost(siteUrl, id);
+            if (holder != null)
+            {
+                holder.BringForward(this);
+                holder.Status("この記事はこの画面で開いています。#" + id);
+                return true;
+            }
+
+            var suspended = SuspendedHoldingPost(siteUrl, id);
+            if (suspended == null) return false;
+
+            Resume(suspended);
+            return true;
         }
 
         /// <summary>全部の画面の一覧（ツールバーの一段下）を、今の中身に合わせる（題・未保存の印が変わったとき、画面が増えた・減ったとき）。</summary>
@@ -522,8 +589,7 @@ namespace Tsuzuri
         {
             if (OpenWindows.Count < 2) return;
 
-            _suspendTitle = WindowLabel();
-            if (_suspendTitle.EndsWith(" *", StringComparison.Ordinal)) _suspendTitle = _suspendTitle.Substring(0, _suspendTitle.Length - 2);
+            _suspendTitle = WindowLabel(false);
             _suspending = true;
             Close();
             if (OpenWindows.Contains(this)) _suspending = false;   // 保存するかで取りやめた
@@ -532,6 +598,16 @@ namespace Tsuzuri
         /// <summary>休止している画面を、その覚えから作り直して前に出す。</summary>
         private void Resume(WindowSession session)
         {
+            // 休止している間に、その文書・記事をほかの画面で開いていたら（2026-11-02 より前の版で開いたものなど）、再開せずにその画面を出す。
+            // 再開すると文書を開けず、休止の覚えが空の画面で上書きされる。休止のタブはそのまま残す。
+            var holder = OpenHolderOf(session);
+            if (holder != null)
+            {
+                holder.BringForward(this);
+                holder.Status("休止している画面の文書を、この画面で開いています。こちらを閉じてから、休止のタブを押してください。");
+                return;
+            }
+
             session.Suspended = false;
             session.Title = null;
             _settings.Save();
@@ -541,8 +617,23 @@ namespace Tsuzuri
             RefreshWindowLists();
         }
 
+        /// <summary>休止している画面の文書・記事を開いている、開いている画面。無ければ null。</summary>
+        private static MainWindow OpenHolderOf(WindowSession session)
+        {
+            var screen = session.Screen;
+            if (screen == null) return null;
+
+            if (screen.WordPressPost > 0)
+                return OpenWindows.FirstOrDefault(window => window.HoldsPost(screen.WordPressSite, screen.WordPressPost));
+
+            if (screen.Pages == null) return null;
+            var files = screen.Pages.Where(page => page != null && !string.IsNullOrEmpty(page.File))
+                                    .Select(page => ShellActions.CanonicalPath(page.File)).ToList();
+            return OpenWindows.FirstOrDefault(window => files.Any(window.Holds));
+        }
+
         /// <summary>一覧に出す名前。開いているファイル（いちばん左のページ）の題。WordPress の記事なら頭に「WP:」、未保存なら後ろに「*」。</summary>
-        private string WindowLabel()
+        private string WindowLabel(bool dirtyMark = true)
         {
             if (_stack.Count == 0) return "（空）";
 
@@ -550,7 +641,7 @@ namespace Tsuzuri
             var label = root.Title;
             if (string.IsNullOrWhiteSpace(label)) label = System.IO.Path.GetFileNameWithoutExtension(root.FilePath);
             if (WordPressLinkOf(root) != null) label = "WP: " + label;
-            if (_stack.Any(view => view.IsDirty)) label += " *";
+            if (dirtyMark && _stack.Any(view => view.IsDirty)) label += " *";
             return label;
         }
 
@@ -567,7 +658,6 @@ namespace Tsuzuri
         /// </summary>
         private bool CloseOtherWindows()
         {
-
             foreach (var window in OpenWindows.Where(other => !ReferenceEquals(other, this)).ToList())
             {
                 window.Close();

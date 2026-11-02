@@ -233,6 +233,9 @@ namespace Tsuzuri
         /// </summary>
         private bool _screenReady;
 
+        /// <summary>覚えていた記事を読み込み直せなかったか。何も開いていない間は、覚えを空の画面で上書きしない（ReopenWordPressPost）。</summary>
+        private bool _keepSavedScreen;
+
         /// <summary>WordPress の記事を、起動のときに読み込み直している最中か。</summary>
         private bool _wordPressRestoring;
 
@@ -277,6 +280,7 @@ namespace Tsuzuri
         {
             // 戻し終わる前（WordPress の記事を読み込み直している最中など）に書くと、覚えていた画面を空の画面で上書きしてしまう。
             if (!_screenReady) return;
+            if (_keepSavedScreen && !HasDocument) return;
 
             var screen = CaptureScreen();
 

@@ -57,6 +57,9 @@ namespace Tsuzuri
 
         private Thread _aiListener;
 
+        /// <summary>つながりを待っている口（閉じるときに閉じて、待つスレッドを終わらせる）。</summary>
+        private volatile NamedPipeServerStream _aiWaiting;
+
         /// <summary>
         /// AI の欄の会話（端末）のタブ1つ（2026-10-26）。タブごとに別の PowerShell（と Claude Code）が動く。
         /// 裏のタブも動き続ける。今の状態を渡す仕組み（フック・パイプ）は、どのタブの claude にも同じに効く。
@@ -84,7 +87,7 @@ namespace Tsuzuri
         }
 
         /// <summary>エディタを閉じている最中か。閉じるときに claude が終わっても、開いていたタブの覚えを消さないようにする。</summary>
-        private bool _aiStopping;
+        private volatile bool _aiStopping;
 
         /// <summary>AI の欄の会話のタブ。左から。隠しても claude は動いたまま。</summary>
         private readonly List<AiTab> _aiTabs = new List<AiTab>();
@@ -197,7 +200,7 @@ namespace Tsuzuri
             {
                 tab.SessionId = restore.Session;
                 tab.Folder = restore.Folder;
-                var name = restore.Name != null && !restore.Name.StartsWith("#", StringComparison.Ordinal) ? "#" + restore.Name : restore.Name;   // 前の「1」は「#1」に
+                var name = AiTabName(restore.Name);
                 if (!AiTabNameUsed(name)) tab.Name = name;
                 start = "--resume " + restore.Session;   // 番号は Guid の形のものだけ（AppSettings）
             }
@@ -300,11 +303,24 @@ namespace Tsuzuri
             tab.Header.ToolTip = "セッションの名前: " + tab.Name + (text.Length > 0 ? Environment.NewLine + text : string.Empty);
         }
 
-        /// <summary>アプリの中の（全部の画面の）AI の欄のタブで、その名前を使っているか。</summary>
+        /// <summary>
+        /// アプリの中の（全部の画面の）AI の欄のタブで、その名前を使っているか。休止している画面の会話の名前も使っていることにする
+        /// （2026-11-02。再開したときに名前が変わると、「#1 に渡して」の宛先がずれる）。
+        /// </summary>
         private static bool AiTabNameUsed(string name)
         {
             if (string.IsNullOrEmpty(name)) return true;
-            return OpenWindows.Any(window => window._aiTabs.Any(tab => tab.Name == name));
+            if (OpenWindows.Any(window => window._aiTabs.Any(tab => tab.Name == name))) return true;
+
+            var settings = OpenWindows.Count > 0 ? OpenWindows[0]._settings : null;
+            return settings != null && settings.Windows.Any(session => session.Suspended && session.AiTabs != null
+                && session.AiTabs.Any(tab => tab != null && AiTabName(tab.Name) == name));
+        }
+
+        /// <summary>覚えていた会話の名前を今の形にする（前の「1」は「#1」に）。</summary>
+        private static string AiTabName(string name)
+        {
+            return name != null && !name.StartsWith("#", StringComparison.Ordinal) ? "#" + name : name;
         }
 
         /// <summary>新しいタブの名前。使っていないいちばん小さい番号（#1・#2…）。閉じたタブの番号は、次のタブが使う。</summary>
@@ -628,6 +644,20 @@ namespace Tsuzuri
         private void StopAi()
         {
             _aiStopping = true;
+
+            // つながりを待っている口を閉じて、待つスレッドを終わらせる。
+            var waiting = _aiWaiting;
+            if (waiting != null)
+            {
+                try
+                {
+                    waiting.Dispose();
+                }
+                catch (Exception)
+                {
+                }
+            }
+
             foreach (var tab in _aiTabs) tab.View.Dispose();
 
             foreach (var path in new[] { _aiSettingsPath, _aiContextPath })
@@ -780,21 +810,27 @@ namespace Tsuzuri
         {
             if (_aiListener != null) return;
 
+            // 画面を閉じたら（StopAi）、待っている口を閉じてループを抜ける（2026-11-02）。前は止めず、閉じた画面ごとスレッドが残っていた。
             _aiListener = new Thread(delegate ()
             {
-                while (true)
+                while (!_aiStopping)
                 {
                     NamedPipeServerStream server = null;
                     try
                     {
                         server = new NamedPipeServerStream(AiPipeName, PipeDirection.InOut, NamedPipeServerStream.MaxAllowedServerInstances,
                             PipeTransmissionMode.Byte, PipeOptions.None, 0, 0, AiPipeSecurity());
+                        _aiWaiting = server;
+                        if (_aiStopping) throw new ObjectDisposedException(AiPipeName);
                         server.WaitForConnection();
+                        _aiWaiting = null;
                     }
                     catch (Exception)
                     {
-                        // つないですぐ切られた等。少し置いて待ち直す。
+                        // つないですぐ切られた等。少し置いて待ち直す。閉じたのなら終わる。
+                        _aiWaiting = null;
                         if (server != null) server.Dispose();
+                        if (_aiStopping) break;
                         Thread.Sleep(100);
                         continue;
                     }

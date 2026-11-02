@@ -145,6 +145,12 @@ namespace Tsuzuri.Views
         /// </summary>
         public event EventHandler ImageDisplayToggleRequested;
 
+        /// <summary>
+        /// 行番号の右クリックの「リンクをコピー」を押した（2026-11-02。SPEC 5.5）。値は押した行の行番号。
+        /// 受け手がその行の見出し（無ければページ）へのリンクをクリップボードに入れる。
+        /// </summary>
+        public event EventHandler<int> LinkCopyRequested;
+
         // 画像の行を、リンクの文字だけで見せるか（2026-10-15）。false なら画像だけ（リンクの文字列は隠す）。
         private bool _linkTextOnly;
         private readonly Button _imageDisplayButton;
@@ -375,6 +381,8 @@ namespace Tsuzuri.Views
             PreviewMouseLeftButtonDown += OnRevealMouseDown;           // リンクの判定より先に走らせる
             PreviewMouseLeftButtonDown += OnPreviewMouseLeftButtonDown;
             PreviewMouseLeftButtonDown += OnParagraphDoubleClick;
+            PreviewMouseRightButtonDown += OnGutterRightButtonDown;
+            PreviewMouseRightButtonUp += OnGutterRightButtonUp;
             TextArea.TextView.PreviewMouseMove += OnTextViewMouseMove;
             TextArea.Caret.PositionChanged += OnCaretMoved;
             TextArea.Caret.PositionChanged += KeepCaretOutOfIndent;   // OnCaretMoved のあとに走らせる
@@ -1123,6 +1131,58 @@ namespace Tsuzuri.Views
                 CaretOffset = line.Offset;
             }
             TextArea.Focus();
+        }
+
+        /// <summary>
+        /// 行番号（とその右の余白）の右クリックで、その行の見出しへのリンクをコピーするメニューを出す（2026-11-02。SPEC 5.5）。
+        /// 押したときに止めておく（AvalonEdit にキャレットを動かさせない）。出すのは離したとき。
+        /// </summary>
+        private void OnGutterRightButtonDown(object sender, MouseButtonEventArgs e)
+        {
+            var point = e.GetPosition(TextArea.TextView);
+            if (point.X < 0 && GapLineAt(point) > 0) e.Handled = true;
+        }
+
+        private void OnGutterRightButtonUp(object sender, MouseButtonEventArgs e)
+        {
+            var point = e.GetPosition(TextArea.TextView);
+            if (point.X >= 0) return;
+
+            var lineNumber = GapLineAt(point);
+            if (lineNumber < 1) return;
+
+            e.Handled = true;
+
+            var heading = HeadingAbove(lineNumber);
+            var name = heading != null ? HeadingText.Display(heading.Text) : Title;
+
+            var copy = new MenuItem { Header = "「" + name + "」へのリンクをコピー" };
+            copy.ToolTip = heading != null
+                ? "この行の見出しへのリンクをコピーする。ほかのページ・ほかの文書に貼ると、そこからのリンクになる"
+                : "見出しより前の行なので、このページへのリンクをコピーする。ほかのページ・ほかの文書に貼ると、そこからのリンクになる";
+            copy.Click += delegate
+            {
+                var handler = LinkCopyRequested;
+                if (handler != null) handler(this, lineNumber);
+            };
+
+            var menu = new ContextMenu { PlacementTarget = this };
+            menu.Items.Add(copy);
+            menu.IsOpen = true;
+        }
+
+        /// <summary>その行が属する見出し（その行か、それより上で一番近い見出し）。見出しより前の行なら null。</summary>
+        public OutlineHeading HeadingAbove(int lineNumber)
+        {
+            OutlineHeading found = null;
+
+            foreach (var heading in GetOutline().Entries)
+            {
+                if (heading.Line > lineNumber) break;
+                found = heading;
+            }
+
+            return found;
         }
 
         /// <summary>行番号の欄で続けて押したとみなす間隔（ミリ秒）。Windows のダブルクリックの間隔（初めは 500）より長め。</summary>
@@ -2097,10 +2157,22 @@ namespace Tsuzuri.Views
 
             foreach (var heading in GetOutline().Entries)
             {
-                if (NormalizeAnchor(heading.Text) == wanted) return heading.Line;
+                if (NormalizeAnchor(HeadingText.Display(heading.Text)) == wanted) return heading.Line;
             }
 
             return -1;
+        }
+
+        /// <summary>
+        /// 見出しの文字列が anchor に当たるか（FindHeading と同じ突き合わせ）。ほかのページ・ほかの文書の見出しを探すときに使う。
+        /// 見出しがリンク（`## [予定](#p3)`）なら、見えている名前（予定）で比べる（2026-11-02。リンクのコピーは見えている名前で書くため）。
+        /// </summary>
+        public static bool AnchorMatches(string headingText, string anchor)
+        {
+            if (string.IsNullOrEmpty(anchor) || string.IsNullOrEmpty(headingText)) return false;
+
+            var wanted = NormalizeAnchor(anchor);
+            return wanted.Length > 0 && NormalizeAnchor(HeadingText.Display(headingText)) == wanted;
         }
 
         /// <summary>

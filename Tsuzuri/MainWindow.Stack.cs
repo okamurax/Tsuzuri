@@ -47,6 +47,7 @@ namespace Tsuzuri
             AddPasteHandlers(view.TextArea);
 
             view.LinkActivated += OnLinkActivated;
+            view.LinkCopyRequested += (sender, line) => CopyHeadingLink(view, line);
             view.ImageDisplayToggleRequested += delegate { ToggleImageDisplay(); };
             view.SetLinkTextOnly(_settings.ImageLinkTextOnly);
             view.PageLost += delegate { OnPageLost(view); };
@@ -129,24 +130,6 @@ namespace Tsuzuri
             if (string.IsNullOrEmpty(path) || !File.Exists(path)) return;
 
             OpenRoot(path);
-        }
-
-        /// <summary>別のファイルを開く。すでに開いていればその文書を使い回す。</summary>
-        private void PushFile(MarkdownView source, string path)
-        {
-            path = ShellActions.CanonicalPath(path);
-
-            var document = FindOpenDocument(path);
-
-            if (document == null)
-            {
-                DocumentState state;
-                if (!OpenFile(path, out document, out state)) return;
-
-                AdoptState(path, state);
-            }
-
-            PushPage(source, document, PageDocument.RootId);
         }
 
         /// <summary>
@@ -731,7 +714,7 @@ namespace Tsuzuri
         }
 
         /// <summary>
-        /// 同じファイルか。開く入口（OpenRoot・PushFile）で本当のパスに揃えてあるので、たいていは文字列で比べるだけで決まる。
+        /// 同じファイルか。開く入口（OpenRoot）で本当のパスに揃えてあるので、たいていは文字列で比べるだけで決まる。
         /// 外から来たパス（ファイラーなど）と比べるときは、先に ShellActions.CanonicalPath で揃える。
         ///
         /// 書き方が違えば、両方の本当のパスを尋ね直して比べる（2026-10-27）。開く入口で共有が一瞬見えず、

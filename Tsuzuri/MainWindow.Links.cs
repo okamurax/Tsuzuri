@@ -56,6 +56,10 @@ namespace Tsuzuri
                     return;
                 }
 
+                // 同じページに無ければ、同じファイルのほかのページの見出しを探す（2026-11-02。行番号の右クリックでコピーしたリンクは
+                // 見出しの名前だけで書くので、ほかのページの見出しを指すことがある）。
+                if (view.Owner != null && GoToAnchor(view.Owner, anchor)) return;
+
                 Status("見つかりません: " + target);
                 return;
             }
@@ -111,8 +115,181 @@ namespace Tsuzuri
                 if (!TryCreatePage(path, title)) return;
             }
 
-            if (isMarkdown) PushFile(view, path);   // クリックしたページの右隣に開く
+            if (isMarkdown) OpenLinkedFile(path, AnchorOf(target));
             else Launch(path);
+        }
+
+        /// <summary>リンク先の # の後ろ（見出しの名前かページの番号）。無ければ null。</summary>
+        private static string AnchorOf(string target)
+        {
+            var hash = target.IndexOf('#');
+            if (hash < 0 || hash == target.Length - 1) return null;
+
+            return target.Substring(hash + 1);
+        }
+
+        /// <summary>
+        /// リンクで別の .md を開く。新しい画面（タブ）で開く（2026-11-02。前はクリックしたページの右隣に積んでいた）。
+        /// 別の文書を並べて行き来するため。anchor（見出しの名前・ページの番号）があれば、開いてからそこへ移る。
+        /// ・この画面ですでに開いている（同じ文書を指すリンク・前の版で右に積んだ文書）なら、この画面の中で移る
+        /// ・ほかの画面で開いていれば、その画面を前に出して移る（1つの文書は1つの画面だけ）。休止している画面なら再開する（移るのは再開したあとに自分で）
+        /// </summary>
+        private void OpenLinkedFile(string path, string anchor)
+        {
+            path = ShellActions.CanonicalPath(path);
+
+            var document = FindOpenDocument(path);
+            if (document != null)
+            {
+                GoToAnchor(document, anchor);
+                return;
+            }
+
+            var holder = WindowHolding(path);
+            if (holder != null)
+            {
+                holder.BringForward(this);
+                var held = holder.FindOpenDocument(path);
+                if (held != null) holder.GoToAnchor(held, anchor);
+                return;
+            }
+
+            if (ShowHolderOf(path)) return;
+
+            // 開くのは、新しい画面の支度（Loaded）が済んでから（「新規作成」と同じ）。開けなければ（フォルダを作るのを断られた等）、空の画面を閉じて戻る。
+            var window = new MainWindow(_settings, this, null);
+            window.Loaded += delegate
+            {
+                window.OpenRoot(path);
+
+                var opened = window.FindOpenDocument(path);
+                if (opened != null)
+                {
+                    window.GoToAnchor(opened, anchor);
+                    return;
+                }
+
+                window.Dispatcher.BeginInvoke(new Action(delegate
+                {
+                    window.Close();
+                    if (OpenWindows.Contains(this)) BringForward(null);
+                }), DispatcherPriority.Background);
+            };
+            window.BringForward(this);
+        }
+
+        /// <summary>
+        /// その文書の、anchor（ページの番号か見出しの名前）の所へ移る。anchor が無ければルートページを出す。見つかれば true。
+        /// 見出しは、今出ているその文書のページを先に探し、無ければルートから順に全部のページを探す。ページはルートからのリンクの連鎖どおりに積む（ブックマークと同じ）。
+        /// </summary>
+        private bool GoToAnchor(PageDocument document, string anchor)
+        {
+            if (string.IsNullOrEmpty(anchor) || document.Contains(anchor))
+            {
+                return ShowPage(document, string.IsNullOrEmpty(anchor) ? PageDocument.RootId : anchor) != null;
+            }
+
+            var order = new List<string>();
+            var shown = Active != null && ReferenceEquals(Active.Owner, document) ? Active.PageId : null;
+            if (shown != null) order.Add(shown);
+            order.AddRange(document.Pages.Select(page => page.Id).Where(id => !string.Equals(id, shown, StringComparison.Ordinal)));
+
+            foreach (var id in order)
+            {
+                var heading = MarkdownParser.Headings(document.TextOf(id)).FirstOrDefault(entry => MarkdownView.AnchorMatches(entry.Text, anchor));
+                if (heading == null) continue;
+
+                var view = FindView(document, id);
+                if (view == null || !_visible.Contains(view)) view = ShowPage(document, id);
+                if (view == null) return true;   // 孤立ページ・保存を取りやめた（ShowPage が知らせる）
+
+                var line = heading.Line;
+                Dispatcher.BeginInvoke(new Action(delegate { view.GoToLine(line); }), DispatcherPriority.Loaded);
+                return true;
+            }
+
+            Status("見出しが見つかりません: " + anchor);
+            return true;
+        }
+
+        // ---------------------------------------------------------------
+        // 見出しへのリンクのコピー（SPEC 5.5。2026-11-02）
+        //
+        // 行番号の右クリックで、その行の見出しへのリンクをクリップボードに入れる。中身は文書のパスと見出しの名前で持ち、
+        // 貼るときに、貼る先の文書から見たリンクに組み立てる（同じ文書なら #見出し、ほかの文書なら 相対パス#見出し）。
+        // コピーする側は貼る先を知らないので、1つの操作で両方に使えるよう、組み立ては貼るときにする。
+        // ほかのアプリに貼ったときは、文字（絶対パスのリンク）が入る。
+        // ---------------------------------------------------------------
+
+        private const string HeadingLinkFormat = "Tsuzuri.HeadingLink";
+
+        private void CopyHeadingLink(MarkdownView view, int lineNumber)
+        {
+            if (string.IsNullOrEmpty(view.FilePath)) return;
+
+            if (WordPressLinkOf(view) != null)
+            {
+                Status("WordPress の記事へのリンクは作れません（記事は一時ファイルで開いているため）。");
+                return;
+            }
+
+            // 見出しより前の行は、そのページを指す（ルートページならファイルだけ）。
+            var heading = view.HeadingAbove(lineNumber);
+            var anchor = heading != null ? HeadingText.Display(heading.Text).Trim()
+                : view.PageId != PageDocument.RootId ? view.PageId : string.Empty;
+            var label = heading != null ? anchor : view.Title;
+
+            var data = new DataObject();
+            data.SetData(HeadingLinkFormat, view.FilePath + "\n" + anchor + "\n" + label);
+            data.SetText(LinkText(label, Slashes(view.FilePath) + (anchor.Length > 0 ? "#" + anchor : string.Empty)));
+
+            try
+            {
+                Clipboard.SetDataObject(data, true);
+            }
+            catch (Exception ex)
+            {
+                Status("クリップボードに入れられませんでした: " + ex.Message);
+                return;
+            }
+
+            Status("リンクをコピーしました: " + label + "（本文に貼ると、そこからのリンクになります）");
+        }
+
+        /// <summary>コピーした見出しへのリンクを、貼る先の文書から見たリンクにして入れる。</summary>
+        private void PasteHeadingLink(string data, MarkdownView view)
+        {
+            var parts = data.Split('\n');
+            if (parts.Length < 3) return;
+            if (!CanInsertInto(view)) return;
+
+            if (WordPressLinkOf(view) != null)
+            {
+                Status("WordPress の記事には、手元の文書へのリンクは入れられません。");
+                return;
+            }
+
+            var path = parts[0];
+            var anchor = parts[1];
+            var label = parts[2];
+
+            string target;
+            if (SamePath(view.FilePath, path))
+            {
+                target = anchor.Length > 0 ? "#" + anchor : Path.GetFileName(path);
+            }
+            else
+            {
+                target = ToRelativePath(Path.GetDirectoryName(view.FilePath), path) + (anchor.Length > 0 ? "#" + anchor : string.Empty);
+            }
+
+            view.InsertAtCaret(LinkText(label, target));
+            Status("リンクを入れました: " + label);
+        }
+
+        private static string LinkText(string label, string target)
+        {
+            return "[" + EscapeLabel(label) + "](" + ToLinkTarget(target) + ")";
         }
 
         /// <summary>
@@ -409,6 +586,18 @@ namespace Tsuzuri
 
             try
             {
+                // 行番号の右クリックでコピーした見出しへのリンク（文字も一緒に入っているので、文字より先に見る）。
+                if (Clipboard.ContainsData(HeadingLinkFormat))
+                {
+                    var link = Clipboard.GetData(HeadingLinkFormat) as string;
+                    if (link != null)
+                    {
+                        e.Handled = true;
+                        PasteHeadingLink(link, OwnerOf(sender));
+                        return;
+                    }
+                }
+
                 if (Clipboard.ContainsFileDropList())
                 {
                     e.Handled = true;

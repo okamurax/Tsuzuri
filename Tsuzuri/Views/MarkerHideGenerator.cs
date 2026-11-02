@@ -82,7 +82,7 @@ namespace Tsuzuri.Views
                 {
                     if (!Fits(ranges[i], line.Length)) continue;
 
-                    var offset = line.Offset + ranges[i].Start;
+                    var offset = line.Offset + ranges[i].Start + Skip(ranges[i], line);
                     if (offset >= startOffset) return offset;
                 }
             }
@@ -130,13 +130,14 @@ namespace Tsuzuri.Views
 
             for (var i = 0; i < ranges.Count; i++)
             {
-                if (line.Offset + ranges[i].Start != offset) continue;
+                var skip = Skip(ranges[i], line);
+                if (line.Offset + ranges[i].Start + skip != offset) continue;
 
                 var range = ranges[i];
                 if (!Fits(range, line.Length)) return null;
 
                 // 画像の題は、薄い字で描く。
-                if (range.Caption && range.Replacement.Length > 0) return new CaptionElement(range.Replacement, range.Length);
+                if (range.Caption && range.Replacement.Length > 0) return new CaptionElement(range.Replacement, range.Length - skip);
 
                 // 置き換える文字があるものは描く（- を • にするなど）。
                 return range.Replacement.Length > 0
@@ -247,7 +248,9 @@ namespace Tsuzuri.Views
 
                     // 画像の題は字下げに含めず、題の要素で描く（2026-11-02）。字下げの要素は空白として扱われるので、
                     // 題まで含めると、題の後で折り返す画像の段が字下げの位置に揃わず、左端から出ていた。
-                    if (range.Caption) break;
+                    // 字下げは題の1文字目（! の文字）だけを受け持ち、残りを題の要素にする（Skip）。
+                    // 字下げを長さ0にすると、AvalonEdit は同じ位置を生成器に尋ね直さず、題が描かれない。
+                    if (range.Caption) return new IndentElement(indent, Skip(range, line), null);
 
                     var text = range.Replacement.Length > 0 ? range.Replacement : null;
                     return new IndentElement(indent, range.Length, text);
@@ -255,6 +258,14 @@ namespace Tsuzuri.Views
             }
 
             return new IndentElement(indent, 0, null);
+        }
+
+        /// <summary>
+        /// 範囲の頭のうち、字下げの要素が受け持つ文字数（2026-11-02）。字下げした行の行頭にある画像の題だけ 1、ほかは 0。
+        /// </summary>
+        private int Skip(HiddenRange range, DocumentLine line)
+        {
+            return range.Caption && range.Start == 0 && range.Length > 1 && IndentOf(line) > 0 ? 1 : 0;
         }
 
         /// <summary>

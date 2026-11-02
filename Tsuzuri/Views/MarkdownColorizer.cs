@@ -50,8 +50,48 @@ namespace Tsuzuri.Views
                 var to = from + span.Length;
                 if (from < start || to > end) continue;
 
-                ApplySpan(span.Kind, from, to);
+                if (span.Kind == SpanKind.LinkText) ApplyLink(LinkBrush(scan, span.Start), from, to);
+                else ApplySpan(span.Kind, from, to);
             }
+        }
+
+        /// <summary>
+        /// リンクの色を、指す先で分ける（2026-11-03。SPEC 16章）。サブページ（同じファイルのページ）は緑、見出し（同じファイル・ほかの文書）は紫、
+        /// ほかのファイル・URL は青。
+        /// </summary>
+        private Brush LinkBrush(InlineScan scan, int column)
+        {
+            LinkSpan link = null;
+            foreach (var candidate in scan.Links)
+            {
+                if (column >= candidate.Start && column < candidate.Start + candidate.Length)
+                {
+                    link = candidate;
+                    break;
+                }
+            }
+
+            var target = link == null || link.IsImage ? null : link.Target;
+            if (string.IsNullOrEmpty(target)) return Theme.Link;
+
+            var hash = target.IndexOf('#');
+            if (hash < 0 || hash == target.Length - 1) return Theme.Link;
+            if (target.IndexOf("://", StringComparison.Ordinal) >= 0 || target.StartsWith("mailto:", StringComparison.OrdinalIgnoreCase)) return Theme.Link;
+
+            var anchor = target.Substring(hash + 1);
+            var document = _owner.Owner;
+            if (hash == 0 && document != null && document.Contains(anchor)) return Theme.PageLink;
+
+            return Theme.HeadingLink;
+        }
+
+        private void ApplyLink(Brush brush, int from, int to)
+        {
+            ChangeLinePart(from, to, element =>
+            {
+                element.TextRunProperties.SetForegroundBrush(brush);
+                element.TextRunProperties.SetTextDecorations(TextDecorations.Underline);
+            });
         }
 
         private void ApplyLineStyle(LineInfo info, int start, int end)
@@ -128,14 +168,6 @@ namespace Tsuzuri.Views
                         element.TextRunProperties.SetForegroundBrush(Theme.CodeFore);
                         element.TextRunProperties.SetBackgroundBrush(Theme.CodeBack);
                         SetFamily(element, Theme.CodeFont);
-                    });
-                    break;
-
-                case SpanKind.LinkText:
-                    ChangeLinePart(from, to, element =>
-                    {
-                        element.TextRunProperties.SetForegroundBrush(Theme.Link);
-                        element.TextRunProperties.SetTextDecorations(TextDecorations.Underline);
                     });
                     break;
 

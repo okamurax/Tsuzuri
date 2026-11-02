@@ -1430,7 +1430,7 @@ namespace Tsuzuri.Views
 
                 ordered.Add(length == range.Length
                     ? range
-                    : new HiddenRange(range.Start, length, range.Replacement));
+                    : new HiddenRange(range.Start, length, range.Replacement, range.Caption));
 
                 reach = range.Start + length;
             }

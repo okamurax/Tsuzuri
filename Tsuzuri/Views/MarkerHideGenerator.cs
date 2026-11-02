@@ -28,7 +28,7 @@ namespace Tsuzuri.Views
     {
         private readonly MarkdownView _owner;
 
-        /// <summary>この行の字下げをもう作ったか。文字数0の要素は、止めないと同じ位置で作り続ける。</summary>
+        /// <summary>この行の字下げをもう作ったか（同じ行で2度作らないための保険。AvalonEdit は文字数0の要素のあと、次の位置から尋ねる）。</summary>
         private bool _indentDone;
 
         public MarkerHideGenerator(MarkdownView owner)
@@ -72,7 +72,7 @@ namespace Tsuzuri.Views
             int tableLast;
             if (!_indentDone && startOffset <= line.Offset && RendersTable(line, out tableLast)) return line.Offset;
 
-            if (!_indentDone && startOffset <= line.Offset && IndentOf(line) > 0) return line.Offset;
+            if (!_indentDone && startOffset <= line.Offset && NeedsIndent(line)) return line.Offset;
 
             var ranges = _owner.GetHiddenRanges(line.LineNumber);
 
@@ -109,14 +109,10 @@ namespace Tsuzuri.Views
                 }
             }
 
-            if (!_indentDone && offset == line.Offset)
+            if (!_indentDone && offset == line.Offset && NeedsIndent(line))
             {
-                var indent = IndentOf(line);
-                if (indent > 0)
-                {
-                    _indentDone = true;
-                    return CreateIndent(line, indent);
-                }
+                _indentDone = true;
+                return CreateIndent(line, IndentOf(line));
             }
 
             if (offset == line.EndOffset)
@@ -167,7 +163,8 @@ namespace Tsuzuri.Views
 
             // 幅ちょうどにすると折り返しの計算で行末からはみ出すことがあるので、少し残す。
             // 画像の段も字下げの位置から始まるので、その分も引く。
-            var room = textView.ActualWidth - 8 - IndentOf(CurrentContext.VisualLine.FirstDocumentLine);
+            // 箇条書きなら印（•）のぶんも引く（2026-11-02。画像の段は印の後ろから始まる）。
+            var room = textView.ActualWidth - 8 - LeadWidth(CurrentContext.VisualLine.FirstDocumentLine);
 
             var panel = new StackPanel();
             panel.Orientation = Orientation.Vertical;
@@ -258,6 +255,42 @@ namespace Tsuzuri.Views
             }
 
             return new IndentElement(indent, 0, null);
+        }
+
+        /// <summary>
+        /// 行頭に字下げの要素を置くか。見出しの深さの字下げがあるか、行頭の記号を置き換える文字（箇条書きの •）があるとき（2026-11-02）。
+        /// 見出しより前の箇条書きにも置く。字下げの要素は空白として扱われるので、折り返した2段目（画像の段も）が印の後ろに揃う。
+        /// </summary>
+        private bool NeedsIndent(DocumentLine line)
+        {
+            return IndentOf(line) > 0 || LeadingMarker(line) != null;
+        }
+
+        /// <summary>行頭の、置き換える文字のある記号（箇条書きの - を • にするなど）。無ければ null。</summary>
+        private HiddenRange LeadingMarker(DocumentLine line)
+        {
+            var ranges = _owner.GetHiddenRanges(line.LineNumber);
+            if (ranges == null) return null;
+
+            foreach (var range in ranges)
+            {
+                if (range.Start == 0 && !range.Caption && range.Replacement.Length > 0 && Fits(range, line.Length)) return range;
+            }
+
+            return null;
+        }
+
+        /// <summary>行頭の字下げの要素の幅（見出しの深さの字下げと、箇条書きの印）。</summary>
+        private double LeadWidth(DocumentLine line)
+        {
+            var width = IndentOf(line);
+            var marker = LeadingMarker(line);
+            if (marker == null) return width;
+
+            var properties = CurrentContext.GlobalTextRunProperties;
+            var text = new FormattedText(marker.Replacement, CultureInfo.CurrentCulture, FlowDirection.LeftToRight, properties.Typeface,
+                properties.FontRenderingEmSize, properties.ForegroundBrush, VisualTreeHelper.GetDpi(CurrentContext.TextView).PixelsPerDip);
+            return width + text.WidthIncludingTrailingWhitespace;
         }
 
         /// <summary>

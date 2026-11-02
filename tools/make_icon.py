@@ -3,17 +3,18 @@
 #   python make_icon.py ../Tsuzuri/App.ico preview.png
 # 2つ目の引数は確認用の一覧画像。
 #
-# 紺の角丸の地に、# を1つ。縦棒は少し傾けて、手で書く # の形に寄せる。
-# 小さいサイズでは線を太く、余白を詰めて、潰れないようにする。
+# 紺の角丸の地に、重ねた2枚の紙と、それをとめる青い糸（2026-11-02。Tsuzuri＝綴る。前は # を1つ）。
+# 小さいサイズでは紙を大きく、糸を太く長くして、潰れないようにする。
 import sys
 from PIL import Image, ImageDraw
 
-NAVY  = (0x19, 0x23, 0x39, 255)
-FRAME = (0x31, 0x38, 0x4A, 255)
-# 本体の青（リンク #5D89EA・強調 #4A7CE8）より一段暗くして、紺の画面になじませる。
-BLUE  = (0x3D, 0x66, 0xC2, 255)
+NAVY   = (0x19, 0x23, 0x39, 255)
+FRAME  = (0x31, 0x38, 0x4A, 255)
+PAPER  = (0xEE, 0xF1, 0xF6, 255)   # 手前の紙
+BEHIND = (0x9F, 0xAE, 0xC8, 255)   # 後ろの紙（紺になじむ灰青）
+THREAD = (0x4A, 0x7C, 0xE8, 255)   # 糸。本体の強調の青
 
-def render(size, blue=BLUE, thin=False):
+def render(size):
     S = 8
     W = size * S
     img = Image.new("RGBA", (W, W), (0, 0, 0, 0))
@@ -25,30 +26,23 @@ def render(size, blue=BLUE, thin=False):
     d.rounded_rectangle([m*u, m*u, (256-m)*u, (256-m)*u], radius=54*u, fill=NAVY,
                         outline=None if small else FRAME, width=0 if small else int(4*u))
 
-    # # の大きさと線の太さ。小さいときは大きく・太く
-    span = 150 if small else 124      # # 全体の幅と高さ（地の 256 に対して。2026-10-11 に小さくした）
-    bar = (20 if small else 13) if thin else (28 if small else 20)   # 線の太さ
-    slant = 12                         # 縦棒の傾き（上が右へ）
-    c = 128
-    lo, hi = c - span / 2, c + span / 2
+    # 紙（左上・右下）。後ろの紙は右下へずらす
+    L, T, R, B = (64, 44, 176, 196) if not small else (40, 30, 190, 202)
+    off = 22 if not small else 26
+    d.rectangle([(L+off)*u, (T+off)*u, (R+off)*u, (B+off)*u], fill=BEHIND)
+    d.rectangle([L*u, T*u, R*u, B*u], fill=PAPER)
 
-    # 横棒2本。縦の位置は 1/3 と 2/3 あたり
-    for t in (0.33, 0.67):
-        y = lo + span * t
-        d.rectangle([lo*u, (y - bar/2)*u, hi*u, (y + bar/2)*u], fill=blue)
-
-    # 縦棒2本（平行四辺形）
-    for t in (0.33, 0.67):
-        x = lo + span * t
-        top, bottom = lo, hi
-        d.polygon([((x - bar/2 + slant)*u, top*u), ((x + bar/2 + slant)*u, top*u),
-                   ((x + bar/2 - slant)*u, bottom*u), ((x - bar/2 - slant)*u, bottom*u)], fill=blue)
+    # 糸。手前の紙の左端から外へ出る横棒（縦の真ん中）
+    t = 14 if not small else 30
+    reach = 52 if not small else 74
+    y = (T + B) / 2
+    d.rectangle([(L-14)*u, (y-t/2)*u, (L+reach)*u, (y+t/2)*u], fill=THREAD)
 
     return img.resize((size, size), Image.LANCZOS)
 
 out = sys.argv[1]
 sizes = [16, 20, 24, 32, 40, 48, 64, 128, 256]
-images = [render(s, thin=True) for s in sizes]
+images = [render(s) for s in sizes]
 # 中身は PNG ではなくビットマップで入れる。Windows 本体は PNG でも読めるが、
 # exe からアイコンを抜き出す外のソフト（Parallels が Mac の Dock に出すとき等）は
 # ビットマップしか読めないことがある。

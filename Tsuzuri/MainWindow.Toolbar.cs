@@ -282,6 +282,7 @@ namespace Tsuzuri
 
             var folder = Path.GetDirectoryName(imagePath);
             var stem = Path.GetFileNameWithoutExtension(imagePath);
+            var openedAt = LastWriteOf(jsonPath);
 
             while (true)
             {
@@ -299,6 +300,25 @@ namespace Tsuzuri
 
                 if (result == null) return true;   // 保存せずに閉じた
 
+                // 開いている間に、外（AI の欄の Claude など）でこの図が書き換わっていたら、上書きするか尋ねる（2026-11-02）。
+                // 図エディタを開いている間も、Claude が書いた図は描き直す。黙って上書きすると、Claude の直しが消える。
+                if (LastWriteOf(jsonPath) != openedAt)
+                {
+                    var answer = MessageBox.Show(this,
+                        "図エディタで開いている間に、この図のファイルがほかで（AI など）書き換わりました。" + Environment.NewLine + Environment.NewLine +
+                        "はい: 図エディタで描いた図で上書きする（ほかでの書き換えは消える）" + Environment.NewLine +
+                        "いいえ: 図エディタで描いた分を捨て、ほかで書き換わった図を残す" + Environment.NewLine +
+                        "キャンセル: 図エディタに戻る" + Environment.NewLine + Environment.NewLine + jsonPath,
+                        "図エディタ", MessageBoxButton.YesNoCancel, MessageBoxImage.Warning, MessageBoxResult.Cancel);
+
+                    if (answer == MessageBoxResult.No) return true;
+                    if (answer == MessageBoxResult.Cancel)
+                    {
+                        json = result.Json;
+                        continue;
+                    }
+                }
+
                 // 図を書けなければ、控えを残して知らせ、図エディタで開き直すか尋ねる（2026-10-27。WriteDrawing）。
                 bool reopen;
                 if (WriteDrawing(folder, stem, result, false, out reopen)) break;
@@ -312,6 +332,19 @@ namespace Tsuzuri
 
             Status("図を保存しました: " + Path.GetFileName(imagePath));
             return true;
+        }
+
+        /// <summary>ファイルの更新時刻。読めなければ DateTime.MinValue。</summary>
+        private static DateTime LastWriteOf(string path)
+        {
+            try
+            {
+                return File.Exists(path) ? File.GetLastWriteTimeUtc(path) : DateTime.MinValue;
+            }
+            catch (Exception)
+            {
+                return DateTime.MinValue;
+            }
         }
 
         /// <summary>

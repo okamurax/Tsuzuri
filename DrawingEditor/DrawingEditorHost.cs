@@ -50,7 +50,7 @@ namespace DrawingEditor
 
             if (file.Dropped > 0)
             {
-                error = "知らない type の図形が " + file.Dropped + " 個あります。type は line・rect・ellipse・text・dimension・image のどれかにしてください。";
+                error = "知らない type の図形が " + file.Dropped + " 個あります。type は line・rect・ellipse・text・dimension のどれかにしてください。";
                 return null;
             }
 

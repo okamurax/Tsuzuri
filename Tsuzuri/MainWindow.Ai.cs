@@ -581,7 +581,7 @@ namespace Tsuzuri
                 instructions = Path.Combine(AiFolder, "instructions.md");
                 _aiSettingsPath = settings;
 
-                File.WriteAllText(instructions, AiInstructions.Replace("{drawing-format}", AiDrawingFormat), new UTF8Encoding(false));
+                WriteIfChanged(instructions, AiInstructions.Replace("{drawing-format}", AiDrawingFormat));
                 File.WriteAllText(settings, AiSettings(_aiContextPath, AiPipeName), new UTF8Encoding(false));
                 WriteAiContext(null);
             }
@@ -739,11 +739,12 @@ namespace Tsuzuri
         }
 
         /// <summary>
-        /// Claude Code のフック。どちらも PowerShell で動かす（フックは Git Bash で動くこともあるので、
+        /// Claude Code のフック。どれも PowerShell で動かす（フックは Git Bash で動くこともあるので、
         /// 引用符や $ を含まない -EncodedCommand にして、どちらのシェルでも同じに通るようにする）。
-        /// どちらも、このエディタのパイプにつないで1行送る。
-        /// ・書き換えたあと（PostToolUse）: 「changed」。エディタが Claude の書いた図の画像を作り（RenderAiDrawings）、外で変わった文書を読み直す。
-        ///   答えは「ok」か、作れなかった図の知らせ
+        /// どれも、このエディタのパイプにつないで1行送る。
+        /// ・書き換えたあと（PostToolUse）: 「changed→書いたファイル→フォルダ」（タブ区切り）。エディタが Claude の書いた図の画像を作り（RenderAiDrawings）、
+        ///   外で変わった文書を読み直す。答えは「ok」か、その呼び出しで書いた図を作れなかった知らせ
+        /// ・会話が始まった・終わったとき（SessionStart・SessionEnd）: SessionHook
         /// ・話しかけたとき（UserPromptSubmit）: 「prompt」。エディタが保存して今の状態を書き出し、「ok」を返す。
         ///   そのあとで今の状態のファイルを出力する。出力は Claude への文脈になる。
         ///   エディタが閉じていてつながらなければ、前に書いた状態をそのまま出す
@@ -758,8 +759,14 @@ namespace Tsuzuri
             // パイプが無くて5秒待つことはまず無い。
             // エディタは、Claude が書いた図の .png を作ってから答える（2026-11-01）。作れなかった図があれば、その知らせを
             // 標準エラーに出して 2 で終わる（Claude Code は、それをツールの結果のあとに Claude に見せる。Claude が .json を直せるように）。
-            var notify = connect +
-                "try{$c.Connect(5000);$w=New-Object System.IO.StreamWriter($c);$w.WriteLine('changed');$w.Flush();" +
+            // 書いたファイル（tool_input.file_path）も送る（2026-11-02）。知らせるのは、その呼び出しで書いた図のことだけにするため
+            // （前は開いている文書の図を全部見て、作れなかった図をどの会話にでも知らせていた）。中身は標準入力に来るので、全部読んでから送る。
+            var notify =
+                "$p='';$d='';try{$s=New-Object System.IO.MemoryStream;[Console]::OpenStandardInput().CopyTo($s);" +
+                "$j=[System.Text.Encoding]::UTF8.GetString($s.ToArray())|ConvertFrom-Json;" +
+                "if($j.tool_input.file_path){$p=[string]$j.tool_input.file_path};if($j.cwd){$d=[string]$j.cwd}}catch{};" +
+                connect +
+                "try{$c.Connect(5000);$w=New-Object System.IO.StreamWriter($c);$w.WriteLine('changed'+[char]9+$p+[char]9+$d);$w.Flush();" +
                 "$r=New-Object System.IO.StreamReader($c,[System.Text.Encoding]::UTF8);$m=$r.ReadLine()}catch{};$c.Dispose();" +
                 "if($m -and $m -ne 'ok'){[Console]::OutputEncoding=[System.Text.Encoding]::UTF8;[Console]::Error.Write($m);exit 2}";
 
@@ -880,10 +887,13 @@ namespace Tsuzuri
                     else
                     {
                         // 図の画像を先に作る（読み直した本文に、新しい図が出るように）。待つのは 20 秒まで。
+                        // 「changed→書いたファイル→フォルダ」。前の版の claude が起動したままなら「changed」だけが来る。
+                        var parts = (request ?? string.Empty).Split('\t');
+                        var written = WrittenPath(parts.Length > 1 ? parts[1] : null, parts.Length > 2 ? parts[2] : null);
                         string problem = null;
                         try
                         {
-                            problem = Dispatcher.Invoke(new Func<string>(RenderAiDrawings), TimeSpan.FromSeconds(20)) as string;
+                            problem = Dispatcher.Invoke(new Func<string>(() => RenderAiDrawings(written)), TimeSpan.FromSeconds(20)) as string;
                         }
                         catch (Exception)
                         {
@@ -905,86 +915,120 @@ namespace Tsuzuri
             }
         }
 
-        /// <summary>作れなかった図の .json と、そのときの更新時刻。同じ中身のままなら、2度は知らせない。</summary>
+        /// <summary>見て回って作れなかった図の .json と、そのときの更新時刻。同じ中身のままなら、2度は試さない。</summary>
         private readonly Dictionary<string, DateTime> _aiDrawingFailures = new Dictionary<string, DateTime>(StringComparer.OrdinalIgnoreCase);
 
         /// <summary>
-        /// Claude が書いた図の画像を作る（2026-11-01。SPEC 19章）。この画面で開いている文書の添付フォルダの図（.json）のうち、
-        /// 同じ名前の .png が無いか .json より古いものを、図エディタを開かずに描いて .png を書く（DrawingEditorHost.RenderPng）。
-        /// 作れなかった図があれば、Claude に返す知らせ（どの図で何がいけないか）。無ければ null。
-        /// 図エディタで保存した図は .png のほうが新しいので、ここでは描き直さない。
+        /// 全部の画面・全部のエディタで共有するファイル（instructions.md）を書く。中身が同じなら書かない。書くときは一時ファイルから置き換える
+        /// （2026-11-02。前は起動のたびに書き直し、ほかのタブの claude が起動する瞬間と重なると、空や途中の指示を読むおそれがあった）。
         /// </summary>
-        private string RenderAiDrawings()
+        private static void WriteIfChanged(string path, string text)
         {
-            var folders = _stack.Select(view => view.FilePath).Where(path => !string.IsNullOrEmpty(path))
-                .Distinct(StringComparer.OrdinalIgnoreCase).Select(Attachments.FolderOf)
-                .Where(folder => folder != null && Directory.Exists(folder)).ToList();
+            try
+            {
+                if (File.Exists(path) && File.ReadAllText(path, Encoding.UTF8) == text) return;
+            }
+            catch (Exception)
+            {
+                // 読めなければ書く
+            }
 
+            var temp = path + "." + Process.GetCurrentProcess().Id + ".saving";
+            File.WriteAllText(temp, text, new UTF8Encoding(false));
+            try
+            {
+                if (File.Exists(path)) File.Replace(temp, path, null);
+                else File.Move(temp, path);
+            }
+            catch (Exception)
+            {
+                // ほかのエディタが同時に書いた（中身は同じ）。あればそれを使う
+                TryDeleteDrawingTemp(temp);
+                if (!File.Exists(path)) throw;
+            }
+        }
+
+        /// <summary>フックが送った、書いたファイルのフルパス。無い・読めなければ null。</summary>
+        private static string WrittenPath(string path, string folder)
+        {
+            if (string.IsNullOrWhiteSpace(path)) return null;
+
+            try
+            {
+                return Path.GetFullPath(string.IsNullOrWhiteSpace(folder) ? path : Path.Combine(folder, path));
+            }
+            catch (Exception)
+            {
+                return null;
+            }
+        }
+
+        /// <summary>
+        /// Claude が書いた図の画像を作る（2026-11-01。SPEC 19章）。図（.json）を、図エディタを開かずに描いて .png を書く（DrawingEditorHost.RenderPng）。
+        /// ・その呼び出しで書いたファイル（written）が .json なら、それを必ず描く。作れなければ、何がいけないかを返す（書いた会話の Claude に知らせる）。
+        ///   名前が「図 」で始まるか "shapes" があれば、"kind" の無い JSON も図として扱い、そのわけを返す（前は黙って飛ばし、Claude は描けたと思っていた）
+        /// ・そのほか（Bash で書いた・前の版のフック）は、この画面で開いている文書の添付フォルダを見て回り、.png が無いか古い図を描く。
+        ///   作れなかった図は知らせない（2026-11-02）。誰が書いたか分からず、ほかの会話の Claude や、同期で来たほかの版の図を「直して」と頼んでしまうため
+        /// 作れなかった図の知らせ（返す相手がいるとき）。無ければ null。
+        /// </summary>
+        private string RenderAiDrawings(string written)
+        {
             var problems = new List<string>();
             var rendered = new List<string>();
             var dpiScale = VisualTreeHelper.GetDpi(this).DpiScaleX;
 
-            foreach (var folder in folders)
+            if (written != null && string.Equals(Path.GetExtension(written), ".json", StringComparison.OrdinalIgnoreCase) && File.Exists(written))
             {
-                string[] files;
+                string json = null;
                 try
                 {
-                    files = Directory.GetFiles(folder, "*.json", SearchOption.TopDirectoryOnly);
+                    json = File.ReadAllText(written, Encoding.UTF8);
+                }
+                catch (Exception ex)
+                {
+                    problems.Add(Path.GetFileName(written) + ": 読めませんでした: " + ex.Message);
+                }
+
+                if (json != null && LooksLikeDrawing(written, json))
+                {
+                    _aiDrawingFailures.Remove(written);
+                    bool broken;
+                    var problem = RenderAiDrawing(written, json, dpiScale, out broken);
+                    if (problem == null) rendered.Add(Path.GetFileName(Path.ChangeExtension(written, ".png")));
+                    else problems.Add(problem);
+                }
+            }
+
+            foreach (var jsonPath in DrawingsToRender())
+            {
+                if (written != null && string.Equals(jsonPath, written, StringComparison.OrdinalIgnoreCase)) continue;
+
+                DateTime at;
+                string json;
+                try
+                {
+                    at = File.GetLastWriteTimeUtc(jsonPath);
+                    json = File.ReadAllText(jsonPath, Encoding.UTF8);
                 }
                 catch (Exception)
                 {
-                    continue;
+                    continue;   // 書いている最中など。次の知らせで見る
                 }
 
-                foreach (var jsonPath in files)
+                if (json.IndexOf(DrawingMarker, StringComparison.Ordinal) < 0) continue;   // 図ではない JSON
+
+                DateTime failedAt;
+                if (_aiDrawingFailures.TryGetValue(jsonPath, out failedAt) && failedAt == at) continue;
+
+                bool broken;
+                if (RenderAiDrawing(jsonPath, json, dpiScale, out broken) == null)
                 {
-                    var pngPath = Path.ChangeExtension(jsonPath, ".png");
-                    DateTime written;
-                    string json;
-                    try
-                    {
-                        written = File.GetLastWriteTimeUtc(jsonPath);
-                        if (File.Exists(pngPath) && File.GetLastWriteTimeUtc(pngPath) >= written) continue;
-
-                        json = File.ReadAllText(jsonPath, Encoding.UTF8);
-                    }
-                    catch (Exception)
-                    {
-                        continue;   // 書いている最中など。次の知らせで見る
-                    }
-
-                    if (json.IndexOf("markdown-editor-drawing", StringComparison.Ordinal) < 0) continue;   // 図ではない JSON
-
-                    DateTime failedAt;
-                    if (_aiDrawingFailures.TryGetValue(jsonPath, out failedAt) && failedAt == written) continue;
-
-                    string error;
-                    var png = DrawingEditor.DrawingEditorHost.RenderPng(json, dpiScale, out error);
-                    if (png != null)
-                    {
-                        var temp = pngPath + ".saving";
-                        try
-                        {
-                            WriteDrawingTemp(temp, png);
-                            ReplaceDrawingFile(temp, pngPath, false);
-                        }
-                        catch (Exception ex)
-                        {
-                            TryDeleteDrawingTemp(temp);
-                            error = Path.GetFileName(pngPath) + " を書けませんでした: " + ex.Message;
-                        }
-                    }
-
-                    if (error == null)
-                    {
-                        _aiDrawingFailures.Remove(jsonPath);
-                        rendered.Add(Path.GetFileName(pngPath));
-                    }
-                    else
-                    {
-                        _aiDrawingFailures[jsonPath] = written;
-                        problems.Add(Path.GetFileName(jsonPath) + ": " + error);
-                    }
+                    _aiDrawingFailures.Remove(jsonPath);
+                    rendered.Add(Path.GetFileName(Path.ChangeExtension(jsonPath, ".png")));
+                }
+                else if (broken)
+                {
+                    _aiDrawingFailures[jsonPath] = at;   // 図の誤りは、直るまで試さない。書けなかっただけなら、次の知らせでまた試す
                 }
             }
 
@@ -997,7 +1041,69 @@ namespace Tsuzuri
             if (problems.Count == 0) return null;
 
             Status("AI が書いた図を描けませんでした: " + string.Join(" / ", problems));
-            return "Tsuzuri: 図の .png を作れませんでした。.json を直して書き直してください。 " + string.Join(" / ", problems);
+            return "Tsuzuri: 図の .png を作れませんでした。 " + string.Join(" / ", problems);
+        }
+
+        private const string DrawingMarker = "markdown-editor-drawing";
+
+        /// <summary>Claude が書いた .json が、図のつもりのものか（"kind" を書き忘れていても、名前か中身で見分ける）。</summary>
+        private static bool LooksLikeDrawing(string path, string json)
+        {
+            return json.IndexOf(DrawingMarker, StringComparison.Ordinal) >= 0
+                   || Path.GetFileName(path).StartsWith("図 ", StringComparison.Ordinal)
+                   || json.IndexOf("\"shapes\"", StringComparison.Ordinal) >= 0;
+        }
+
+        /// <summary>この画面で開いている文書の添付フォルダの図（.json）のうち、同じ名前の .png が無いか、.json より古いもの。</summary>
+        private List<string> DrawingsToRender()
+        {
+            var found = new List<string>();
+            var folders = _stack.Select(view => view.FilePath).Where(path => !string.IsNullOrEmpty(path))
+                .Distinct(StringComparer.OrdinalIgnoreCase).Select(Attachments.FolderOf)
+                .Where(folder => folder != null && Directory.Exists(folder)).ToList();
+
+            foreach (var folder in folders)
+            {
+                try
+                {
+                    foreach (var jsonPath in Directory.GetFiles(folder, "*.json", SearchOption.TopDirectoryOnly))
+                    {
+                        var pngPath = Path.ChangeExtension(jsonPath, ".png");
+                        if (!File.Exists(pngPath) || File.GetLastWriteTimeUtc(pngPath) < File.GetLastWriteTimeUtc(jsonPath)) found.Add(jsonPath);
+                    }
+                }
+                catch (Exception)
+                {
+                    // 見られないフォルダは飛ばす
+                }
+            }
+
+            return found;
+        }
+
+        /// <summary>図を1つ描いて .png を書く。書けたら null、だめなら「名前: わけ」。図の誤りか、書けなかったのかを分けて言う。</summary>
+        /// <param name="broken">図そのものの誤りで描けなかったか（書けなかっただけなら false）。</param>
+        private static string RenderAiDrawing(string jsonPath, string json, double dpiScale, out bool broken)
+        {
+            var pngPath = Path.ChangeExtension(jsonPath, ".png");
+
+            string error;
+            var png = DrawingEditor.DrawingEditorHost.RenderPng(json, dpiScale, out error);
+            broken = png == null;
+            if (png == null) return Path.GetFileName(jsonPath) + ": " + error + " .json を直して書き直してください。";
+
+            var temp = pngPath + ".saving";
+            try
+            {
+                WriteDrawingTemp(temp, png);
+                ReplaceDrawingFile(temp, pngPath, false);
+                return null;
+            }
+            catch (Exception ex)
+            {
+                TryDeleteDrawingTemp(temp);
+                return Path.GetFileName(pngPath) + " を書けませんでした（図の誤りではない。.json は直さなくてよい）: " + ex.Message;
+            }
         }
 
         /// <summary>
@@ -1123,6 +1229,7 @@ namespace Tsuzuri
             var line = view.TextArea.Caret.Line;
 
             text.Append("ファイル: ").Append(document.FilePath).Append('\n');
+            text.Append("添付フォルダ（画像・図を置く）: ").Append(Attachments.FolderOf(document.FilePath)).Append('\n');
 
             var history = DocumentHistory.GitDirOf(document.FilePath);
             if (Directory.Exists(history))

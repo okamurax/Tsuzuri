@@ -269,6 +269,7 @@ namespace Tsuzuri.Views
             };
 
             TextArea.TextView.BackgroundRenderers.Add(new RuleRenderer(this));
+            TextArea.TextView.BackgroundRenderers.Add(new HeadingRuleRenderer(this));   // 見出し1・2の下の線（2026-11-03）
             TextArea.TextView.BackgroundRenderers.Add(new CodeBlockRenderer(this));   // コードブロックの地（2026-10-29）
             TextArea.TextView.LineTransformers.Add(new MarkdownColorizer(this));
             TextArea.TextView.LineTransformers.Add(new SearchColorizer(this));   // 後から上に塗る

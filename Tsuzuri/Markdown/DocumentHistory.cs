@@ -54,7 +54,7 @@ namespace Tsuzuri.Markdown
 
         /// <summary>
         /// 文書の名前を変えたことを記録する（2026-11-03。ファイラーで名前を変えたとき）。添付フォルダ（履歴の入れ物）は、もう新しい名前に変えてある。
-        /// 古い名前を記録から外し、新しい名前で記録し直す。git が名前の変更と見るので、log --follow で前の記録も続けて読める。
+        /// 古い名前を記録から外し、新しい名前で記録し直す。記録にはこの文書の .md しか無いので、ファイル名を付けない log で前の記録も続けて読める（大文字小文字だけの変更は --follow では辿れない）。
         /// まだ記録が無ければ、今の中身を記録するだけ。
         /// </summary>
         public static void RecordRename(string documentPath, string oldName)

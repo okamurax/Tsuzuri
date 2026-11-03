@@ -1240,7 +1240,9 @@ namespace Tsuzuri
             var history = DocumentHistory.GitDirOf(document.FilePath);
             if (Directory.Exists(history))
                 text.Append("変更の履歴: git -c safe.directory=* --git-dir=\"").Append(history).Append("\" --work-tree=\"").Append(Path.GetDirectoryName(document.FilePath))
-                    .Append("\" log -p --follow -- \"").Append(Path.GetFileName(document.FilePath)).Append("\"\n");   // --follow: 名前を変える前の記録も続けて読む（2026-11-03）
+                    .Append("\" log -p\n");
+            // ファイル名を付けない（2026-11-03）。この記録に入っているのはこの文書の .md だけなので、付けなくても同じものが出る。
+            // 付けると、名前を変える前の記録が出ない。--follow を付けても、大文字小文字だけの変更（TODO.md → todo.md）は Windows の git が辿れなかった。
             // ページの範囲は終わりまで書く（2026-11-01）。「このページに書いて」で、ファイルの末尾（最後のページ）に足さないように。
             text.Append("見ているページ: ").Append(PageLabel(view));
             int first, last;

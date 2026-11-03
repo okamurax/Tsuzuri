@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.Reflection;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Documents;
@@ -463,11 +464,26 @@ namespace Tsuzuri.Views
             {
             }
 
+            /// <summary>
+            /// 付いている飾り（下線・取り消し線）を入れておく、AvalonEdit の中の欄。
+            /// SetTextDecorations は今の飾りに足すだけで外せない（すでに下線があると null を渡して落ちた。2026-11-03）ので、ここを直接空にする。
+            /// </summary>
+            private static readonly FieldInfo DecorationsField =
+                typeof(VisualLineElementTextRunProperties).GetField("textDecorations", BindingFlags.Instance | BindingFlags.NonPublic);
+
             public override TextRun CreateTextRun(int startVisualColumn, ITextRunConstructionContext context)
             {
                 TextRunProperties.SetForegroundBrush(Theme.ImageCaption);
-                TextRunProperties.SetTextDecorations(null);
+                ClearDecorations(TextRunProperties);
                 return base.CreateTextRun(startVisualColumn, context);
+            }
+
+            private static void ClearDecorations(VisualLineElementTextRunProperties properties)
+            {
+                if (properties.TextDecorations == null || properties.TextDecorations.Count == 0) return;
+
+                // AvalonEdit が変わって欄が無ければ、下線が残るだけ（落ちはしない）。
+                if (DecorationsField != null) DecorationsField.SetValue(properties, null);
             }
         }
 

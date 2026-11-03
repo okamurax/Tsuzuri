@@ -113,6 +113,22 @@ namespace Tsuzuri.Views
         private readonly Dictionary<string, CachedImage> _images =
             new Dictionary<string, CachedImage>(StringComparer.OrdinalIgnoreCase);
 
+        // リンク先（本文に書いた文字）ごとの、最後にファイルを確かめた時刻と結果（2026-11-03）。
+        // スクロールで画像の行が画面に入るたびに、ファイルがあるか・更新時刻を確かめていた。\\Mac\ の上では1回ごとに時間がかかり、スクロールがカクついた。
+        // 確かめてから少しの間は確かめ直さない。描き直したとき（RefreshImages）は捨てて確かめ直す。
+        private readonly Dictionary<string, CheckedImage> _imageChecks =
+            new Dictionary<string, CheckedImage>(StringComparer.Ordinal);
+
+        /// <summary>ファイルを確かめ直すまでの間。</summary>
+        private static readonly TimeSpan ImageRecheck = TimeSpan.FromSeconds(5);
+
+        /// <summary>
+        /// 画像を本文に出すときの、横の画素数の上限。これより大きい画像は縮めて覚える（2026-11-03）。
+        /// 写真をそのままの大きさで覚えると、描くたびに高画質で縮め直すので重く、スクロールがカクついた。
+        /// 本文の幅（拡大率 2 の画面でも 1200 前後）より大きければ、どのみち縮めて出すので、見た目は変わらない。
+        /// </summary>
+        private const int MaxImagePixelWidth = 2400;
+
         private readonly TextBox _searchBox;
         private readonly TextBlock _searchCount;
         private readonly DispatcherTimer _searchDelay = new DispatcherTimer();
@@ -1665,6 +1681,7 @@ namespace Tsuzuri.Views
         /// <summary>画像を読み直して描き直す（図エディタで図を描き直したあと。SPEC 8.4.3）。読んだ画像は更新時刻で見分けるので、変わった物だけ読み直す。</summary>
         public void RefreshImages()
         {
+            _imageChecks.Clear();
             _imageLine = -1;
             _hiddenLine = -1;
             TextArea.TextView.Redraw();
@@ -1695,6 +1712,12 @@ namespace Tsuzuri.Views
             public BitmapSource Image;
         }
 
+        private sealed class CheckedImage
+        {
+            public DateTime Checked;
+            public BitmapSource Image;
+        }
+
         /// <summary>
         /// リンク先の画像を読む。無い・読めない・対応していない形式なら null。
         ///
@@ -1706,6 +1729,17 @@ namespace Tsuzuri.Views
             if (string.IsNullOrEmpty(target)) return null;
             if (target.IndexOf("://", StringComparison.Ordinal) >= 0) return null;   // 外部の画像は取りに行かない
 
+            CheckedImage check;
+            var now = DateTime.UtcNow;
+            if (_imageChecks.TryGetValue(target, out check) && now - check.Checked < ImageRecheck) return check.Image;
+
+            var image = ReadImage(target);
+            _imageChecks[target] = new CheckedImage { Checked = now, Image = image };
+            return image;
+        }
+
+        private BitmapSource ReadImage(string target)
+        {
             var path = ResolvePath(target);
             if (path == null || !File.Exists(path)) return null;
             if (string.Equals(Path.GetExtension(path), ".svg", StringComparison.OrdinalIgnoreCase)) return null;
@@ -1739,7 +1773,7 @@ namespace Tsuzuri.Views
                         var frame = decoder.Frames[0];
                         var orientation = ImageOrientation.Read(frame);
                         frame.Freeze();
-                        image = ImageOrientation.Apply(frame, orientation);
+                        image = Shrink(ImageOrientation.Apply(frame, orientation));
                     }
                 }
             }
@@ -1751,6 +1785,18 @@ namespace Tsuzuri.Views
             // 読めなかったことも覚えておく。描き直しのたびに読み直すと重い。
             _images[path] = new CachedImage { Stamp = stamp, Image = image };
             return image;
+        }
+
+        /// <summary>横が MaxImagePixelWidth を超える画像を、縦横比を保って縮める。縮めた画素は一度だけ作って覚える（CachedBitmap）。</summary>
+        private static BitmapSource Shrink(BitmapSource image)
+        {
+            if (image == null || image.PixelWidth <= MaxImagePixelWidth) return image;
+
+            var scale = (double)MaxImagePixelWidth / image.PixelWidth;
+            var scaled = new TransformedBitmap(image, new ScaleTransform(scale, scale));
+            var cached = new CachedBitmap(scaled, BitmapCreateOptions.None, BitmapCacheOption.OnLoad);
+            cached.Freeze();
+            return cached;
         }
 
         // =====================================================================

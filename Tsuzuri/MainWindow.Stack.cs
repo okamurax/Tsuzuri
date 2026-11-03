@@ -48,6 +48,7 @@ namespace Tsuzuri
 
             view.LinkActivated += OnLinkActivated;
             view.LinkCopyRequested += (sender, line) => CopyHeadingLink(view, line);
+            view.BookmarkToggleRequested += (sender, line) => ToggleHeadingBookmark(view, line);
             view.ImageDisplayToggleRequested += delegate { ToggleImageDisplay(); };
             view.SetLinkTextOnly(_settings.ImageLinkTextOnly);
             view.PageLost += delegate { OnPageLost(view); };

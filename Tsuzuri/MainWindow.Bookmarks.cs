@@ -30,7 +30,7 @@ namespace Tsuzuri
         // 見出しのブックマーク（SPEC 7章）
         //
         // 書いている最中に、頻繁に・手軽に付け外しするためのもの。
-        // 登録と解除はアウトラインの右クリック、一覧はアウトラインの上に新しいものから積む。登録した見出しには • を出す。
+        // 登録と解除は本文の行番号の右ボタンのダブルクリック（2026-11-03。前はアウトラインの右クリック）、一覧はアウトラインの上に新しいものから積む。登録した見出しには • を出す。
         // 行番号ではなく見出しの文字で覚え、開いている間の書き換えには追いかける。
         // ファイルごとに .文書名/state.json に覚え、閉じても終了しても残す（2026-10-14。前は保存しなかった）。
         // 付け外しはすぐ書く。見出しの書き換えに追いかけた分は、本文の保存・ファイルを閉じる・終了のときに書く。
@@ -55,30 +55,46 @@ namespace Tsuzuri
             }
         }
 
-        /// <summary>見出しをブックマークする。していれば外す（右クリックの「ブックマークする／外す」）。</summary>
-        private void ToggleHeadingBookmark(OutlineNode node)
+        /// <summary>
+        /// その行の見出しをブックマークする。していれば外す（行番号の右ボタンのダブルクリック。2026-11-03）。
+        /// 本文の行なら、その行が属する見出し（上で一番近い見出し）。見出しより前の行なら何もしない。
+        /// </summary>
+        private void ToggleHeadingBookmark(MarkdownView view, int lineNumber)
         {
-            if (node == null || !HasDocument || string.IsNullOrEmpty(node.Text)) return;
+            if (view == null || string.IsNullOrEmpty(view.FilePath)) return;
 
-            var view = Active;
-            var existing = FindHeadingBookmark(view, node.Text);
+            if (WordPressLinkOf(view) != null)
+            {
+                Status("WordPress の記事の見出しはブックマークできません（記事は一時ファイルで開いているため）。");
+                return;
+            }
+
+            var heading = view.HeadingAbove(lineNumber);
+            if (heading == null || string.IsNullOrEmpty(heading.Text))
+            {
+                Status("見出しより前の行なので、ブックマークできません。");
+                return;
+            }
+
+            var existing = FindHeadingBookmark(view, heading.Text);
+            var name = HeadingText.Display(heading.Text);
 
             if (existing != null)
             {
                 _headingBookmarks.Remove(existing);
-                Status("見出しのブックマークを外しました: " + node.Text);
+                Status("見出しのブックマークを外しました: " + name);
             }
             else
             {
                 var mark = new HeadingBookmark();
                 mark.File = view.FilePath;
                 mark.Page = view.PageId ?? string.Empty;
-                mark.Text = node.Text;
-                mark.Line = node.Line;
+                mark.Text = heading.Text;
+                mark.Line = heading.Line;
                 RememberLayout(mark);
 
                 _headingBookmarks.Insert(0, mark);   // 新しいものを上に積む
-                Status("見出しをブックマークしました: " + node.Text);
+                Status("見出しをブックマークしました: " + name);
             }
 
             HeadingBookmarksChanged();

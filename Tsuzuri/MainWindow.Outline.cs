@@ -521,9 +521,12 @@ namespace Tsuzuri
             menu.Items.Add(CreateSortMenu(node, menu));
             menu.Items.Add(new Separator());
 
-            if (registered) menu.Items.Add(OutlineMenuItem("ブックマークを今の画面で覚え直す", true, () => RememberHeadingBookmarkLayout(node)));
-            menu.Items.Add(OutlineMenuItem(registered ? "ブックマークから外す" : "ブックマークする", named, () => ToggleHeadingBookmark(node)));
-            menu.Items.Add(new Separator());
+            // ブックマークの付け外しは、2026-11-03 にメニューから外した（本文の行番号を右ボタンでダブルクリック）。
+            if (registered)
+            {
+                menu.Items.Add(OutlineMenuItem("ブックマークを今の画面で覚え直す", true, () => RememberHeadingBookmarkLayout(node)));
+                menu.Items.Add(new Separator());
+            }
 
             menu.Items.Add(OutlineMenuItem("削除…（中身と小見出しも）", true, () => later(() => DeleteOutlineHeading(node))));
 
@@ -587,13 +590,13 @@ namespace Tsuzuri
             text.VerticalAlignment = VerticalAlignment.Center;
             text.ToolTip = display;
 
-            // ブックマークしている見出しの印。付け外しはホバーのボタンか右クリック。
+            // ブックマークしている見出しの印。付け外しは本文の行番号の右ボタンのダブルクリック。
             var mark = new TextBlock();
             mark.Text = "•";
             mark.FontSize = 12;
             mark.Margin = new Thickness(6, 0, 4, 0);
             mark.VerticalAlignment = VerticalAlignment.Center;
-            mark.ToolTip = "ブックマークしている見出し（外すのは右クリック）";
+            mark.ToolTip = "ブックマークしている見出し（付け外しは、本文の行番号を右ボタンでダブルクリック）";
             mark.SetResourceReference(TextBlock.ForegroundProperty, "AccentBrush");
             DockPanel.SetDock(mark, Dock.Right);
 
@@ -620,7 +623,7 @@ namespace Tsuzuri
             frame.BorderBrush = Brushes.Transparent;
             frame.Background = Brushes.Transparent;
             frame.ToolTip = display + Environment.NewLine + "ドラッグで好きな位置へ動かす（落とした位置の見出しにレベルを合わせ、配下も同じだけずらす）" +
-                            Environment.NewLine + "右クリックで、見出しの追加・レベル・ブックマーク・名前の変更・削除";
+                            Environment.NewLine + "右クリックで、レベル・並べ替え・削除";
             // 右クリックで、左クリックと同じくその見出しへ移って選んでから、メニューを出す。
             // 選んでいる見出し（エディタのカーソルの位置）と、メニューの対象をそろえるため。選んでいる印で、どの見出しのメニューか分かる。
             frame.MouseRightButtonUp += (sender, e) =>

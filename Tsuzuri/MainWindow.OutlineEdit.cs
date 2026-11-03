@@ -22,7 +22,7 @@ using Tsuzuri.Views;
 
 namespace Tsuzuri
 {
-    // MainWindow の一部: アウトラインの右クリック（見出しの追加・削除・名前の変更・レベル・ブックマーク）。
+    // MainWindow の一部: アウトラインの右クリック（見出しの削除・レベル・並べ替え・ブックマークの覚え直し）。
     // MainWindow.xaml.cs が大きくなりすぎたので、受け持ちごとにファイルを分けた（2026-10-14。中身は変えていない）。
     public partial class MainWindow
     {

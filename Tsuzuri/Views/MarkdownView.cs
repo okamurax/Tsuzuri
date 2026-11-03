@@ -151,6 +151,12 @@ namespace Tsuzuri.Views
         /// </summary>
         public event EventHandler<int> LinkCopyRequested;
 
+        /// <summary>
+        /// 行番号を右ボタンでダブルクリックした（2026-11-03。SPEC 7章）。値は押した行の行番号。
+        /// 受け手がその行の見出し（本文の行なら、その行が属する見出し）のブックマークを付け外しする。
+        /// </summary>
+        public event EventHandler<int> BookmarkToggleRequested;
+
         // 画像の行を、リンクの文字だけで見せるか（2026-10-15）。false なら画像だけ（リンクの文字列は隠す）。
         private bool _linkTextOnly;
         private readonly Button _imageDisplayButton;
@@ -1172,14 +1178,37 @@ namespace Tsuzuri.Views
             TextArea.Focus();
         }
 
+        /// <summary>行番号の右クリックのメニューを出すのを待っている間の時計（ダブルクリックならメニューを出さない）。</summary>
+        private DispatcherTimer _gutterMenuDelay;
+
+        /// <summary>行番号の右ボタンのダブルクリックを受けた。続く離した操作でメニューを出さない。</summary>
+        private bool _gutterRightDouble;
+
+        [System.Runtime.InteropServices.DllImport("user32.dll")]
+        private static extern uint GetDoubleClickTime();
+
         /// <summary>
         /// 行番号（とその右の余白）の右クリックで、その行の見出しへのリンクをコピーするメニューを出す（2026-11-02。SPEC 5.5）。
-        /// 押したときに止めておく（AvalonEdit にキャレットを動かさせない）。出すのは離したとき。
+        /// 右ボタンのダブルクリックなら、その行の見出しのブックマークを付け外しする（2026-11-03。SPEC 7章）。
+        /// 押したときに止めておく（AvalonEdit にキャレットを動かさせない）。メニューは、離してからダブルクリックの間隔だけ待って出す
+        /// （すぐ出すと、2回目の右クリックがメニューに取られてダブルクリックにならない）。
         /// </summary>
         private void OnGutterRightButtonDown(object sender, MouseButtonEventArgs e)
         {
             var point = e.GetPosition(TextArea.TextView);
-            if (point.X < 0 && GapLineAt(point) > 0) e.Handled = true;
+            if (point.X >= 0) return;
+
+            var lineNumber = GapLineAt(point);
+            if (lineNumber < 1) return;
+
+            e.Handled = true;
+            if (e.ClickCount < 2) return;
+
+            if (_gutterMenuDelay != null) _gutterMenuDelay.Stop();
+            _gutterRightDouble = true;
+
+            var handler = BookmarkToggleRequested;
+            if (handler != null) handler(this, lineNumber);
         }
 
         private void OnGutterRightButtonUp(object sender, MouseButtonEventArgs e)
@@ -1192,13 +1221,39 @@ namespace Tsuzuri.Views
 
             e.Handled = true;
 
+            if (_gutterRightDouble)
+            {
+                _gutterRightDouble = false;
+                return;
+            }
+
+            if (_gutterMenuDelay == null)
+            {
+                _gutterMenuDelay = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(GetDoubleClickTime()) };
+                _gutterMenuDelay.Tick += delegate
+                {
+                    _gutterMenuDelay.Stop();
+                    ShowGutterMenu((int)_gutterMenuDelay.Tag);
+                };
+            }
+
+            _gutterMenuDelay.Stop();
+            _gutterMenuDelay.Tag = lineNumber;
+            _gutterMenuDelay.Start();
+        }
+
+        private void ShowGutterMenu(int lineNumber)
+        {
+            if (lineNumber > Document.LineCount) return;
+
             var heading = HeadingAbove(lineNumber);
             var name = heading != null ? HeadingText.Display(heading.Text) : Title;
 
             var copy = new MenuItem { Header = "「" + name + "」へのリンクをコピー" };
-            copy.ToolTip = heading != null
+            copy.ToolTip = (heading != null
                 ? "この行の見出しへのリンクをコピーする。ほかのページ・ほかの文書に貼ると、そこからのリンクになる"
-                : "見出しより前の行なので、このページへのリンクをコピーする。ほかのページ・ほかの文書に貼ると、そこからのリンクになる";
+                : "見出しより前の行なので、このページへのリンクをコピーする。ほかのページ・ほかの文書に貼ると、そこからのリンクになる")
+                + Environment.NewLine + "行番号を右ボタンでダブルクリックすると、見出しのブックマークを付け外しする";
             copy.Click += delegate
             {
                 var handler = LinkCopyRequested;

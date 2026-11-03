@@ -35,7 +35,7 @@ namespace Tsuzuri
             /// <summary>見出しの文字。ブックマークの照合に使う。</summary>
             public string Text;
 
-            /// <summary>ブックマークしている印の •（押せない。付け外しは右クリック）。</summary>
+            /// <summary>ブックマークしている印の •（押せない。付け外しは本文の行番号の右ボタンのダブルクリック）。</summary>
             public TextBlock Mark;
 
             /// <summary>見出しの名前の表示と、それを入れている段。名前を変えている間は、Label の代わりに入力欄を入れる。</summary>

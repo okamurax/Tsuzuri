@@ -1194,20 +1194,20 @@ namespace Tsuzuri.Views
             TextArea.Focus();
         }
 
-        /// <summary>行番号の右クリックのメニューを出すのを待っている間の時計（ダブルクリックならメニューを出さない）。</summary>
-        private DispatcherTimer _gutterMenuDelay;
+        /// <summary>行番号の右クリックでリンクをコピーするのを待っている間の時計（ダブルクリックならコピーしない）。</summary>
+        private DispatcherTimer _gutterCopyDelay;
 
-        /// <summary>行番号の右ボタンのダブルクリックを受けた。続く離した操作でメニューを出さない。</summary>
+        /// <summary>行番号の右ボタンのダブルクリックを受けた。続く離した操作でコピーしない。</summary>
         private bool _gutterRightDouble;
 
         [System.Runtime.InteropServices.DllImport("user32.dll")]
         private static extern uint GetDoubleClickTime();
 
         /// <summary>
-        /// 行番号（とその右の余白）の右クリックで、その行の見出しへのリンクをコピーするメニューを出す（2026-11-02。SPEC 5.5）。
+        /// 行番号（とその右の余白）の右クリックで、その行の見出しへのリンクをコピーする（2026-11-02。SPEC 5.5。2026-11-03 にメニューをやめ、すぐコピーする）。
         /// 右ボタンのダブルクリックなら、その行の見出しのブックマークを付け外しする（2026-11-03。SPEC 7章）。
-        /// 押したときに止めておく（AvalonEdit にキャレットを動かさせない）。メニューは、離してからダブルクリックの間隔だけ待って出す
-        /// （すぐ出すと、2回目の右クリックがメニューに取られてダブルクリックにならない）。
+        /// 押したときに止めておく（AvalonEdit にキャレットを動かさせない）。コピーは、離してからダブルクリックの間隔だけ待ってする
+        /// （ダブルクリックのときにコピーしないため）。
         /// </summary>
         private void OnGutterRightButtonDown(object sender, MouseButtonEventArgs e)
         {
@@ -1220,7 +1220,7 @@ namespace Tsuzuri.Views
             e.Handled = true;
             if (e.ClickCount < 2) return;
 
-            if (_gutterMenuDelay != null) _gutterMenuDelay.Stop();
+            if (_gutterCopyDelay != null) _gutterCopyDelay.Stop();
             _gutterRightDouble = true;
 
             var handler = BookmarkToggleRequested;
@@ -1243,42 +1243,23 @@ namespace Tsuzuri.Views
                 return;
             }
 
-            if (_gutterMenuDelay == null)
+            if (_gutterCopyDelay == null)
             {
-                _gutterMenuDelay = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(GetDoubleClickTime()) };
-                _gutterMenuDelay.Tick += delegate
+                _gutterCopyDelay = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(GetDoubleClickTime()) };
+                _gutterCopyDelay.Tick += delegate
                 {
-                    _gutterMenuDelay.Stop();
-                    ShowGutterMenu((int)_gutterMenuDelay.Tag);
+                    _gutterCopyDelay.Stop();
+                    var line = (int)_gutterCopyDelay.Tag;
+                    if (line > Document.LineCount) return;
+
+                    var handler = LinkCopyRequested;
+                    if (handler != null) handler(this, line);
                 };
             }
 
-            _gutterMenuDelay.Stop();
-            _gutterMenuDelay.Tag = lineNumber;
-            _gutterMenuDelay.Start();
-        }
-
-        private void ShowGutterMenu(int lineNumber)
-        {
-            if (lineNumber > Document.LineCount) return;
-
-            var heading = HeadingAbove(lineNumber);
-            var name = heading != null ? HeadingText.Display(heading.Text) : Title;
-
-            var copy = new MenuItem { Header = "「" + name + "」へのリンクをコピー" };
-            copy.ToolTip = (heading != null
-                ? "この行の見出しへのリンクをコピーする。ほかのページ・ほかの文書に貼ると、そこからのリンクになる"
-                : "見出しより前の行なので、このページへのリンクをコピーする。ほかのページ・ほかの文書に貼ると、そこからのリンクになる")
-                + Environment.NewLine + "行番号を右ボタンでダブルクリックすると、見出しのブックマークを付け外しする";
-            copy.Click += delegate
-            {
-                var handler = LinkCopyRequested;
-                if (handler != null) handler(this, lineNumber);
-            };
-
-            var menu = new ContextMenu { PlacementTarget = this };
-            menu.Items.Add(copy);
-            menu.IsOpen = true;
+            _gutterCopyDelay.Stop();
+            _gutterCopyDelay.Tag = lineNumber;
+            _gutterCopyDelay.Start();
         }
 
         /// <summary>その行が属する見出し（その行か、それより上で一番近い見出し）。見出しより前の行なら null。</summary>

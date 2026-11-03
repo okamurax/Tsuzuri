@@ -44,7 +44,7 @@ namespace Tsuzuri.Markdown
         public static readonly Brush Divider     = Freeze("#FF31384A");
 
         /// <summary>見出し1・2の下に引く線の色（2026-11-03）。水平線より少し明るい、薄いグレー。</summary>
-        public static readonly Brush HeadingRule = Freeze("#FF3E434D");
+        public static readonly Brush HeadingRule = Freeze("#FF474C57");
 
         /// <summary>見出し2の下に引く線の色。見出し1の線より目立たない、背景に近い色。</summary>
         public static readonly Brush HeadingRuleFaint = Freeze("#FF1B2231");

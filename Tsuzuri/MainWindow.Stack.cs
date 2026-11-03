@@ -489,7 +489,7 @@ namespace Tsuzuri
 
         private void CreateFiler()
         {
-            _filer = new FilerView(Status, OpenInApp, CreateFromFiler, IsInUse);
+            _filer = new FilerView(Status, OpenInApp, CreateFromFiler, IsInUse, OnFilerRenamed);
 
             // 前回最後に見ていたフォルダから。無ければ見ているページのフォルダ、それも無ければドキュメント。
             var folder = _settings.FilerFolder;

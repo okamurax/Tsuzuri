@@ -1239,7 +1239,8 @@ namespace Tsuzuri
 
             var history = DocumentHistory.GitDirOf(document.FilePath);
             if (Directory.Exists(history))
-                text.Append("変更の履歴: git -c safe.directory=* --git-dir=\"").Append(history).Append("\" log -p -- \"").Append(Path.GetFileName(document.FilePath)).Append("\"\n");
+                text.Append("変更の履歴: git -c safe.directory=* --git-dir=\"").Append(history).Append("\" --work-tree=\"").Append(Path.GetDirectoryName(document.FilePath))
+                    .Append("\" log -p --follow -- \"").Append(Path.GetFileName(document.FilePath)).Append("\"\n");   // --follow: 名前を変える前の記録も続けて読む（2026-11-03）
             // ページの範囲は終わりまで書く（2026-11-01）。「このページに書いて」で、ファイルの末尾（最後のページ）に足さないように。
             text.Append("見ているページ: ").Append(PageLabel(view));
             int first, last;

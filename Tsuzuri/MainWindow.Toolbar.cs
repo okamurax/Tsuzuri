@@ -70,15 +70,160 @@ namespace Tsuzuri
             // ファイラーから来たパスを本当のパスに揃える。開いているファイルのパスは開く入口で揃えてある。
             var target = ShellActions.CanonicalPath(path);
 
-            foreach (var view in _stack)
+            // ほかの画面で開いているものも数える（2026-11-03。前はこの画面だけを見ていて、ほかの画面で開いている文書の名前を変えられた）。
+            foreach (var view in OpenWindows.SelectMany(window => window._stack))
             {
                 var open = view.FilePath;
+                if (string.IsNullOrEmpty(open)) continue;
 
                 if (string.Equals(open, target, StringComparison.OrdinalIgnoreCase)) return true;
                 if (open.StartsWith(target + "\\", StringComparison.OrdinalIgnoreCase)) return true;
             }
 
             return false;
+        }
+
+        /// <summary>
+        /// ファイラーで名前を変えたあと（2026-11-03。SPEC 9章）。エディタが絶対パスで覚えているものを、新しい名前に直す。
+        /// ・app.json: 前回のファイル・画面の覚え（最初の画面・増やした画面・休止している画面）・たたんだ見出し・ランチャーの登録・ファイラーのフォルダ
+        /// ・開いている画面の、見出しの履歴とたたんだ見出し
+        /// ・文書なら、その文書の state.json（ブックマークが覚えている画面）と、変更の記録（名前の変更として記録する）
+        /// フォルダの名前を変えたときは、その中のもの全部を直す。ほかの文書からのリンクは直さず、同じフォルダの文書にあれば知らせる（返す文）。
+        /// </summary>
+        private string OnFilerRenamed(string oldPath, string newPath, bool isFolder)
+        {
+            // 変える前のパスはもう無いので、本当のパスは親のフォルダで尋ねて、名前を足す（覚えているパスは本当のパスで揃えてある）。
+            var oldParent = Path.GetDirectoryName(oldPath.TrimEnd('\\', '/'));
+            var from = string.IsNullOrEmpty(oldParent) ? oldPath
+                : Path.Combine(ShellActions.CanonicalPath(oldParent), Path.GetFileName(oldPath.TrimEnd('\\', '/')).Normalize(System.Text.NormalizationForm.FormC));
+            var to = ShellActions.CanonicalPath(newPath);
+            Func<string, string> remap = path => RemapPath(path, from, to, isFolder);
+
+            _settings.LastFile = remap(_settings.LastFile);
+            _settings.FilerFolder = remap(_settings.FilerFolder);
+            RemapScreen(_settings.Screen, remap);
+            _settings.Collapsed = RemapKeys(_settings.Collapsed, from, to, isFolder);
+            foreach (var session in _settings.Windows)
+            {
+                RemapScreen(session.Screen, remap);
+                session.Collapsed = RemapKeys(session.Collapsed, from, to, isFolder);
+            }
+
+            var tiles = false;
+            foreach (var tile in _settings.Tiles)
+            {
+                var moved = remap(tile.Path);
+                if (moved == tile.Path) continue;
+                tile.Path = moved;
+                tiles = true;
+            }
+
+            _settings.Save();
+
+            foreach (var window in OpenWindows)
+            {
+                foreach (var mark in window._headingHistory) mark.File = remap(mark.File);
+                foreach (var mark in window._headingBookmarks) mark.File = remap(mark.File);
+                var keys = RemapKeys(window._collapsedPaths.ToList(), from, to, isFolder);
+                window._collapsedPaths.Clear();
+                if (keys != null) foreach (var key in keys) window._collapsedPaths.Add(key);
+                if (tiles && window._launcher != null) window._launcher.Refresh();
+            }
+
+            if (isFolder || !IsMarkdown(newPath)) return null;
+
+            // 文書の state.json（ブックマークが覚えている画面の並び）。添付フォルダはもう新しい名前になっている。
+            try
+            {
+                if (File.Exists(DocumentState.PathOf(newPath)))
+                {
+                    var state = DocumentState.Load(newPath);
+                    if (state.Headings != null)
+                    {
+                        foreach (var mark in state.Headings) RemapScreen(mark.Screen, remap);
+                        state.Save(newPath);
+                    }
+                }
+            }
+            catch (Exception)
+            {
+                // 読めない・書けない state.json は触らない（ブックマークの画面が戻らないだけ）。
+            }
+
+            if (IsMarkdown(oldPath)) DocumentHistory.RecordRename(newPath, Path.GetFileName(oldPath));
+
+            return LinkersOf(oldPath, newPath);
+        }
+
+        /// <summary>
+        /// 同じフォルダの .md のうち、変える前の名前（文書か、その添付フォルダ）を指していそうなもの。リンクは直さず、知らせるだけ。
+        /// どの文書がリンクしているかは全部は探せないので、近くだけを見る。
+        /// </summary>
+        private static string LinkersOf(string oldPath, string newPath)
+        {
+            try
+            {
+                var folder = Path.GetDirectoryName(newPath);
+                var oldName = Path.GetFileName(oldPath);
+                var oldFolder = Path.GetFileName(Attachments.FolderOf(oldPath));
+                var needles = new[] { "](" + oldName, "](<" + oldName, "](" + Uri.EscapeDataString(oldName), "](" + oldFolder + "/", "](<" + oldFolder + "/" };
+
+                var found = new List<string>();
+                foreach (var file in Directory.EnumerateFiles(folder, "*.md"))
+                {
+                    if (string.Equals(file, newPath, StringComparison.OrdinalIgnoreCase)) continue;
+
+                    var text = File.ReadAllText(file);
+                    if (needles.Any(needle => text.IndexOf(needle, StringComparison.OrdinalIgnoreCase) >= 0))
+                        found.Add(Path.GetFileName(file));
+                }
+
+                if (found.Count == 0) return null;
+
+                return "同じフォルダの " + found.Count + " 件の文書に、元の名前へのリンクがあります（直していません）: "
+                       + string.Join("、", found.Take(5)) + (found.Count > 5 ? " ほか" : string.Empty);
+            }
+            catch (Exception)
+            {
+                return null;
+            }
+        }
+
+        /// <summary>path が from（フォルダなら、その中も）なら、to に置き換えたもの。違えばそのまま。</summary>
+        private static string RemapPath(string path, string from, string to, bool isFolder)
+        {
+            if (string.IsNullOrEmpty(path)) return path;
+
+            if (string.Equals(path, from, StringComparison.OrdinalIgnoreCase)) return to;
+            if (isFolder && path.StartsWith(from + "\\", StringComparison.OrdinalIgnoreCase)) return to + path.Substring(from.Length);
+
+            return path;
+        }
+
+        private static void RemapScreen(ScreenState screen, Func<string, string> remap)
+        {
+            if (screen == null || screen.Pages == null) return;
+
+            foreach (var page in screen.Pages)
+            {
+                if (page != null) page.File = remap(page.File);
+            }
+        }
+
+        /// <summary>たたんだ見出しの鍵（「ファイル|ページ…」）の、ファイルの部分を直す。</summary>
+        private static List<string> RemapKeys(List<string> keys, string from, string to, bool isFolder)
+        {
+            if (keys == null) return null;
+
+            return keys.Select(key =>
+            {
+                if (string.IsNullOrEmpty(key)) return key;
+
+                var bar = key.IndexOf('|');
+                if (bar < 0) return key;
+
+                return RemapPath(key.Substring(0, bar), from, to, isFolder) + key.Substring(bar);
+            }).ToList();
         }
 
         private void Save_Click(object sender, RoutedEventArgs e)

@@ -201,6 +201,12 @@ namespace Tsuzuri.Views
             return new Cell(column, row);
         }
 
+        /// <summary>登録が外で変わったとき（ファイラーで名前を変えて、登録のパスを直したとき）に、マス目を作り直す。</summary>
+        public void Refresh()
+        {
+            Rebuild();
+        }
+
         /// <summary>
         /// 並べる範囲を決めて、マスを作り直す。
         /// 登録のある一番右・一番下の外側に空きを1つずつ。画面より狭ければ、画面いっぱいまで空きで埋める。
@@ -642,7 +648,7 @@ namespace Tsuzuri.Views
 
             menu.Items.Add(new Separator());
 
-            var rename = new MenuItem { Header = "名前を変更…" };
+            var rename = new MenuItem { Header = "表示名を変更…", ToolTip = "マスに出す名前だけを変える（ファイルの名前は変えない。ファイルの名前はファイラーで変える）" };
             rename.Click += delegate { BeginRename(cell); };
             menu.Items.Add(rename);
 

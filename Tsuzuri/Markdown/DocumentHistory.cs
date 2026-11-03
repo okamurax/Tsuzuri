@@ -52,6 +52,71 @@ namespace Tsuzuri.Markdown
             Queue.Add(() => Commit(documentPath, message));
         }
 
+        /// <summary>
+        /// 文書の名前を変えたことを記録する（2026-11-03。ファイラーで名前を変えたとき）。添付フォルダ（履歴の入れ物）は、もう新しい名前に変えてある。
+        /// 古い名前を記録から外し、新しい名前で記録し直す。git が名前の変更と見るので、log --follow で前の記録も続けて読める。
+        /// まだ記録が無ければ、今の中身を記録するだけ。
+        /// </summary>
+        public static void RecordRename(string documentPath, string oldName)
+        {
+            if (string.IsNullOrEmpty(documentPath)) return;
+
+            lock (Queue)
+            {
+                if (_worker == null)
+                {
+                    _worker = new Thread(Work) { IsBackground = true, Name = "DocumentHistory" };
+                    _worker.Start();
+                }
+            }
+
+            Queue.Add(() => CommitRename(documentPath, oldName));
+        }
+
+        private static void CommitRename(string documentPath, string oldName)
+        {
+            var git = FindGit();
+            if (git == null) return;
+
+            var gitDir = GitDirOf(documentPath);
+            if (!Directory.Exists(Path.Combine(gitDir, "objects")))
+            {
+                Commit(documentPath, "名前を変えた: " + oldName + " → " + Path.GetFileName(documentPath));
+                return;
+            }
+
+            var folder = Path.GetDirectoryName(documentPath);
+            var name = Path.GetFileName(documentPath);
+            EnsureWorktree(git, gitDir, folder);
+
+            Run(git, gitDir, folder, "rm --cached -q --ignore-unmatch -- " + Quote(oldName));
+            Run(git, gitDir, folder, "add -- " + Quote(name));
+            if (Run(git, gitDir, folder, "diff --cached --quiet", false) == 0) return;
+
+            Run(git, gitDir, folder, "commit -q -m " + Quote("名前を変えた: " + oldName + " → " + name));
+        }
+
+        /// <summary>
+        /// 記録に覚えさせた作業場所（文書のあるフォルダ）が今の場所と違えば、覚え直す（2026-11-03）。
+        /// 文書をフォルダごと動かした・フォルダの名前を変えたあと、Claude が git --git-dir=... だけで履歴を読むと、古い場所へ行こうとして失敗するため。
+        /// </summary>
+        private static void EnsureWorktree(string git, string gitDir, string folder)
+        {
+            try
+            {
+                var config = File.ReadAllText(Path.Combine(gitDir, "config"));
+                var written = folder.TrimEnd('\\').Replace("\\", "\\\\");   // git は設定のファイルに \ を \\ と書く
+                if (config.IndexOf("worktree = " + written, StringComparison.OrdinalIgnoreCase) >= 0
+                    || config.IndexOf("worktree = \"" + written + "\"", StringComparison.OrdinalIgnoreCase) >= 0) return;
+            }
+            catch (Exception)
+            {
+                return;   // 読めなければ触らない（保存の記録を止めない）
+            }
+
+            Run(git, gitDir, folder, "config core.worktree " + Quote(folder), false);
+        }
+
         private static void Work()
         {
             foreach (var job in Queue.GetConsumingEnumerable())
@@ -83,6 +148,11 @@ namespace Tsuzuri.Markdown
 
                 // 作業場所を覚えさせておく。Claude が git --git-dir=... だけで差分を見られるように。
                 Run(git, gitDir, folder, "config core.worktree " + Quote(folder));
+            }
+
+            else
+            {
+                EnsureWorktree(git, gitDir, folder);
             }
 
             Run(git, gitDir, folder, "add -- " + Quote(name));

@@ -48,6 +48,7 @@ namespace Tsuzuri.Views
         private readonly Action<string> _openDocument;
         private readonly Func<string, bool> _createDocument;
         private readonly Func<string, bool> _isInUse;
+        private readonly Func<string, string, bool, string> _renamed;
 
         // 名前を打っている欄（新しく作る・名前を変える）。打っていなければ null。
         private FrameworkElement _naming;
@@ -73,13 +74,18 @@ namespace Tsuzuri.Views
         /// そのファイル（フォルダならその中のどれか）をエディタで開いているか。開いていれば名前の変更・削除をさせない
         /// （外で変えると、エディタが保存先を失うため）。
         /// </param>
+        /// <param name="renamed">
+        /// 名前を変えたあとに呼ぶ（変える前のパス・変えたあとのパス・フォルダか）。エディタが覚えているパス（ランチャー・前回のファイル・画面の覚え）を直す。
+        /// 知らせに足す文を返す（無ければ null）。
+        /// </param>
         public FilerView(Action<string> status, Action<string> openDocument, Func<string, bool> createDocument,
-            Func<string, bool> isInUse)
+            Func<string, bool> isInUse, Func<string, string, bool, string> renamed)
         {
             _status = status;
             _openDocument = openDocument;
             _createDocument = createDocument;
             _isInUse = isInUse;
+            _renamed = renamed;
 
             LastChildFill = true;
             Background = Theme.Background;
@@ -964,6 +970,19 @@ namespace Tsuzuri.Views
                 return false;
             }
 
+            // Markdown の名前を変えたら、添付フォルダ（.文書名）も一緒に変える（2026-11-03。前は手で揃えてもらっていた）。
+            // 新しい名前の添付フォルダがすでにあれば、どちらも変えない（別の文書の添付と混ざるため）。
+            // 拡張子が .md でなくなる名前なら、添付フォルダは変えない（もう文書ではない）。
+            var attachments = !isFolder && IsMarkdown(path) && IsMarkdown(target) ? Attachments.FolderOf(path) : null;
+            if (attachments != null && !Directory.Exists(attachments)) attachments = null;
+            var newAttachments = attachments != null ? Attachments.FolderOf(target) : null;
+            var attachmentsCaseOnly = attachments != null && string.Equals(attachments, newAttachments, StringComparison.OrdinalIgnoreCase);
+            if (attachments != null && !attachmentsCaseOnly && (Directory.Exists(newAttachments) || File.Exists(newAttachments)))
+            {
+                Notify("新しい名前の添付フォルダ（" + Path.GetFileName(newAttachments) + "）がすでにあるため、名前を変えませんでした。");
+                return false;
+            }
+
             try
             {
                 if (caseOnly) MoveCaseOnly(path, target, parent, isFolder);
@@ -976,13 +995,39 @@ namespace Tsuzuri.Views
                 return false;
             }
 
+            if (attachments != null)
+            {
+                try
+                {
+                    if (attachmentsCaseOnly) MoveCaseOnly(attachments, newAttachments, parent, true);
+                    else Move(attachments, newAttachments, true);
+                }
+                catch (Exception ex)
+                {
+                    // 添付フォルダを変えられなければ、文書の名前も戻す（文書と添付が離れないように）。
+                    string back = null;
+                    try
+                    {
+                        if (caseOnly) MoveCaseOnly(target, path, parent, false);
+                        else Move(target, path, false);
+                    }
+                    catch (Exception)
+                    {
+                        back = "（文書の名前も戻せませんでした。いまは「" + name + "」です。添付フォルダの名前を手で揃えてください）";
+                    }
+
+                    Notify("添付フォルダの名前を変えられなかったため、" + (back == null ? "文書の名前も元に戻しました" : "名前を変えませんでした" + back) + ": " + ex.Message);
+                    Reload();
+                    return false;
+                }
+            }
+
             Reload();
 
-            // 添付フォルダは一緒には変えない（SPEC 9章）。あれば、手で揃えるよう知らせる。
-            var attachments = !isFolder && IsMarkdown(path) ? Attachments.FolderOf(path) : null;
-            Notify(attachments != null && Directory.Exists(attachments)
-                ? "名前を変えました。添付フォルダ（" + Path.GetFileName(attachments) + "）の名前は手で揃えてください。"
-                : "名前を変えました: " + name);
+            var more = _renamed != null ? _renamed(path, target, isFolder) : null;
+            Notify("名前を変えました: " + name
+                   + (attachments != null ? "（添付フォルダも " + Path.GetFileName(newAttachments) + " に変えました）" : string.Empty)
+                   + (string.IsNullOrEmpty(more) ? string.Empty : "。" + more));
             return true;
         }
 

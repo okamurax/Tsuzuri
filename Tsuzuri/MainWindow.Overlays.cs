@@ -155,8 +155,10 @@ namespace Tsuzuri
                 return;
             }
 
-            CloseLauncher();   // 開いたものを見せる（OpenFromLauncher と同じ）
-            OpenRoot(path);
+            // ランチャーと同じく、新しい画面（タブ）で開く（2026-11-03。ランチャーとファイラーは1つの画面に並んでいて、片方だけ今のタブで開くと戸惑うため）。
+            CloseLauncher();   // 開いたものを見せる
+            if (!HasDocument) OpenRoot(path);
+            else OpenLinkedFile(path, null);
         }
 
         /// <summary>

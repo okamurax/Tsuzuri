@@ -8,15 +8,15 @@ using Tsuzuri.Markdown;
 namespace Tsuzuri.Views
 {
     /// <summary>
-    /// 見出しの下に線を引く（2026-11-03。SPEC 8章）。見出し1は薄いグレーの線、見出し2は同じ色の細かい点線（1px おき）。見出し3以下は引かない。
+    /// 見出しの下に線を引く（2026-11-03。SPEC 8章）。見出し1は薄いグレーの線、見出し2は背景に近い色の線（2026-11-03。点線は見づらく、やめた）。見出し3以下は引かない。
     ///
     /// 線は見出しの文字の始まりから右端まで。折り返した見出しは最後の段の下に引く。
     /// 下線式（=== / ---）の見出しは下線の行をそのまま見せているので、引かない（# の見出しだけ）。
     /// </summary>
     public sealed class HeadingRuleRenderer : IBackgroundRenderer
     {
-        private static readonly Pen Solid = CreatePen(false);
-        private static readonly Pen Dashed = CreatePen(true);
+        private static readonly Pen Level1 = CreatePen(Theme.HeadingRule);
+        private static readonly Pen Level2 = CreatePen(Theme.HeadingRuleFaint);
 
         /// <summary>線の右端を、描く幅の右端からこれだけ空ける（px）。</summary>
         private const double RightMargin = 8.0;
@@ -63,15 +63,13 @@ namespace Tsuzuri.Views
 
                 // 0.5 ずらして 1px の線がぼやけないようにする。
                 var y = Math.Round(bottom) - 0.5;
-                drawingContext.DrawLine(info.Level == 1 ? Solid : Dashed, new Point(Math.Round(x), y), new Point(right, y));
+                drawingContext.DrawLine(info.Level == 1 ? Level1 : Level2, new Point(Math.Round(x), y), new Point(right, y));
             }
         }
 
-        private static Pen CreatePen(bool dashed)
+        private static Pen CreatePen(Brush brush)
         {
-            var pen = new Pen(Theme.HeadingRule, 1.0);
-            // 1px 描いて 1px 空ける、いちばん細かい点線（Excel の罫線の「極細の点線」）。線の始まりを整数の位置に置くので、点がにじまない。
-            if (dashed) pen.DashStyle = new DashStyle(new[] { 1.0, 1.0 }, 0);
+            var pen = new Pen(brush, 1.0);
             pen.Freeze();
             return pen;
         }

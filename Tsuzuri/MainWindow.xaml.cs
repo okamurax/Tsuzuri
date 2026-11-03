@@ -160,7 +160,11 @@ namespace Tsuzuri
                 ShowRest();
             };
 
-            SourceInitialized += delegate { UseDarkTitleBar(); };
+            SourceInitialized += delegate
+            {
+                UseDarkTitleBar();
+                DisableTransitions();
+            };
 
             // 戻ってきたら、外で変わった文書を読み直す（SPEC 19章）。離れるときに保存するのはやめた（2026-10-25。自動保存をやめた）。
             Activated += delegate { ReloadChangedDocuments(); };
@@ -395,6 +399,26 @@ namespace Tsuzuri
             catch (Exception)
             {
                 // 古い Windows では用意されていない。見た目だけの話なので黙って諦める。
+            }
+        }
+
+        /// <summary>
+        /// 窓を出す・隠すときの Windows のアニメーション（ふわっと出る・消える）を止める（2026-11-03）。
+        /// 画面のタブの切り替えは、前に出す画面を Show して、ほかを Hide する（MainWindow.Windows.cs）。そのたびに両方の窓がアニメーションし、ちらついて見えたため。
+        /// 効かない環境では今までどおりアニメーションするだけ。
+        /// </summary>
+        private void DisableTransitions()
+        {
+            try
+            {
+                var window = new WindowInteropHelper(this).Handle;
+                if (window == IntPtr.Zero) return;
+
+                var on = 1;
+                DwmSetWindowAttribute(window, 3, ref on, sizeof(int));   // DWMWA_TRANSITIONS_FORCEDISABLED
+            }
+            catch (Exception)
+            {
             }
         }
 

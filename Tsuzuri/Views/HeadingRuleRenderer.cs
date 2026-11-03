@@ -8,7 +8,7 @@ using Tsuzuri.Markdown;
 namespace Tsuzuri.Views
 {
     /// <summary>
-    /// 見出しの下に線を引く（2026-11-03。SPEC 8章）。見出し1は薄いグレーの線、見出し2は同じ色の破線。見出し3以下は引かない。
+    /// 見出しの下に線を引く（2026-11-03。SPEC 8章）。見出し1は薄いグレーの線、見出し2は同じ色の細かい点線（1px おき）。見出し3以下は引かない。
     ///
     /// 線は見出しの文字の始まりから右端まで。折り返した見出しは最後の段の下に引く。
     /// 下線式（=== / ---）の見出しは下線の行をそのまま見せているので、引かない（# の見出しだけ）。
@@ -70,7 +70,8 @@ namespace Tsuzuri.Views
         private static Pen CreatePen(bool dashed)
         {
             var pen = new Pen(Theme.HeadingRule, 1.0);
-            if (dashed) pen.DashStyle = new DashStyle(new[] { 4.0, 3.0 }, 0);
+            // 1px 描いて 1px 空ける、いちばん細かい点線（Excel の罫線の「極細の点線」）。線の始まりを整数の位置に置くので、点がにじまない。
+            if (dashed) pen.DashStyle = new DashStyle(new[] { 1.0, 1.0 }, 0);
             pen.Freeze();
             return pen;
         }

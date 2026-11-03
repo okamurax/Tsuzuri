@@ -1194,20 +1194,10 @@ namespace Tsuzuri.Views
             TextArea.Focus();
         }
 
-        /// <summary>行番号の右クリックでリンクをコピーするのを待っている間の時計（ダブルクリックならコピーしない）。</summary>
-        private DispatcherTimer _gutterCopyDelay;
-
-        /// <summary>行番号の右ボタンのダブルクリックを受けた。続く離した操作でコピーしない。</summary>
-        private bool _gutterRightDouble;
-
-        [System.Runtime.InteropServices.DllImport("user32.dll")]
-        private static extern uint GetDoubleClickTime();
-
         /// <summary>
         /// 行番号（とその右の余白）の右クリックで、その行の見出しへのリンクをコピーする（2026-11-02。SPEC 5.5。2026-11-03 にメニューをやめ、すぐコピーする）。
-        /// 右ボタンのダブルクリックなら、その行の見出しのブックマークを付け外しする（2026-11-03。SPEC 7章）。
-        /// 押したときに止めておく（AvalonEdit にキャレットを動かさせない）。コピーは、離してからダブルクリックの間隔だけ待ってする
-        /// （ダブルクリックのときにコピーしないため）。
+        /// 右ボタンのダブルクリックなら、さらにその行の見出しのブックマークを付け外しする（2026-11-03。SPEC 7章）。1回目のクリックでコピーは済んでいる。
+        /// 押したときに止めておく（AvalonEdit にキャレットを動かさせない）。離したときにも止める（AvalonEdit の右クリックのメニューを出させない）。
         /// </summary>
         private void OnGutterRightButtonDown(object sender, MouseButtonEventArgs e)
         {
@@ -1218,48 +1208,25 @@ namespace Tsuzuri.Views
             if (lineNumber < 1) return;
 
             e.Handled = true;
-            if (e.ClickCount < 2) return;
 
-            if (_gutterCopyDelay != null) _gutterCopyDelay.Stop();
-            _gutterRightDouble = true;
+            if (e.ClickCount < 2)
+            {
+                var copy = LinkCopyRequested;
+                if (copy != null) copy(this, lineNumber);
+                return;
+            }
 
-            var handler = BookmarkToggleRequested;
-            if (handler != null) handler(this, lineNumber);
+            var toggle = BookmarkToggleRequested;
+            if (toggle != null) toggle(this, lineNumber);
         }
 
         private void OnGutterRightButtonUp(object sender, MouseButtonEventArgs e)
         {
             var point = e.GetPosition(TextArea.TextView);
             if (point.X >= 0) return;
-
-            var lineNumber = GapLineAt(point);
-            if (lineNumber < 1) return;
+            if (GapLineAt(point) < 1) return;
 
             e.Handled = true;
-
-            if (_gutterRightDouble)
-            {
-                _gutterRightDouble = false;
-                return;
-            }
-
-            if (_gutterCopyDelay == null)
-            {
-                _gutterCopyDelay = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(GetDoubleClickTime()) };
-                _gutterCopyDelay.Tick += delegate
-                {
-                    _gutterCopyDelay.Stop();
-                    var line = (int)_gutterCopyDelay.Tag;
-                    if (line > Document.LineCount) return;
-
-                    var handler = LinkCopyRequested;
-                    if (handler != null) handler(this, line);
-                };
-            }
-
-            _gutterCopyDelay.Stop();
-            _gutterCopyDelay.Tag = lineNumber;
-            _gutterCopyDelay.Start();
         }
 
         /// <summary>その行が属する見出し（その行か、それより上で一番近い見出し）。見出しより前の行なら null。</summary>

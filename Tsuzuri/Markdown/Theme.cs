@@ -47,7 +47,7 @@ namespace Tsuzuri.Markdown
         public static readonly Brush HeadingRule = Freeze("#FF3E434D");
 
         /// <summary>見出し2の下に引く線の色。見出し1の線より目立たない、背景に近い色。</summary>
-        public static readonly Brush HeadingRuleFaint = Freeze("#FF252C3A");
+        public static readonly Brush HeadingRuleFaint = Freeze("#FF1B2231");
 
         /// <summary>水平線として実際に描く線の色。</summary>
         public static readonly Brush RuleStroke  = Freeze("#FF31384A");

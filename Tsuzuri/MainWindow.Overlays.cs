@@ -130,9 +130,12 @@ namespace Tsuzuri
 
             if (string.Equals(Path.GetExtension(path), ".md", StringComparison.OrdinalIgnoreCase))
             {
-                // 連鎖を捨てて1画面で開き直す。開いたものを見せるため、ランチャーは閉じる。
+                // 新しい画面（タブ）で開く（2026-11-03。前はこの画面の連鎖を捨てて開き直していた）。開いたものを見せるため、ランチャーは閉じる。
+                // この画面が何も開いていなければ、この画面で開く（空のタブを残さない。「新規作成」と同じ）。
+                // この画面・ほかの画面ですでに開いていれば、その画面のルートページを出す（リンクで別の文書を開くときと同じ。OpenLinkedFile）。
                 CloseLauncher();
-                OpenRoot(path);
+                if (!HasDocument) OpenRoot(path);
+                else OpenLinkedFile(path, null);
                 return;
             }
 

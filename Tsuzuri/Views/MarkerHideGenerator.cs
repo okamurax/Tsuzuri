@@ -332,6 +332,20 @@ namespace Tsuzuri.Views
         }
 
         /// <summary>
+        /// 付いている飾り（下線・取り消し線）を入れておく、AvalonEdit の中の欄。
+        /// SetTextDecorations は今の飾りに足すだけで外せない（すでに下線があると null を渡して落ちた。2026-11-03）ので、ここを直接空にする。
+        /// </summary>
+        private static readonly FieldInfo DecorationsField =
+            typeof(VisualLineElementTextRunProperties).GetField("textDecorations", BindingFlags.Instance | BindingFlags.NonPublic);
+
+        /// <summary>飾り（下線・取り消し線）を外す。AvalonEdit が変わって欄が無ければ、飾りが残るだけ（落ちはしない）。</summary>
+        private static void ClearDecorations(VisualLineElementTextRunProperties properties)
+        {
+            if (properties.TextDecorations == null || properties.TextDecorations.Count == 0) return;
+            if (DecorationsField != null) DecorationsField.SetValue(properties, null);
+        }
+
+        /// <summary>
         /// 行頭の字下げ。見出しの深さぶんの幅を空け、行頭の記号を置き換える文字
         /// （- を • にするなど）があれば、その後ろに描く。
         /// </summary>
@@ -348,7 +362,16 @@ namespace Tsuzuri.Views
 
             public override TextRun CreateTextRun(int startVisualColumn, ITextRunConstructionContext context)
             {
-                return new IndentRun(_indent, _text, TextRunProperties, context.TextView);
+                // 字下げは消した記号（![ や [ など）も受け持つので、色付けの処理がリンクの下線を付けてくることがある。
+                // そのまま渡すと字下げの幅いっぱいに下線が引かれる（2026-11-03）ので、外したものを渡す。
+                var properties = TextRunProperties;
+                if (properties.TextDecorations != null && properties.TextDecorations.Count > 0)
+                {
+                    properties = properties.Clone();
+                    ClearDecorations(properties);
+                }
+
+                return new IndentRun(_indent, _text, properties, context.TextView);
             }
 
             /// <summary>
@@ -464,26 +487,11 @@ namespace Tsuzuri.Views
             {
             }
 
-            /// <summary>
-            /// 付いている飾り（下線・取り消し線）を入れておく、AvalonEdit の中の欄。
-            /// SetTextDecorations は今の飾りに足すだけで外せない（すでに下線があると null を渡して落ちた。2026-11-03）ので、ここを直接空にする。
-            /// </summary>
-            private static readonly FieldInfo DecorationsField =
-                typeof(VisualLineElementTextRunProperties).GetField("textDecorations", BindingFlags.Instance | BindingFlags.NonPublic);
-
             public override TextRun CreateTextRun(int startVisualColumn, ITextRunConstructionContext context)
             {
                 TextRunProperties.SetForegroundBrush(Theme.ImageCaption);
                 ClearDecorations(TextRunProperties);
                 return base.CreateTextRun(startVisualColumn, context);
-            }
-
-            private static void ClearDecorations(VisualLineElementTextRunProperties properties)
-            {
-                if (properties.TextDecorations == null || properties.TextDecorations.Count == 0) return;
-
-                // AvalonEdit が変わって欄が無ければ、下線が残るだけ（落ちはしない）。
-                if (DecorationsField != null) DecorationsField.SetValue(properties, null);
             }
         }
 

@@ -145,7 +145,7 @@ namespace Tsuzuri
     ファイルの末尾に足すのは、新しいサブページを作るときだけ。書いたら、ページの範囲の中に入ったかを読み直して確かめる。
 - SSH でサーバーにつなぐときの接続先と鍵は「{ssh-dir}」にまとめて置いてある（利用者が置く。無ければまだ置いていない）。
   - 接続先はそのフォルダの config.txt に1行1つ。| で区切った欄の形は auth の値で2通り:
-    - auth=publickey（鍵）: 名称 | ホスト:ポート | auth=publickey /user=ユーザー名 | keyfile=キーファイル名（鍵はそのフォルダの中）
+    - auth=publickey（鍵）: 名称 | ホスト:ポート | auth=publickey | user=ユーザー名 | keyfile=キーファイル名（鍵はそのフォルダの中）
     - auth=password（パスワード）: 名称 | ホスト:ポート | auth=password | user=ユーザー名 | passwd=パスワード
     利用者が名称で言ったら（「〇〇につないで」）、config.txt を読んでその行を探す。ポートが書いていなければ 22。
   - ssh は Windows のもの（""{ssh-exe}""）を使う（Git の ssh ではない）。共通に付ける: -p <ポート> -o UserKnownHostsFile=""<そのフォルダ>\known_hosts""

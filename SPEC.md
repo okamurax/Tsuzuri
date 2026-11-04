@@ -2104,7 +2104,7 @@ WPF 標準のコントロールはそのままだと明るい前提の見た目�
     exe の隣の `ssh` フォルダにまとめて置く（利用者が置く。エディタは作らない）。最初の指示（`--append-system-prompt-file`）にその場所と形を1回だけ書く。
     話しかけるたびの今の状態には書かない。
     - `config.txt` は1行1つ。`auth` は `publickey` か `password` で、欄の形が違う。OpenSSH の `config` の形ではないので、Claude が行を読んで `ssh` の引数を組み立てる
-      - 鍵: `名称 | ホスト:ポート | auth=publickey /user=ユーザー名 | keyfile=キーファイル名`（例: `web | example.com:22 | auth=publickey /user=xxxx | keyfile=mysite.pem`）
+      - 鍵: `名称 | ホスト:ポート | auth=publickey | user=ユーザー名 | keyfile=キーファイル名`（例: `web | example.com:22 | auth=publickey | user=xxxx | keyfile=mysite.pem`）
       - パスワード: `名称 | ホスト:ポート | auth=password | user=ユーザー名 | passwd=パスワード`
     - ssh は Windows のもの（`System32\OpenSSH\ssh.exe`）を使わせる。Git の ssh は `.cmd` の askpass を動かせず、鍵の権限の見方も違うため
     - 共通の引数: `-p <ポート> -o UserKnownHostsFile=<フォルダ>\known_hosts -o StrictHostKeyChecking=accept-new <ユーザー>@<ホスト> "コマンド"`。

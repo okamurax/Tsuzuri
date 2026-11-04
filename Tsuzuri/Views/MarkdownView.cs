@@ -637,7 +637,8 @@ namespace Tsuzuri.Views
 
             // 打った段落だけを解析し直せれば、文書全体は解析し直さない（2026-11-04）。
             int patchedFrom, patchedTo;
-            var patched = TryPatchModel(out patchedFrom, out patchedTo);
+            bool depthsChanged;
+            var patched = TryPatchModel(out patchedFrom, out patchedTo, out depthsChanged);
             _editCount = 0;
             _editSpansLines = false;
 
@@ -663,7 +664,10 @@ namespace Tsuzuri.Views
             {
                 // 行の種類は変わっていないので、表が増えたり減ったりはしない。表の中を打ったときだけ、読めるかが変わりうるので畳み直す。
                 var redrawAll = RangeHasTable(patchedFrom, patchedTo) && UpdateTableFolds();
-                RedrawPatchedLines(patchedFrom, patchedTo, redrawAll);
+
+                // 見出しの記号を付け外ししたときは、後ろの行の段差（字下げ）も変わるので、全部の行の目印を比べて描き直す。
+                if (depthsChanged) RedrawChangedLines(redrawAll);
+                else RedrawPatchedLines(patchedFrom, patchedTo, redrawAll);
                 return;
             }
 
@@ -725,9 +729,10 @@ namespace Tsuzuri.Views
         /// 打った行を含むかたまりだけを解析し直して、今の解析結果に差し替える。できたら true と、差し替えた行（1 始まり）。
         /// できなければ何も変えずに false（全体を解析し直す）。
         /// </summary>
-        private bool TryPatchModel(out int from, out int to)
+        private bool TryPatchModel(out int from, out int to, out bool depthsChanged)
         {
             from = to = -1;
+            depthsChanged = false;
 
             if (_editCount != 1 || _editSpansLines) return false;
             if (!_modelValid || _model == null || _model.Fragile) return false;
@@ -781,17 +786,23 @@ namespace Tsuzuri.Views
             var patch = MarkdownParser.Parse(text.ToString(), texts, offsets);
             if (patch.Fragile || patch.Lines.Length != texts.Count) return false;
 
+            var shapeChanged = false;
             for (var i = 0; i < patch.Lines.Length; i++)
             {
                 var before = _model.Lines[from - 1 + i];
                 var after = patch.Lines[i];
 
-                if (before.Kind != after.Kind || before.Level != after.Level || before.ContinuesHeading != after.ContinuesHeading) return false;
+                if (before.Kind != after.Kind || before.Level != after.Level || before.ContinuesHeading != after.ContinuesHeading) shapeChanged = true;
             }
 
-            // 打った行の行頭（字下げ・- や 1. の印・その後の空白）が変わったら使わない。リストの印の幅（1. と 10.）や字下げが変わると、
+            // 打った行の行頭（字下げ・- や 1. の印・その後の空白）が変わったときも、形が変わったとみなす。リストの印の幅（1. と 10.）や字下げが変わると、
             // 空行の向こうの行（項目の続き・字下げしたコード）の解釈まで変わり、取り出した段落を比べても分からない（2026-11-04 のレビュー）。
-            if (!string.Equals(_model.Lines[line - 1].Marker, patch.Lines[line - from].Marker, StringComparison.Ordinal)) return false;
+            if (!string.Equals(_model.Lines[line - 1].Marker, patch.Lines[line - from].Marker, StringComparison.Ordinal)) shapeChanged = true;
+
+            // 形が変わっても、かたまりが前も後も本文と見出し（# の見出し）だけなら差し替える（見出しの記号の付け外し。2026-11-04）。
+            // 本文と # の見出しは、空行の向こうへ続くもの（リストの項目・引用・フェンス）を持たないので、変わるのは後ろの行の段差だけ。段差は決め直す。
+            if (shapeChanged && !(OnlyTextAndHeadings(_model.Lines, from - 1, patch.Lines.Length) && OnlyTextAndHeadings(patch.Lines, 0, patch.Lines.Length)))
+                return false;
 
             for (var i = 0; i < patch.Lines.Length; i++)
             {
@@ -801,8 +812,34 @@ namespace Tsuzuri.Views
                 _model.Inlines[from - 1 + i] = patch.Inlines[i];
             }
 
+            if (shapeChanged)
+            {
+                _model.RecomputeDepths();
+                depthsChanged = true;
+            }
+
             return true;
         }
+
+        /// <summary>
+        /// start から count 行が、本文（全角空白だけの行を含む）と1行の # の見出しだけか。
+        /// 下線式の見出し（=== / ---）は下の行で前の段落を見出しに変えるので含めない。
+        /// </summary>
+        private static bool OnlyTextAndHeadings(LineInfo[] lines, int start, int count)
+        {
+            for (var i = start; i < start + count; i++)
+            {
+                var kind = lines[i].Kind;
+                if (kind == LineKind.Heading && !lines[i].ContinuesHeading && AtxHeading.IsMatch(lines[i].Source)) continue;
+                if (kind == LineKind.Paragraph || kind == LineKind.Blank) continue;
+                return false;
+            }
+
+            return true;
+        }
+
+        /// <summary># の見出しの行（行頭の空白は 3 つまで）。</summary>
+        private static readonly Regex AtxHeading = new Regex(@"^ {0,3}#{1,6}(?:[ \t]|$)", RegexOptions.Compiled);
 
         /// <summary>
         /// Markdown の空行か（空白とタブだけの行）。全角の空白（U+3000）だけの行は空行ではなく段落の続きなので、区切りにしない（2026-11-04 のレビュー）。

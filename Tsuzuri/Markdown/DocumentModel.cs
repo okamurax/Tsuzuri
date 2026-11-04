@@ -14,7 +14,7 @@ namespace Tsuzuri.Markdown
         public readonly InlineScan[] Inlines;
 
         /// <summary>文書の中で一番深い段。</summary>
-        public readonly int MaxDepth;
+        public int MaxDepth { get; private set; }
 
         /// <summary>
         /// 一部だけを解析し直してはいけない文書か（2026-11-04。MarkdownView の打った段落だけを解析し直す近道）。
@@ -28,6 +28,12 @@ namespace Tsuzuri.Markdown
             Lines = lines;
             Inlines = inlines;
             MaxDepth = maxDepth;
+        }
+
+        /// <summary>行の段差を、今の行の種類から決め直す（見出しの記号を付け外ししたとき。2026-11-04）。</summary>
+        public void RecomputeDepths()
+        {
+            MaxDepth = MarkdownParser.AssignDepths(Lines);
         }
 
         public static DocumentModel Empty()

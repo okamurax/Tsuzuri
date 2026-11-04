@@ -433,15 +433,26 @@ namespace Tsuzuri.Markdown
 
         private static DocumentModel Finish(LineInfo[] lines, InlineScan[] inlines)
         {
+            for (var i = 0; i < lines.Length; i++)
+            {
+                FillMarker(lines[i]);
+                inlines[i].Spans.Sort((a, b) => a.Start.CompareTo(b.Start));
+            }
+
+            return new DocumentModel(lines, inlines, AssignDepths(lines));
+        }
+
+        /// <summary>
+        /// 行の段差（Depth）を、前の見出しから決める。一番深い段を返す。
+        /// 見出しの記号を付け外ししたとき、解析し直さずに段差だけを決め直すのにも使う（2026-11-04。DocumentModel.RecomputeDepths）。
+        /// </summary>
+        internal static int AssignDepths(LineInfo[] lines)
+        {
             var headingLevel = 0;
             var maxDepth = 0;
 
-            for (var i = 0; i < lines.Length; i++)
+            foreach (var info in lines)
             {
-                var info = lines[i];
-
-                FillMarker(info);
-
                 if (info.Kind == LineKind.Heading)
                 {
                     info.Depth = info.Level - 1;
@@ -453,11 +464,9 @@ namespace Tsuzuri.Markdown
                 }
 
                 if (info.Depth > maxDepth) maxDepth = info.Depth;
-
-                inlines[i].Spans.Sort((a, b) => a.Start.CompareTo(b.Start));
             }
 
-            return new DocumentModel(lines, inlines, maxDepth);
+            return maxDepth;
         }
 
         /// <summary>

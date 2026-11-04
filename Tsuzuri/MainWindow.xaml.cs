@@ -450,6 +450,19 @@ namespace Tsuzuri
 
         private void OnClosing(object sender, CancelEventArgs e)
         {
+            _closing = true;
+            try
+            {
+                OnClosingCore(e);
+            }
+            finally
+            {
+                _closing = false;
+            }
+        }
+
+        private void OnClosingCore(CancelEventArgs e)
+        {
             // 「終了」で最初の画面を閉じるときは、ほかの画面を先に閉じる。どれかで取りやめたら、こちらも閉じない（2026-10-31）。
             // タブの × で閉じるときは、この画面だけ（最初の画面なら、次の画面が引き継ぐ）。
             // 最初の画面の保存を先に尋ねる（2026-11-02）。前はほかの画面を閉じてから尋ね、ここで取りやめると、もう閉じた画面の覚えが消えていた。

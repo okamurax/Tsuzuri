@@ -171,7 +171,7 @@ namespace Tsuzuri
 
                 window.Dispatcher.BeginInvoke(new Action(delegate
                 {
-                    window.Close();
+                    window.CloseShowingFirst();
                     if (OpenWindows.Contains(this)) BringForward(null);
                 }), DispatcherPriority.Background);
             };

@@ -150,7 +150,17 @@ namespace Tsuzuri
             var front = FrontWindow();
             if (front != null && !ReferenceEquals(front, primary)) primary.PlaceLike(front);
 
-            primary.Close();
+            primary.CloseShowingFirst();
+        }
+
+        /// <summary>
+        /// この画面を閉じる。隠れていて未保存の文書があれば、先に前に出す（2026-11-04）。
+        /// 閉じている最中（Closing）の窓は Show できず、保存するかを尋ねる前に前に出そうとして落ちていた。
+        /// </summary>
+        private void CloseShowingFirst()
+        {
+            if (!IsVisible && _stack.Any(view => view.IsDirty)) BringForward(FrontWindow());
+            Close();
         }
 
         /// <summary>次の起動で戻す、終了したときの画面（最初の画面は app.json の Screen、増やした画面は Windows の1つ）。</summary>
@@ -254,8 +264,12 @@ namespace Tsuzuri
         /// </summary>
         private void ShowBeforeAsking()
         {
-            if (!IsVisible) BringForward(FrontWindow());
+            // 閉じている最中の窓は Show できない（落ちる）。閉じる前に前に出しておく（CloseShowingFirst）。そうでない閉じ方（タスクバーなど）では、出さずに尋ねる。
+            if (!IsVisible && !_closing) BringForward(FrontWindow());
         }
+
+        /// <summary>この画面の Closing を処理している最中。</summary>
+        private bool _closing;
 
         /// <summary>タブの並びで、隣の画面に切り替える（-1 で前、1 で次。端で反対の端へ回る）。休止している画面は飛ばす。</summary>
         private void SwitchWindow(int step)
@@ -426,7 +440,7 @@ namespace Tsuzuri
                     VerticalAlignment = VerticalAlignment.Center,
                     Style = (Style)FindResource("ToolButton"),
                 };
-                close.Click += delegate { window.Close(); };
+                close.Click += delegate { window.CloseShowingFirst(); };
                 DockPanel.SetDock(close, Dock.Right);
                 panel.Children.Add(close);
             }
@@ -591,7 +605,7 @@ namespace Tsuzuri
 
             _suspendTitle = WindowLabel(false);
             _suspending = true;
-            Close();
+            CloseShowingFirst();
             if (OpenWindows.Contains(this)) _suspending = false;   // 保存するかで取りやめた
         }
 
@@ -660,7 +674,7 @@ namespace Tsuzuri
         {
             foreach (var window in OpenWindows.Where(other => !ReferenceEquals(other, this)).ToList())
             {
-                window.Close();
+                window.CloseShowingFirst();
                 if (OpenWindows.Contains(window))
                 {
                     CancelClosingAll();

@@ -144,12 +144,19 @@ namespace Tsuzuri
   - 書くのも範囲の中。範囲の外は別のページで、とくにファイルの末尾に足すと最後のページの中身になる。
     ファイルの末尾に足すのは、新しいサブページを作るときだけ。書いたら、ページの範囲の中に入ったかを読み直して確かめる。
 - SSH でサーバーにつなぐときの接続先と鍵は「{ssh-dir}」にまとめて置いてある（利用者が置く。無ければまだ置いていない）。
-  - 接続先はそのフォルダの config.txt に1行1つ。形は「名称 | ホスト:ポート | auth=接続タイプ /user=ユーザー名 | keyfile=キーファイル名」。
-    利用者が名称で言ったら（「〇〇につないで」）、config.txt を読んでその行を探す。鍵はそのフォルダの中のキーファイル名。
-  - つなぎ方: ssh -i ""<そのフォルダ>\<キーファイル名>"" -p <ポート> -o UserKnownHostsFile=""<そのフォルダ>\known_hosts""
-    -o StrictHostKeyChecking=accept-new <ユーザー名>@<ホスト> ""コマンド""。ポートが書いていなければ 22。
-    パスワードを打つ画面には答えられないので、鍵で入れない（auth が鍵でない・keyfile が無い）行は、つながずに利用者に伝える。
-  - 鍵の中身と config.txt の中身を、文書・コミット・返事に書き写さない。鍵をほかの場所へ写さない。
+  - 接続先はそのフォルダの config.txt に1行1つ。| で区切った欄の形は auth の値で2通り:
+    - auth=publickey（鍵）: 名称 | ホスト:ポート | auth=publickey /user=ユーザー名 | keyfile=キーファイル名（鍵はそのフォルダの中）
+    - auth=password（パスワード）: 名称 | ホスト:ポート | auth=password | user=ユーザー名 | passwd=パスワード
+    利用者が名称で言ったら（「〇〇につないで」）、config.txt を読んでその行を探す。ポートが書いていなければ 22。
+  - ssh は Windows のもの（""{ssh-exe}""）を使う（Git の ssh ではない）。共通に付ける: -p <ポート> -o UserKnownHostsFile=""<そのフォルダ>\known_hosts""
+    -o StrictHostKeyChecking=accept-new <ユーザー名>@<ホスト> ""コマンド""
+  - publickey の行: -i ""<そのフォルダ>\<キーファイル名>"" を足す。
+  - password の行: パスワードを打つ画面には答えられないので、パスワードは環境変数で渡す。そのコマンドだけに
+    TSUZURI_SSH_PASS=<パスワード>、SSH_ASKPASS=""{ssh-askpass}""、SSH_ASKPASS_REQUIRE=force を付け、
+    -o PubkeyAuthentication=no -o PreferredAuthentications=password,keyboard-interactive -o NumberOfPasswordPrompts=1 を足す
+    （askpass は TSUZURI_SSH_PASS をそのまま返すだけのもの。エディタが置いている）。
+    パスワードをコマンドの引数に書かない。それでも入れなければ（Windows の ssh が古く、askpass が効かないなど）、何度も試さずに利用者に伝える。
+  - 鍵・パスワード・config.txt の中身を、文書・コミット・返事に書き写さない。鍵をほかの場所へ写さない。
   - 鍵の権限が広すぎると Windows の ssh が断る（UNPROTECTED PRIVATE KEY FILE）。そのときは利用者に知らせ、
     icacls ""<鍵>"" /inheritance:r /grant:r ""%USERNAME%:R"" で本人だけが読めるようにしてよいか尋ねる。
   - サーバーの中を変える操作（書き換え・削除・再起動・設定の変更）は、する前に何をするかを利用者に伝えて確かめる。
@@ -160,6 +167,17 @@ namespace Tsuzuri
 
         /// <summary>AI の欄から SSH でつなぐときの鍵・設定を置くフォルダ（2026-11-04。SPEC 19章）。exe の隣の ssh。</summary>
         private static readonly string AiSshFolder = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "ssh");
+
+        /// <summary>Windows の ssh（Git の ssh は .cmd の askpass を動かせず、鍵の権限の見方も違うので、こちらを使わせる）。</summary>
+        private static readonly string AiSshExe = Path.Combine(Environment.SystemDirectory, "OpenSSH", "ssh.exe");
+
+        /// <summary>
+        /// パスワードでつなぐ接続先のとき、ssh にパスワードを返す askpass（2026-11-04。SPEC 19章）。
+        /// Claude のコマンドは画面で答えられないので、環境変数 TSUZURI_SSH_PASS をそのまま返す。パスワードそのものはこのファイルに書かない。
+        /// echo だと &amp; や % を含むパスワードが崩れるので、PowerShell で書き出す。
+        /// </summary>
+        private const string AiSshAskpass =
+            "@powershell -NoProfile -NonInteractive -Command \"[Console]::Out.WriteLine($env:TSUZURI_SSH_PASS)\"\r\n";
 
         /// <summary>ツールバーの「AI」。AI の欄を出し入れする。タブが1つも無ければ、claude を起動したタブを1つ開く。</summary>
         private void ToggleAi()
@@ -600,7 +618,13 @@ namespace Tsuzuri
                 instructions = Path.Combine(AiFolder, "instructions.md");
                 _aiSettingsPath = settings;
 
-                WriteIfChanged(instructions, AiInstructions.Replace("{drawing-format}", AiDrawingFormat).Replace("{ssh-dir}", AiSshFolder));
+                var askpass = Path.Combine(AiFolder, "ssh-askpass.cmd");
+                WriteIfChanged(askpass, AiSshAskpass);
+                WriteIfChanged(instructions, AiInstructions
+                    .Replace("{drawing-format}", AiDrawingFormat)
+                    .Replace("{ssh-dir}", AiSshFolder)
+                    .Replace("{ssh-exe}", AiSshExe)
+                    .Replace("{ssh-askpass}", askpass));
                 File.WriteAllText(settings, AiSettings(_aiContextPath, AiPipeName), new UTF8Encoding(false));
                 WriteAiContext(null);
             }

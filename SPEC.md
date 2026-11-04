@@ -2103,11 +2103,19 @@ WPF 標準のコントロールはそのままだと明るい前提の見た目�
   - **SSH の接続先と鍵の場所を伝える**（2026-11-04）。AI の欄から SSH でサーバーにつながせるため、接続先の一覧 `config.txt` と鍵を
     exe の隣の `ssh` フォルダにまとめて置く（利用者が置く。エディタは作らない）。最初の指示（`--append-system-prompt-file`）にその場所と形を1回だけ書く。
     話しかけるたびの今の状態には書かない。
-    - `config.txt` は1行1つ: `名称 | ホスト:ポート | auth=接続タイプ /user=ユーザー名 | keyfile=キーファイル名`（例: `web | example.com:22 | auth=key /user=xxxx | keyfile=mysite.pem`）。
-      OpenSSH の `config` の形ではないので、Claude が行を読んで `ssh` の引数を組み立てる
-    - つなぎ方: `ssh -i <フォルダ>\<鍵> -p <ポート> -o UserKnownHostsFile=<フォルダ>\known_hosts -o StrictHostKeyChecking=accept-new <ユーザー>@<ホスト> "コマンド"`。
-      Claude のコマンドは画面で答えられないので、初めてのサーバーの「信頼するか」は accept-new で受け入れ（覚えた鍵と違えば断る）、パスワードでしか入れない行はつながずに知らせる
-    - 鍵と `config.txt` の中身を文書・コミット・返事に書き写さない。Windows の ssh が鍵の権限で断ったら（UNPROTECTED PRIVATE KEY FILE）、
+    - `config.txt` は1行1つ。`auth` は `publickey` か `password` で、欄の形が違う。OpenSSH の `config` の形ではないので、Claude が行を読んで `ssh` の引数を組み立てる
+      - 鍵: `名称 | ホスト:ポート | auth=publickey /user=ユーザー名 | keyfile=キーファイル名`（例: `web | example.com:22 | auth=publickey /user=xxxx | keyfile=mysite.pem`）
+      - パスワード: `名称 | ホスト:ポート | auth=password | user=ユーザー名 | passwd=パスワード`
+    - ssh は Windows のもの（`System32\OpenSSH\ssh.exe`）を使わせる。Git の ssh は `.cmd` の askpass を動かせず、鍵の権限の見方も違うため
+    - 共通の引数: `-p <ポート> -o UserKnownHostsFile=<フォルダ>\known_hosts -o StrictHostKeyChecking=accept-new <ユーザー>@<ホスト> "コマンド"`。
+      Claude のコマンドは画面で答えられないので、初めてのサーバーの「信頼するか」は accept-new で受け入れる（覚えた鍵と違えば断る）
+    - publickey: `-i <フォルダ>\<鍵>` を足す
+    - password: パスワードを打つ画面に答えられないので、askpass で渡す。エディタが AI のフォルダ（`%LOCALAPPDATA%\Tsuzuri\ai`）に `ssh-askpass.cmd` を置く。
+      中身は環境変数 `TSUZURI_SSH_PASS` を PowerShell で書き出すだけで、パスワードそのものは書かない（`echo` だと `&` や `%` を含むパスワードが崩れる）。
+      Claude はそのコマンドだけに `TSUZURI_SSH_PASS`・`SSH_ASKPASS`・`SSH_ASKPASS_REQUIRE=force` を付け、
+      `-o PubkeyAuthentication=no -o PreferredAuthentications=password,keyboard-interactive -o NumberOfPasswordPrompts=1` を足す。
+      パスワードを引数に書かない（ほかのプロセスから見える）。入れなければ何度も試さずに知らせる（`SSH_ASKPASS_REQUIRE` は OpenSSH 8.4 以上。古い Windows 10 の 8.1 では効かない）
+    - 鍵・パスワード・`config.txt` の中身を文書・コミット・返事に書き写さない。Windows の ssh が鍵の権限で断ったら（UNPROTECTED PRIVATE KEY FILE）、
       `icacls` で本人だけが読めるようにしてよいか尋ねる。サーバーの中を変える操作は、する前に確かめる
     - 指示のファイルは claude を起動するときに読まれるので、変えたあとは新しく開いた（戻した）会話から効く
   - **図エディタの図を選んだら、図の書き方を読ませてから書かせる。** 書き方（形・図形の種類・手順・こつ）は exe の隣の `Ai\drawing-format.md` に置き、

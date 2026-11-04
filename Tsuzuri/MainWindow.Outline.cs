@@ -53,8 +53,7 @@ namespace Tsuzuri
                 _outlineOrder.Clear();
                 _outlineParents.Clear();
                 _outlineSignature = null;
-                UpdateFoldToggle();
-                RefreshOutlineSearch();
+                UpdateFoldButtons();
                 return;
             }
 
@@ -72,7 +71,7 @@ namespace Tsuzuri
             {
                 RebuildOutline(snapshot.Entries);
                 _outlineSignature = signature;
-                UpdateFoldToggle();
+                UpdateFoldButtons();
             }
             else
             {
@@ -82,9 +81,6 @@ namespace Tsuzuri
 
             HighlightOutline(snapshot.CurrentIndex);
             RecordHeadingVisit(Active, snapshot, false);   // 履歴の一番上の見出しを追いかける（積むのはクリック2度・キー。2026-10-30）
-
-            // 検索している間は、結果も本文の見出しに合わせて出し直す（打って見出しが変わった・別のファイルに替わった）。
-            if (OutlineSearching) RefreshOutlineSearch();
         }
 
         private static string OutlineSignature(List<OutlineHeading> entries)
@@ -183,206 +179,44 @@ namespace Tsuzuri
         }
 
         // ---------------------------------------------------------------
-        // すべて閉じる・すべて開く（SPEC 7章）
+        // 開く・たたむボタン（SPEC 7章。2026-11-04）
         //
-        // 検索欄の右端のボタン（⊟ / ⊞）。開いている見出しが1つでもあれば「すべて閉じる」、無ければ「すべて開く」。
+        // サイドバーの一番上の ⊟ 1 2 3 ⊞。数字 n は「見出し n まで開く」で、レベルが n 以下の見出しを開き、それより深いものはたたむ。
+        // ⊟ はすべてたたみ、⊞ はすべて開く（Tag の 0 と 99）。
         // 1つずつの開閉（三角）と同じ扱いなので、たたみ状態は見出しの名前で覚えられる。
         // ---------------------------------------------------------------
 
-        private void OutlineFoldToggle_Click(object sender, RoutedEventArgs e)
+        private void OutlineFold_Click(object sender, RoutedEventArgs e)
         {
-            var expand = !AnyOutlineExpanded();
+            int depth;
+            if (!int.TryParse((sender as FrameworkElement)?.Tag as string, out depth)) return;
 
             foreach (var item in _outlineOrder)
             {
-                if (item.Items.Count > 0) item.IsExpanded = expand;
+                var node = item.Tag as OutlineNode;
+                if (item.Items.Count > 0 && node != null) item.IsExpanded = node.Level <= depth;
             }
 
-            // 開いたときは、カーソルのある見出しが見えるように。閉じたときは一番上へ。
-            if (!expand)
+            // すべてたたんだときは一番上へ。ほかは、カーソルのある見出しが見えていればそこを見せる。
+            if (depth == 0)
             {
                 var scroll = FindDescendant<ScrollViewer>(OutlineTree);
                 if (scroll != null) scroll.ScrollToTop();
             }
-            else if (OutlineTree.SelectedItem is TreeViewItem)
+            else
             {
-                ((TreeViewItem)OutlineTree.SelectedItem).BringIntoView();
+                var selected = OutlineTree.SelectedItem as TreeViewItem;
+                if (selected != null && selected.IsVisible) selected.BringIntoView();
             }
-
-            UpdateFoldToggle();
         }
 
-        /// <summary>子のある見出しのうち、開いているものがあるか。</summary>
-        private bool AnyOutlineExpanded()
+        /// <summary>たためる見出しが無ければ、ボタンを押せなくする。</summary>
+        private void UpdateFoldButtons()
         {
-            return _outlineOrder.Any(item => item.Items.Count > 0 && item.IsExpanded);
-        }
-
-        /// <summary>ボタンの文字を、押したときに起きることに合わせる。たためる見出しが無ければ押せない。</summary>
-        private void UpdateFoldToggle()
-        {
-            if (OutlineFoldToggle == null) return;
+            if (OutlineFoldArea == null) return;
 
             var foldable = _outlineOrder.Any(item => item.Items.Count > 0);
-            OutlineFoldToggle.IsEnabled = foldable;
-            // 記号だけ（文字は検索欄の右に収まらない）。⊟ でたたむ、⊞ で開く。何をするかはツールチップ。
-            OutlineFoldToggle.Content = foldable && !AnyOutlineExpanded() ? "⊞" : "⊟";
-            OutlineFoldToggle.ToolTip = foldable && !AnyOutlineExpanded()
-                ? "アウトラインの見出しをすべて開く"
-                : "アウトラインの見出しをすべてたたむ（見出し1だけにする）";
-        }
-
-        // ---------------------------------------------------------------
-        // 見出しの検索（SPEC 7章）
-        //
-        // ファイラーの検索と同じ動き。打つと少し待ってから探し、空白で区切ると全部を含む見出しだけにする（大文字小文字は区別しない）。
-        // 何か入っている間は、木の代わりに当たった見出しの一覧を出す。押すとその見出しへ移る。空にすると木に戻る（Esc で空にする）。
-        // 木のたたみ状態には触らない。
-        // ---------------------------------------------------------------
-
-        private readonly DispatcherTimer _outlineSearchDelay = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(200) };
-
-        /// <summary>
-        /// いま出している結果の元（検索の言葉・ファイルとページ・見出しの並び）。同じなら出し直さない。
-        /// カーソルが動くたびにアウトラインは読み直されるので、そのたびに作り直すと結果のスクロールが先頭へ戻ってしまう。
-        /// </summary>
-        private string _outlineSearchKey;
-
-        private void SetUpOutlineSearch()
-        {
-            _outlineSearchDelay.Tick += delegate
-            {
-                _outlineSearchDelay.Stop();
-                RefreshOutlineSearch();
-            };
-
-            OutlineSearchBox.TextChanged += delegate
-            {
-                _outlineSearchDelay.Stop();
-                _outlineSearchDelay.Start();
-            };
-
-            OutlineSearchBox.PreviewKeyDown += (sender, e) =>
-            {
-                if (e.Key == Key.Escape && OutlineSearchBox.Text.Length > 0)
-                {
-                    e.Handled = true;
-                    OutlineSearchBox.Text = string.Empty;
-                }
-            };
-
-            // 「検索」の文字や余白を押しても打てるように。
-            OutlineSearchArea.MouseLeftButtonDown += delegate { OutlineSearchBox.Focus(); };
-        }
-
-        private string[] OutlineSearchWords()
-        {
-            return OutlineSearchBox.Text.Split(new[] { ' ', '　' }, StringSplitOptions.RemoveEmptyEntries);
-        }
-
-        private bool OutlineSearching
-        {
-            get { return OutlineSearchWords().Length > 0; }
-        }
-
-        /// <summary>検索欄の中身で、結果の一覧を出し直す。空なら木に戻す。</summary>
-        private void RefreshOutlineSearch()
-        {
-            var words = OutlineSearchWords();
-            var searching = words.Length > 0;
-
-            OutlineTree.Visibility = searching ? Visibility.Collapsed : Visibility.Visible;
-            OutlineSearchScroll.Visibility = searching ? Visibility.Visible : Visibility.Collapsed;
-
-            var entries = searching && HasDocument ? Active.GetOutline().Entries : new List<OutlineHeading>();
-            var key = !searching ? null
-                : string.Join(" ", words) + "\n" + (HasDocument ? Active.FilePath + "|" + Active.PageId : string.Empty) + "\n" + OutlineSignature(entries);
-            if (key != null && key == _outlineSearchKey) return;
-            _outlineSearchKey = key;
-
-            OutlineSearchResults.Children.Clear();
-            if (!searching) return;
-
-            if (!HasDocument)
-            {
-                OutlineSearchResults.Children.Add(OutlineSearchNote("ファイルを開くと、見出しを探せます。"));
-                return;
-            }
-
-            // 親の見出しをたどりながら見る。結果の行に、どの見出しの中か（親の名前）を添えるため。
-            var parents = new List<OutlineHeading>();
-            var found = 0;
-
-            foreach (var entry in entries)
-            {
-                while (parents.Count > 0 && parents[parents.Count - 1].Level >= entry.Level) parents.RemoveAt(parents.Count - 1);
-
-                if (words.All(word => entry.Text.IndexOf(word, StringComparison.OrdinalIgnoreCase) >= 0))
-                {
-                    OutlineSearchResults.Children.Add(CreateOutlineSearchRow(entry, parents));
-                    found++;
-                }
-
-                parents.Add(entry);
-            }
-
-            if (found == 0) OutlineSearchResults.Children.Add(OutlineSearchNote("当たる見出しはありません。"));
-        }
-
-        private static TextBlock OutlineSearchNote(string text)
-        {
-            var note = new TextBlock();
-            note.Text = text;
-            note.FontSize = 12;
-            note.Margin = new Thickness(16, 6, 12, 6);
-            note.TextWrapping = TextWrapping.Wrap;
-            note.SetResourceReference(TextBlock.ForegroundProperty, "TextMuted");
-            return note;
-        }
-
-        /// <summary>結果の1行。見出しの名前と、その下に薄く親の見出しの道のり。押すとその見出しへ移る。</summary>
-        private Border CreateOutlineSearchRow(OutlineHeading entry, List<OutlineHeading> parents)
-        {
-            var name = new TextBlock();
-            name.Text = entry.Text.Length > 0 ? HeadingText.Display(entry.Text) : "(無題の見出し)";
-            name.TextTrimming = TextTrimming.CharacterEllipsis;
-            name.SetResourceReference(TextBlock.ForegroundProperty, "SidebarText");
-
-            var panel = new StackPanel();
-            panel.Children.Add(name);
-
-            var path = string.Join(" › ", parents.Select(parent => HeadingText.Display(parent.Text)));
-            if (path.Length > 0)
-            {
-                var where = new TextBlock();
-                where.Text = path;
-                where.FontSize = 11;
-                where.TextTrimming = TextTrimming.CharacterEllipsis;
-                where.SetResourceReference(TextBlock.ForegroundProperty, "TextMuted");
-                panel.Children.Add(where);
-            }
-
-            var row = new Border();
-            row.Child = panel;
-            row.Padding = new Thickness(16, 4, 12, 4);
-            row.Background = Brushes.Transparent;
-            row.Cursor = Cursors.Hand;
-            row.ToolTip = (path.Length > 0 ? path + " › " : string.Empty) + name.Text;
-
-            row.MouseEnter += delegate { row.SetResourceReference(Border.BackgroundProperty, "HoverFill"); };
-            row.MouseLeave += delegate { row.Background = Brushes.Transparent; };
-            row.MouseLeftButtonUp += (sender, e) =>
-            {
-                e.Handled = true;
-                if (Active == null) return;
-
-                // 結果を出したあとに上の行が増減していても、押した時点の本文から同じ名前で一番近い見出しを探し直す。
-                var now = Active.GetOutline().Entries;
-                var index = NearestHeading(now, entry.Text, entry.Line);
-                if (index >= 0) Active.GoToLine(now[index].Line);
-            };
-
-            return row;
+            OutlineFoldArea.IsEnabled = foldable;
         }
 
         /// <summary>組み直しの前に、たたまれている項目を覚えておく。</summary>

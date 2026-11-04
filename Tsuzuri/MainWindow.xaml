@@ -116,26 +116,34 @@
             <Border x:Name="Sidebar" Grid.Column="0"
                     Background="{StaticResource SidebarBackground}">
                 <DockPanel>
-                    <!-- 見出しの検索 (SPEC 7章)。ファイラーの検索欄と同じ作り（段の左に薄い「検索」、枠の無い入力欄）。
-                         何か打つと、下の木の代わりに、名前に当たった見出しの一覧を出す。
-                         サイドバーの一番上に置き、エディタの検索欄の段と高さ・下の線をそろえる（「アウトライン」の文字の段は 2026-10-14 にやめた）。
-                         右端に、全部たたむ・全部開くの切り替え（記号） -->
-                    <Border x:Name="OutlineSearchArea" DockPanel.Dock="Top" Height="32"
+                    <!-- アウトラインを開く・たたむボタン (SPEC 7章。2026-11-04。前は見出しの検索欄だった)。
+                         サイドバーの一番上に置き、エディタの検索欄の段と高さ・下の線をそろえる。
+                         ボタンは記号と数字だけ（何をするかはツールチップ）。数字は「その見出しまで開く」 -->
+                    <Border x:Name="OutlineFoldArea" DockPanel.Dock="Top" Height="32"
                             BorderBrush="{StaticResource BorderBrushSoft}" BorderThickness="0,0,0,1"
-                            Margin="0,0,0,6" Background="Transparent" Cursor="IBeam">
-                        <DockPanel Margin="12,0,6,0">
-                            <Button x:Name="OutlineFoldToggle" DockPanel.Dock="Right"
-                                    Style="{StaticResource ToolButton}" FontFamily="Segoe UI Symbol" FontSize="15"
-                                    MinWidth="26" Padding="3,0,3,0" VerticalAlignment="Center" Focusable="False" Cursor="Arrow"
-                                    Content="⊟" Click="OutlineFoldToggle_Click" />
-                            <TextBlock DockPanel.Dock="Left" Text="検索" FontSize="12"
-                                       Foreground="{StaticResource TextMuted}"
-                                       VerticalAlignment="Center" Margin="4,0,10,0" />
-                            <TextBox x:Name="OutlineSearchBox" BorderThickness="0" Background="Transparent"
-                                     Foreground="{StaticResource TextPrimary}" CaretBrush="{StaticResource TextPrimary}"
-                                     FontSize="13" Padding="0" VerticalContentAlignment="Center"
-                                     ToolTip="見出しの名前で探す（空白で区切ると全部を含むもの）。Esc で消す" />
-                        </DockPanel>
+                            Margin="0,0,0,6" Background="Transparent">
+                        <StackPanel Orientation="Horizontal" Margin="10,0,6,0" VerticalAlignment="Center">
+                            <Button x:Name="OutlineFoldAll" Tag="0" Content="⊟" FontFamily="Segoe UI Symbol" FontSize="15"
+                                    ToolTip="すべてたたむ（いちばん上の見出しだけにする）"
+                                    Style="{StaticResource ToolButton}" MinWidth="28" Padding="3,0,3,0" Margin="0,0,2,0"
+                                    Focusable="False" Click="OutlineFold_Click" />
+                            <Button x:Name="OutlineFold1" Tag="1" Content="1" FontSize="13"
+                                    ToolTip="見出し1だけ開く（見出し2以下はたたむ）"
+                                    Style="{StaticResource ToolButton}" MinWidth="28" Padding="3,0,3,0" Margin="0,0,2,0"
+                                    Focusable="False" Click="OutlineFold_Click" />
+                            <Button x:Name="OutlineFold2" Tag="2" Content="2" FontSize="13"
+                                    ToolTip="見出し2まで開く（見出し3以下はたたむ）"
+                                    Style="{StaticResource ToolButton}" MinWidth="28" Padding="3,0,3,0" Margin="0,0,2,0"
+                                    Focusable="False" Click="OutlineFold_Click" />
+                            <Button x:Name="OutlineFold3" Tag="3" Content="3" FontSize="13"
+                                    ToolTip="見出し3まで開く（見出し4以下はたたむ）"
+                                    Style="{StaticResource ToolButton}" MinWidth="28" Padding="3,0,3,0" Margin="0,0,2,0"
+                                    Focusable="False" Click="OutlineFold_Click" />
+                            <Button x:Name="OutlineExpandAll" Tag="99" Content="⊞" FontFamily="Segoe UI Symbol" FontSize="15"
+                                    ToolTip="すべて開く"
+                                    Style="{StaticResource ToolButton}" MinWidth="28" Padding="3,0,3,0"
+                                    Focusable="False" Click="OutlineFold_Click" />
+                        </StackPanel>
                     </Border>
 
                     <!-- 見出しのブックマーク (SPEC 7章)。新しいものが上。空なら出さない -->
@@ -164,13 +172,6 @@
                         <Grid Grid.Row="0">
                             <TreeView x:Name="OutlineTree" Padding="6,0,6,12"
                                       ScrollViewer.HorizontalScrollBarVisibility="Disabled" />
-
-                            <!-- 検索の結果。検索欄に何か入っている間だけ、木の代わりに出す -->
-                            <ScrollViewer x:Name="OutlineSearchScroll" Visibility="Collapsed"
-                                          VerticalScrollBarVisibility="Auto"
-                                          HorizontalScrollBarVisibility="Disabled">
-                                <StackPanel x:Name="OutlineSearchResults" Margin="0,0,0,12" />
-                            </ScrollViewer>
                         </Grid>
 
                         <GridSplitter Grid.Row="1" Height="4" Style="{StaticResource RowSplitter}" ResizeDirection="Rows"

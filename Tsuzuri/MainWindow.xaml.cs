@@ -237,12 +237,8 @@ namespace Tsuzuri
 
             // アウトラインのドラッグで節を動かす（SPEC 7章）。
             OutlineTree.PreviewMouseLeftButtonDown += OutlineTree_PreviewMouseLeftButtonDown;
-            SetUpOutlineSearch();
             SetUpHeadingBookmarkDrag();
 
-            // 1つずつの開閉（三角）でも、「すべて閉じる／すべて開く」の文字を合わせる。
-            OutlineTree.AddHandler(TreeViewItem.ExpandedEvent, new RoutedEventHandler(delegate { UpdateFoldToggle(); }));
-            OutlineTree.AddHandler(TreeViewItem.CollapsedEvent, new RoutedEventHandler(delegate { UpdateFoldToggle(); }));
             OutlineTree.PreviewMouseMove += OutlineTree_PreviewMouseMove;
             _outlineAutoScroll.Tick += delegate { OutlineAutoScroll(); };
             OutlineTree.PreviewMouseLeftButtonUp += OutlineTree_PreviewMouseLeftButtonUp;

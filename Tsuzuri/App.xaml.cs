@@ -47,6 +47,10 @@ namespace Tsuzuri
             // 窓を作る前に決める（作ったあとでは効かない窓がある）。
             if (settings.SoftwareRendering) RenderOptions.ProcessRenderMode = RenderMode.SoftwareOnly;
 
+            // 打ってから画面に出るまでの時間を測る（2026-11-04。perfLog が true のときだけ）。
+            PerfLog.Enabled = settings.PerfLog;
+            if (PerfLog.Enabled) CompositionTarget.Rendering += delegate { PerfLog.Rendered(); };
+
             var window = new Tsuzuri.MainWindow(settings);
             MainWindow = window;
             window.Show();

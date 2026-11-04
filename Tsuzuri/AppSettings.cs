@@ -68,6 +68,12 @@ namespace Tsuzuri
         [DataMember(Name = "softwareRendering")]
         public bool SoftwareRendering { get; set; }
 
+        /// <summary>
+        /// 打ってから画面に出るまでの時間を、exe の隣の perf.log に書き出すか（2026-11-04。原因を探すためのもの。初めは false）。次の起動から効く。
+        /// </summary>
+        [DataMember(Name = "perfLog")]
+        public bool PerfLog { get; set; }
+
         /// <summary>画像の行を、リンクの文字だけで見せるか。false（初め）なら画像だけ（SPEC 9章。2026-10-15）。</summary>
         [DataMember(Name = "imageLinkTextOnly")]
         public bool ImageLinkTextOnly { get; set; }

@@ -401,6 +401,17 @@ namespace Tsuzuri.Views
             Document.Changed += OnDocumentChanged;   // 打った場所を覚える（打った段落だけを解析し直すため。2026-11-04）
             TextChanged += OnTextChanged;
 
+            // 打ってから画面に出るまでの時間を測る（2026-11-04。app.json の perfLog が true のときだけ）。
+            if (PerfLog.Enabled)
+            {
+                TextArea.AddHandler(UIElement.PreviewKeyDownEvent, new KeyEventHandler((sender, e) =>
+                {
+                    if (e.Key == Key.ImeProcessed && e.ImeProcessedKey == Key.Enter) PerfLog.Input("[確定のEnter]", Document.LineCount);
+                }), true);
+                TextArea.AddHandler(UIElement.PreviewTextInputEvent, new TextCompositionEventHandler((sender, e) => PerfLog.Input(e.Text, Document.LineCount)), true);
+                TextArea.TextView.VisualLinesChanged += delegate { PerfLog.Mark("行の組み立て"); };
+            }
+
             // リンクは自前で判定する。座標からオフセットを求めて範囲に当てる。
             PreviewMouseLeftButtonDown += OnRevealMouseDown;           // リンクの判定より先に走らせる
             PreviewMouseLeftButtonDown += OnPreviewMouseLeftButtonDown;
@@ -610,6 +621,7 @@ namespace Tsuzuri.Views
             {
                 if (_modelValid && _model != null) return _model;
 
+                var parseStarted = PerfLog.Start();
                 var document = Document;
                 var texts = new List<string>(document.LineCount);
                 var offsets = new List<int>(document.LineCount);
@@ -623,6 +635,7 @@ namespace Tsuzuri.Views
                 _model = MarkdownParser.Parse(document.Text, texts, offsets);
                 _modelValid = true;
                 _outline = null;
+                PerfLog.Mark("全体の解析", PerfLog.Since(parseStarted));
 
                 return _model;
             }
@@ -676,6 +689,19 @@ namespace Tsuzuri.Views
 
         private void OnTextChanged(object sender, EventArgs e)
         {
+            var started = PerfLog.Start();
+            try
+            {
+                OnTextChangedCore();
+            }
+            finally
+            {
+                PerfLog.Mark("書き換えの後始末", PerfLog.Since(started));
+            }
+        }
+
+        private void OnTextChangedCore()
+        {
             // 保存はファイル単位なので、打つたびに文書へ書き戻しておく。
             // こうしておけば、このページを閉じたあとでも編集が残る。
             // 文書にこのページがもう無ければ、打った内容はどこにも保存されない。
@@ -698,7 +724,9 @@ namespace Tsuzuri.Views
             // 打った段落だけを解析し直せれば、文書全体は解析し直さない（2026-11-04）。
             int patchedFrom, patchedTo;
             bool depthsChanged, linesShifted;
+            var patchStarted = PerfLog.Start();
             var patched = TryPatchModel(out patchedFrom, out patchedTo, out depthsChanged, out linesShifted);
+            PerfLog.Mark(patched ? "近道" : "全体へ", PerfLog.Since(patchStarted));
             _editCount = 0;
             _editSpansLines = false;
             _editTooLarge = false;

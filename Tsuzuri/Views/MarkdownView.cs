@@ -695,6 +695,10 @@ namespace Tsuzuri.Views
         /// <summary>書き換えが行をまたいだ（改行を足した・消した）か、大きかったか。</summary>
         private bool _editSpansLines;
 
+        /// <summary>最後の書き換えで消した文字と足した文字（行をまたがない小さな書き換えのときだけ。書き換える前の行を組み立てるため）。</summary>
+        private string _editRemoved = string.Empty;
+        private string _editInserted = string.Empty;
+
         /// <summary>解析し直すかたまりの行数の上限。これより長いかたまり（空行の無い長い表など）は全体を解析し直す。</summary>
         private const int PatchLineLimit = 400;
 
@@ -706,7 +710,13 @@ namespace Tsuzuri.Views
             if (e.RemovalLength > 1000 || e.InsertionLength > 1000
                 || (e.RemovalLength > 0 && e.RemovedText.IndexOfAny(LineBreaks, 0, e.RemovalLength) >= 0)
                 || (e.InsertionLength > 0 && e.InsertedText.IndexOfAny(LineBreaks, 0, e.InsertionLength) >= 0))
+            {
                 _editSpansLines = true;
+                return;
+            }
+
+            _editRemoved = e.RemovedText.Text;
+            _editInserted = e.InsertedText.Text;
         }
 
         private static readonly char[] LineBreaks = { '\r', '\n' };
@@ -726,7 +736,13 @@ namespace Tsuzuri.Views
             var count = document.LineCount;
             if (_model.Lines.Length != count) return false;
 
-            var line = document.GetLineByOffset(Math.Min(_editOffset, document.TextLength)).LineNumber;
+            var edited = document.GetLineByOffset(Math.Min(_editOffset, document.TextLength));
+            var line = edited.LineNumber;
+
+            // 空行（空白とタブだけ）だった行・空行になった行は、かたまりの区切りが変わるので使わない。
+            // 全角の空白（U+3000）だけの行は Markdown では空行ではなく、空行に打つと前後の段落がつながる（2026-11-04）。
+            var editedText = document.GetText(edited.Offset, edited.Length);
+            if (IsBlank(editedText) || IsBlank(TextBeforeEdit(editedText, _editOffset - edited.Offset))) return false;
 
             from = line;
             while (from > 1 && !IsBlankText(document, from - 1))
@@ -757,6 +773,11 @@ namespace Tsuzuri.Views
                 if (number < to) text.Append('\n');
             }
 
+            // かたまりの1行目が字下げで始まるなら、前のリストの項目の続きかもしれない。項目の中での解釈は、取り出すと変わるので使わない（2026-11-04 のレビュー）。
+            // 打った行が1行目なら、書き換える前の行も見る（字下げを消してリストの外に出した、など）。
+            if (StartsIndented(texts[0])) return false;
+            if (line == from && StartsIndented(TextBeforeEdit(texts[0], _editOffset - edited.Offset))) return false;
+
             var patch = MarkdownParser.Parse(text.ToString(), texts, offsets);
             if (patch.Fragile || patch.Lines.Length != texts.Count) return false;
 
@@ -767,6 +788,10 @@ namespace Tsuzuri.Views
 
                 if (before.Kind != after.Kind || before.Level != after.Level || before.ContinuesHeading != after.ContinuesHeading) return false;
             }
+
+            // 打った行の行頭（字下げ・- や 1. の印・その後の空白）が変わったら使わない。リストの印の幅（1. と 10.）や字下げが変わると、
+            // 空行の向こうの行（項目の続き・字下げしたコード）の解釈まで変わり、取り出した段落を比べても分からない（2026-11-04 のレビュー）。
+            if (!string.Equals(_model.Lines[line - 1].Marker, patch.Lines[line - from].Marker, StringComparison.Ordinal)) return false;
 
             for (var i = 0; i < patch.Lines.Length; i++)
             {
@@ -779,15 +804,35 @@ namespace Tsuzuri.Views
             return true;
         }
 
+        /// <summary>
+        /// Markdown の空行か（空白とタブだけの行）。全角の空白（U+3000）だけの行は空行ではなく段落の続きなので、区切りにしない（2026-11-04 のレビュー）。
+        /// </summary>
         private static bool IsBlankText(TextDocument document, int lineNumber)
         {
             var line = document.GetLineByNumber(lineNumber);
-            for (var offset = line.Offset; offset < line.EndOffset; offset++)
+            return IsBlank(document.GetText(line.Offset, line.Length));
+        }
+
+        private static bool IsBlank(string text)
+        {
+            foreach (var c in text)
             {
-                if (!char.IsWhiteSpace(document.GetCharAt(offset))) return false;
+                if (c != ' ' && c != '\t') return false;
             }
 
             return true;
+        }
+
+        private static bool StartsIndented(string text)
+        {
+            return text.Length > 0 && (text[0] == ' ' || text[0] == '\t');
+        }
+
+        /// <summary>書き換える前の行。今の行の column から、足した文字を消した文字に戻す。</summary>
+        private string TextBeforeEdit(string current, int column)
+        {
+            if (column < 0 || column + _editInserted.Length > current.Length) return " ";   // 組み立てられなければ、字下げありとして扱う（使わない側）
+            return current.Substring(0, column) + _editRemoved + current.Substring(column + _editInserted.Length);
         }
 
         private bool RangeHasTable(int from, int to)

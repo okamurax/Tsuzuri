@@ -1,6 +1,8 @@
 using System;
 using System.Threading;
 using System.Windows;
+using System.Windows.Interop;
+using System.Windows.Media;
 
 namespace Tsuzuri
 {
@@ -41,6 +43,9 @@ namespace Tsuzuri
                 Shutdown();
                 return;
             }
+
+            // 窓を作る前に決める（作ったあとでは効かない窓がある）。
+            if (settings.SoftwareRendering) RenderOptions.ProcessRenderMode = RenderMode.SoftwareOnly;
 
             var window = new Tsuzuri.MainWindow(settings);
             MainWindow = window;

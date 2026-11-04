@@ -60,6 +60,14 @@ namespace Tsuzuri
         [DataMember(Name = "windowMaximized")]
         public bool WindowMaximized { get; set; }
 
+        /// <summary>
+        /// 画面をグラフィックス（GPU）を使わずに描くか（2026-11-04。SPEC 2章）。手で app.json に true と書いて使う。初めは false。
+        /// 仮想マシン（Parallels の Coherence など）で、日本語の変換を確定したときに窓がちらつき、後ろが透けて見えることがあったため。
+        /// 次の起動から効く。CPU で描くので、大きな画像の多い文書ではスクロールが重くなることがある。
+        /// </summary>
+        [DataMember(Name = "softwareRendering")]
+        public bool SoftwareRendering { get; set; }
+
         /// <summary>画像の行を、リンクの文字だけで見せるか。false（初め）なら画像だけ（SPEC 9章。2026-10-15）。</summary>
         [DataMember(Name = "imageLinkTextOnly")]
         public bool ImageLinkTextOnly { get; set; }

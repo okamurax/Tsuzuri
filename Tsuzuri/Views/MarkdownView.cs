@@ -637,10 +637,11 @@ namespace Tsuzuri.Views
 
             // 打った段落だけを解析し直せれば、文書全体は解析し直さない（2026-11-04）。
             int patchedFrom, patchedTo;
-            bool depthsChanged;
-            var patched = TryPatchModel(out patchedFrom, out patchedTo, out depthsChanged);
+            bool depthsChanged, linesShifted;
+            var patched = TryPatchModel(out patchedFrom, out patchedTo, out depthsChanged, out linesShifted);
             _editCount = 0;
             _editSpansLines = false;
+            _editTooLarge = false;
 
             if (!patched) _modelValid = false;
             _outline = null;
@@ -663,7 +664,8 @@ namespace Tsuzuri.Views
             if (patched)
             {
                 // 行の種類は変わっていないので、表が増えたり減ったりはしない。表の中を打ったときだけ、読めるかが変わりうるので畳み直す。
-                var redrawAll = RangeHasTable(patchedFrom, patchedTo) && UpdateTableFolds();
+                // 行が増えた・減ったときは、後ろの表の行番号がずれるので、表があれば畳み直す（2026-11-04）。
+                var redrawAll = (RangeHasTable(patchedFrom, patchedTo) || (linesShifted && _tableFolds.Count > 0)) && UpdateTableFolds();
 
                 // 見出しの記号を付け外ししたときは、後ろの行の段差（字下げ）も変わるので、全部の行の目印を比べて描き直す。
                 if (depthsChanged) RedrawChangedLines(redrawAll);
@@ -696,10 +698,13 @@ namespace Tsuzuri.Views
         /// <summary>最後の書き換えの場所（文書の位置）。</summary>
         private int _editOffset;
 
-        /// <summary>書き換えが行をまたいだ（改行を足した・消した）か、大きかったか。</summary>
+        /// <summary>書き換えが行をまたいだ（改行を足した・消した）か。</summary>
         private bool _editSpansLines;
 
-        /// <summary>最後の書き換えで消した文字と足した文字（行をまたがない小さな書き換えのときだけ。書き換える前の行を組み立てるため）。</summary>
+        /// <summary>書き換えが大きかったか（全体を解析し直す）。</summary>
+        private bool _editTooLarge;
+
+        /// <summary>最後の書き換えで消した文字と足した文字（小さな書き換えのときだけ。書き換える前の行を組み立てるため）。</summary>
         private string _editRemoved = string.Empty;
         private string _editInserted = string.Empty;
 
@@ -708,19 +713,21 @@ namespace Tsuzuri.Views
 
         private void OnDocumentChanged(object sender, DocumentChangeEventArgs e)
         {
+            // 何も変えない書き換え（改行のあとの字下げを、空のまま置き直す等）は数えない。
+            if (e.RemovalLength == 0 && e.InsertionLength == 0) return;
+
             _editCount++;
             _editOffset = e.Offset;
 
-            if (e.RemovalLength > 1000 || e.InsertionLength > 1000
-                || (e.RemovalLength > 0 && e.RemovedText.IndexOfAny(LineBreaks, 0, e.RemovalLength) >= 0)
-                || (e.InsertionLength > 0 && e.InsertedText.IndexOfAny(LineBreaks, 0, e.InsertionLength) >= 0))
+            if (e.RemovalLength > 1000 || e.InsertionLength > 1000)
             {
-                _editSpansLines = true;
+                _editTooLarge = true;
                 return;
             }
 
             _editRemoved = e.RemovedText.Text;
             _editInserted = e.InsertedText.Text;
+            if (_editRemoved.IndexOfAny(LineBreaks) >= 0 || _editInserted.IndexOfAny(LineBreaks) >= 0) _editSpansLines = true;
         }
 
         private static readonly char[] LineBreaks = { '\r', '\n' };
@@ -729,13 +736,23 @@ namespace Tsuzuri.Views
         /// 打った行を含むかたまりだけを解析し直して、今の解析結果に差し替える。できたら true と、差し替えた行（1 始まり）。
         /// できなければ何も変えずに false（全体を解析し直す）。
         /// </summary>
-        private bool TryPatchModel(out int from, out int to, out bool depthsChanged)
+        private bool TryPatchModel(out int from, out int to, out bool depthsChanged, out bool linesShifted)
         {
             from = to = -1;
             depthsChanged = false;
+            linesShifted = false;
 
-            if (_editCount != 1 || _editSpansLines) return false;
+            if (_editCount != 1 || _editTooLarge) return false;
             if (!_modelValid || _model == null || _model.Fragile) return false;
+
+            if (_editSpansLines)
+            {
+                if (!TryPatchLines(out from, out to)) return false;
+
+                depthsChanged = true;
+                linesShifted = true;
+                return true;
+            }
 
             var document = Document;
             var count = document.LineCount;
@@ -765,20 +782,7 @@ namespace Tsuzuri.Views
                 if (to - line > PatchLineLimit) return false;
             }
 
-            var texts = new List<string>(to - from + 1);
-            var offsets = new List<int>(to - from + 1);
-            var text = new StringBuilder();
-
-            for (var number = from; number <= to; number++)
-            {
-                var current = document.GetLineByNumber(number);
-                var source = document.GetText(current.Offset, current.Length);
-
-                offsets.Add(text.Length);
-                texts.Add(source);
-                text.Append(source);
-                if (number < to) text.Append('\n');
-            }
+            var texts = BlockTexts(from, to);
 
             // かたまりの始まり（取り出した1行目と、空行のすぐ後ろの行）が字下げで始まるなら、前のリストの項目の続きかもしれない。
             // 項目の中での解釈は、取り出すと変わるので使わない（2026-11-04 のレビュー）。書き換える前の行も見る（字下げを消してリストの外に出した、空行を消した、など）。
@@ -800,8 +804,8 @@ namespace Tsuzuri.Views
             // すると空行の向こうの字下げした行（項目の続き）の意味が変わるので、下の最初の行が字下げで始まるなら使わない（2026-11-04。確かめの途中で見つかった）。
             if (blankChanged && StartsIndented(FirstTextBelow(to))) return false;
 
-            var patch = MarkdownParser.Parse(text.ToString(), texts, offsets);
-            if (patch.Fragile || patch.Lines.Length != texts.Count) return false;
+            var patch = ParseBlock(from, to, texts);
+            if (patch == null) return false;
 
             var shapeChanged = blankChanged;
             for (var i = 0; i < patch.Lines.Length; i++)
@@ -836,6 +840,159 @@ namespace Tsuzuri.Views
             }
 
             return true;
+        }
+
+        /// <summary>
+        /// 改行を足した・消した（行の数が変わりうる）書き換えのとき、前後のかたまりだけを解析し直して、新しい解析結果を組み立てる（2026-11-04）。
+        /// 改行をよく入れる書き方だと、Enter のたびに文書全体を解析し直していて、大きな文書で遅れていたため。
+        /// 差し替えるのは、書き換えた行を含む「空行で区切られたかたまり」が、前も後も本文と # の見出しだけのときだけ（リストの中などは全体を解析し直す）。
+        /// かたまりより前の行はそのまま、後ろの行は行の数の差だけずらして使い回す。段差は決め直す。できたら true と、差し替えた行（新しい行番号）。
+        /// </summary>
+        private bool TryPatchLines(out int from, out int to)
+        {
+            from = to = -1;
+
+            var document = Document;
+            var old = _model.Lines;
+            var count = document.LineCount;
+            var delta = count - old.Length;
+            var end = _editOffset + _editInserted.Length;
+            if (_editOffset < 0 || end > document.TextLength) return false;
+
+            var first = document.GetLineByOffset(_editOffset).LineNumber;
+            var last = document.GetLineByOffset(end).LineNumber;
+
+            from = first;
+            while (from > 1 && !IsBlankText(document, from - 1))
+            {
+                from--;
+                if (first - from > PatchLineLimit) return false;
+            }
+
+            to = last;
+            while (to < count && !IsBlankText(document, to + 1))
+            {
+                to++;
+                if (to - last > PatchLineLimit) return false;
+            }
+
+            // 前の解析結果での、かたまりの最後の行。
+            var oldTo = to - delta;
+            if (oldTo < from || oldTo > old.Length || oldTo - from > 2 * PatchLineLimit + 1000) return false;
+
+            // 前の行と今の行の対応が合っているかを確かめる。かたまりの今の文字から書き換えを戻すと、前の解析結果のかたまりの文字と同じになるはず。
+            // 合わなければ（改行の \r と \n が書き換えの境目でくっついた等）全体を解析し直す。
+            var start = document.GetLineByNumber(from).Offset;
+            var stop = document.GetLineByNumber(to).EndOffset;
+            if (_editOffset < start || end > stop) return false;
+
+            var restored = document.GetText(start, _editOffset - start) + _editRemoved + document.GetText(end, stop - end);
+            var oldText = new StringBuilder();
+            for (var number = from; number <= oldTo; number++)
+            {
+                if (number > from) oldText.Append('\n');
+                oldText.Append(old[number - 1].Source);
+            }
+
+            if (!string.Equals(UnifyLineBreaks(restored), oldText.ToString(), StringComparison.Ordinal)) return false;
+
+            // かたまりのすぐ外の行（空行）も、前と同じか。
+            if (from > 1 && !string.Equals(document.GetText(document.GetLineByNumber(from - 1)), old[from - 2].Source, StringComparison.Ordinal)) return false;
+            if (to < count && !string.Equals(document.GetText(document.GetLineByNumber(to + 1)), old[oldTo].Source, StringComparison.Ordinal)) return false;
+
+            var texts = BlockTexts(from, to);
+
+            // かたまりの始まり（1行目と、空行のすぐ後ろの行）が字下げで始まるなら、前のリストの項目の続きかもしれないので使わない。今の行も前の行も見る。
+            for (var i = 0; i < texts.Count; i++)
+            {
+                if ((i == 0 || IsBlank(texts[i - 1])) && StartsIndented(texts[i])) return false;
+            }
+
+            for (var number = from; number <= oldTo; number++)
+            {
+                if ((number == from || IsBlank(old[number - 2].Source)) && StartsIndented(old[number - 1].Source)) return false;
+            }
+
+            // 1行の中の書き換えで空行が変わったときと同じ確かめ（字下げのコードが外の空行を含むか・下で続くリストの項目が閉じるか）。
+            if (TouchesCode(from - 1, -1) || TouchesCode(oldTo + 1, 1)) return false;
+            if (StartsIndented(FirstTextBelow(oldTo))) return false;
+
+            var patch = ParseBlock(from, to, texts);
+            if (patch == null) return false;
+
+            if (!OnlyTextAndHeadings(old, from - 1, oldTo - from + 1) || !OnlyTextAndHeadings(patch.Lines, 0, patch.Lines.Length)) return false;
+
+            var lines = new LineInfo[count];
+            var inlines = new InlineScan[count];
+
+            Array.Copy(old, 0, lines, 0, from - 1);
+            Array.Copy(_model.Inlines, 0, inlines, 0, from - 1);
+            Array.Copy(patch.Lines, 0, lines, from - 1, patch.Lines.Length);
+            Array.Copy(patch.Inlines, 0, inlines, from - 1, patch.Inlines.Length);
+            Array.Copy(old, oldTo, lines, to, old.Length - oldTo);
+            Array.Copy(_model.Inlines, oldTo, inlines, to, old.Length - oldTo);
+
+            var model = new DocumentModel(lines, inlines, 0);
+            model.RecomputeDepths();
+            _model = model;
+
+            return true;
+        }
+
+        /// <summary>from から to の行の文字。</summary>
+        private List<string> BlockTexts(int from, int to)
+        {
+            var document = Document;
+            var texts = new List<string>(to - from + 1);
+
+            for (var number = from; number <= to; number++)
+            {
+                var current = document.GetLineByNumber(number);
+                texts.Add(document.GetText(current.Offset, current.Length));
+            }
+
+            return texts;
+        }
+
+        /// <summary>
+        /// かたまり（from から to の行。文字は texts）を取り出して解析する。かたまりの行だけの解析結果を返す。使えなければ null。
+        /// かたまりのすぐ外の空行も付けて解析する。Markdig は、段落が文書の終わりで切れるか空行で切れるかで、リンクの定義の読み方が変わる
+        /// （「[a]: /x 節」は、後ろに空行があると定義として読まれる。2026-11-04。確かめの途中で見つかった）。
+        /// </summary>
+        private DocumentModel ParseBlock(int from, int to, List<string> texts)
+        {
+            var document = Document;
+            var lead = from > 1 ? 1 : 0;
+            var trail = to < document.LineCount ? 1 : 0;
+
+            var all = new List<string>(texts.Count + 2);
+            if (lead > 0) all.Add(document.GetText(document.GetLineByNumber(from - 1)));
+            all.AddRange(texts);
+            if (trail > 0) all.Add(document.GetText(document.GetLineByNumber(to + 1)));
+
+            var offsets = new List<int>(all.Count);
+            var text = new StringBuilder();
+            for (var i = 0; i < all.Count; i++)
+            {
+                offsets.Add(text.Length);
+                text.Append(all[i]);
+                if (i < all.Count - 1) text.Append('\n');
+            }
+
+            var parsed = MarkdownParser.Parse(text.ToString(), all, offsets);
+            if (parsed.Fragile || parsed.Lines.Length != all.Count) return null;
+
+            var lines = new LineInfo[texts.Count];
+            var inlines = new InlineScan[texts.Count];
+            Array.Copy(parsed.Lines, lead, lines, 0, texts.Count);
+            Array.Copy(parsed.Inlines, lead, inlines, 0, texts.Count);
+            return new DocumentModel(lines, inlines, 0);
+        }
+
+        /// <summary>\r\n と \r を \n にそろえる（前の解析結果の行は、改行を含まずに並んでいるので、\n でつないで比べる）。</summary>
+        private static string UnifyLineBreaks(string text)
+        {
+            return text.IndexOf('\r') < 0 ? text : text.Replace("\r\n", "\n").Replace('\r', '\n');
         }
 
         /// <summary>

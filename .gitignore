@@ -22,6 +22,9 @@ packages/
 wordpress.json
 Thumbs.db
 
+# AI の欄から SSH でつなぐ鍵（exe の隣の ssh フォルダ。SPEC 19章）
+ssh/
+
 # 設定（exe の隣。開いたファイルのパスなどを含む）
 app.json
 

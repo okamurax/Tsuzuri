@@ -143,10 +143,20 @@ namespace Tsuzuri
   - ファイル全体・ほかのページ・全部のページを相手にするのは、利用者がそう言ったとき（「ファイル全体を見て」「全部のページで」「p5 を」など）だけ。
   - 書くのも範囲の中。範囲の外は別のページで、とくにファイルの末尾に足すと最後のページの中身になる。
     ファイルの末尾に足すのは、新しいサブページを作るときだけ。書いたら、ページの範囲の中に入ったかを読み直して確かめる。
+- SSH でサーバーにつなぐときの鍵・設定は「{ssh-dir}」に置いてある（利用者が置く。無ければまだ置いていない）。
+  - 鍵は ssh -i ""<そのフォルダ>\鍵の名前"" で使う。そのフォルダに config があれば ssh -F ""<そのフォルダ>\config"" ホスト名 でつなぐ。
+    known_hosts もそのフォルダのものを使う（-o UserKnownHostsFile=""<そのフォルダ>\known_hosts""）。
+  - 鍵の中身を表示しない・ほかの場所へ写さない。文書やコミットに鍵・パスワード・接続先を書かない。
+  - 鍵の権限が広すぎると Windows の ssh が断る（UNPROTECTED PRIVATE KEY FILE）。そのときは利用者に知らせ、
+    icacls ""<鍵>"" /inheritance:r /grant:r ""%USERNAME%:R"" で本人だけが読めるようにしてよいか尋ねる。
+  - サーバーの中を変える操作（書き換え・削除・再起動・設定の変更）は、する前に何をするかを利用者に伝えて確かめる。
 - 返事は日本語で、欄は狭いので短めに書く。";
 
         /// <summary>図の書き方（2026-11-01。SPEC 19章）。exe の隣に置き、図を頼まれたときだけ Claude に読ませる（毎回は渡さない）。</summary>
         private static readonly string AiDrawingFormat = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Ai", "drawing-format.md");
+
+        /// <summary>AI の欄から SSH でつなぐときの鍵・設定を置くフォルダ（2026-11-04。SPEC 19章）。exe の隣の ssh。</summary>
+        private static readonly string AiSshFolder = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "ssh");
 
         /// <summary>ツールバーの「AI」。AI の欄を出し入れする。タブが1つも無ければ、claude を起動したタブを1つ開く。</summary>
         private void ToggleAi()
@@ -587,7 +597,7 @@ namespace Tsuzuri
                 instructions = Path.Combine(AiFolder, "instructions.md");
                 _aiSettingsPath = settings;
 
-                WriteIfChanged(instructions, AiInstructions.Replace("{drawing-format}", AiDrawingFormat));
+                WriteIfChanged(instructions, AiInstructions.Replace("{drawing-format}", AiDrawingFormat).Replace("{ssh-dir}", AiSshFolder));
                 File.WriteAllText(settings, AiSettings(_aiContextPath, AiPipeName), new UTF8Encoding(false));
                 WriteAiContext(null);
             }

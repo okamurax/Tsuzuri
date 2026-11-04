@@ -54,9 +54,6 @@ namespace Tsuzuri
             var window = new Tsuzuri.MainWindow(settings);
             MainWindow = window;
             window.Show();
-
-            // 予定を知らせる（2026-11-04。AI の欄で登録した schedule.json を見張る）。
-            Schedule.Start();
         }
     }
 }

@@ -25,10 +25,6 @@ Thumbs.db
 # AI の欄から SSH でつなぐ鍵（exe の隣の ssh フォルダ。SPEC 19章）
 ssh/
 
-# 予定（exe の隣。AI の欄で登録する。SPEC 19章）
-schedule.json
-schedule-shown.txt
-
 # 設定（exe の隣。開いたファイルのパスなどを含む）
 app.json
 

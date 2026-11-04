@@ -162,20 +162,6 @@ namespace Tsuzuri
   - 鍵・パスワード・config.txt の中身を、文書・コミット・返事に書き写さない。鍵をほかの場所へ写さない。
   - それでも鍵の権限で断られたら（UNPROTECTED PRIVATE KEY FILE）、権限を変えたり鍵を写したりせず、利用者に伝える。
   - サーバーの中を変える操作（書き換え・削除・再起動・設定の変更）は、する前に何をするかを利用者に伝えて確かめる。
-- 予定を知らせる仕組みがある。利用者が「〇〇を教えて」「スケジュールに登録して」「月の初めに〜」「毎日17時に〜」と頼んだら、
-  「{schedule}」に書く。時刻になると Tsuzuri が小窓で知らせる（知らせるのはエディタ。あなたは書くだけ）。
-  - 形（JSON。ほかの欄は書かない）: {""items"": [{""id"": ""s1"", ""text"": ""知らせる文"", ""said"": ""利用者の頼んだ言葉そのまま"",
-    ""created"": ""2026-11-04T21:30"", ""repeat"": ""monthly"", ""day"": 1, ""time"": ""09:00""}]}
-  - repeat: once（1回。date に yyyy-MM-dd）・daily（毎日）・weekly（weekdays に曜日の数の配列。0=日〜6=土）・
-    monthly（day に日。-1 は月末。「第2火曜」は nth=2 と weekdays=[2]。nth=-1 は最後の週）・yearly（date の月日）。
-    time は HH:mm（無ければ 09:00）。終わりがあれば until に yyyy-MM-dd。created は書いた今の時刻（それより前の分は知らせない）。
-  - 頼み方は曖昧でよい。決まった形に直して書く。「月の初め」は毎月1日、「朝」は 9:00、「夕方」は 17:00、「平日」は weekdays=[1,2,3,4,5]、
-    「来週あたり」のような1回の予定は日を1つ決める。時刻を言わなければ 9:00。直し方に迷うときだけ尋ねる。
-  - 書いたら「毎月1日 9:00 に『〇〇』を知らせます」のように、どう受け取ったかを1行で返す。
-  - id は重ならない s+数字。書く前にファイルを読み直す。無ければ作る。直す・消すと頼まれたら、その項目を書き換える・消す。
-    1回の予定で知らせ終わったもの（日時が過ぎたもの）は、一覧を頼まれたときに「済み」と添え、消すかを尋ねる。
-  - 「登録している一覧を教えて」には、ファイルを読み、繰り返し・日時・中身をふつうの言葉で短く並べる（JSON は見せない）。
-  - 同じフォルダの schedule-shown.txt はエディタのもの（知らせた時刻）。触らない。
 - 返事は日本語で、欄は狭いので短めに書く。";
 
         /// <summary>図の書き方（2026-11-01。SPEC 19章）。exe の隣に置き、図を頼まれたときだけ Claude に読ませる（毎回は渡さない）。</summary>
@@ -647,7 +633,6 @@ namespace Tsuzuri
                 CopySshFolder();
                 WriteIfChanged(instructions, AiInstructions
                     .Replace("{drawing-format}", AiDrawingFormat)
-                    .Replace("{schedule}", Schedule.FilePath)
                     .Replace("{ssh-dir}", AiSshLocal)
                     .Replace("{ssh-source}", AiSshFolder)
                     .Replace("{ssh-exe}", AiSshExe)

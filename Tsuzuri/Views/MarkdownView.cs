@@ -398,6 +398,7 @@ namespace Tsuzuri.Views
             _frame = new Border();
             _frame.Child = body;
 
+            Document.Changed += OnDocumentChanged;   // 打った場所を覚える（打った段落だけを解析し直すため。2026-11-04）
             TextChanged += OnTextChanged;
 
             // リンクは自前で判定する。座標からオフセットを求めて範囲に当てる。
@@ -634,7 +635,13 @@ namespace Tsuzuri.Views
                 if (lost != null) lost(this, EventArgs.Empty);
             }
 
-            _modelValid = false;
+            // 打った段落だけを解析し直せれば、文書全体は解析し直さない（2026-11-04）。
+            int patchedFrom, patchedTo;
+            var patched = TryPatchModel(out patchedFrom, out patchedTo);
+            _editCount = 0;
+            _editSpansLines = false;
+
+            if (!patched) _modelValid = false;
             _outline = null;
             _hiddenLine = -1;
             _imageLine = -1;
@@ -652,12 +659,170 @@ namespace Tsuzuri.Views
                 _searchDelay.Start();
             }
 
+            if (patched)
+            {
+                // 行の種類は変わっていないので、表が増えたり減ったりはしない。表の中を打ったときだけ、読めるかが変わりうるので畳み直す。
+                var redrawAll = RangeHasTable(patchedFrom, patchedTo) && UpdateTableFolds();
+                RedrawPatchedLines(patchedFrom, patchedTo, redrawAll);
+                return;
+            }
+
             // 表の畳み方も、描き直す前に揃え直す（表が増えた・減った・行が変わった）。
             var foldsChanged = UpdateTableFolds();
 
             // 打った行のほかに、見た目が変わった行だけを描き直す（2026-10-18。前は打つたびに表示中の全行を描き直していた）。
             // コードフェンスの開閉のように後ろの行の意味がまとめて変わるときは、その行がみな変わったと分かるので、それも描き直される。
             RedrawChangedLines(foldsChanged);
+        }
+
+        // =====================================================================
+        // 打った段落だけを解析し直す（2026-11-04）
+        //
+        // 前は1文字打つたびに文書全体を Markdig で解析し直していた。2万行で 40ms（Mac）、Windows の仮想マシンではその数倍かかり、
+        // 日本語の変換を確定してから画面に出るまでに目に見える遅れがあった。
+        // 1行の中だけを書き換えたときは、その行を含む「空行で区切られたかたまり」だけを解析し直し、結果を差し替える。
+        // 差し替えてよいのは、かたまりの行の種類（見出し・箇条書き・表…）とレベルが前と全部同じときだけ。
+        // 種類が変わる（# を打って見出しにした、``` を打った等）と、後ろの行の意味まで変わりうるので、今までどおり全体を解析し直す。
+        // 空行をまたいで効く書き方（HTML のかたまり・リンクや脚注の定義）がある文書では使わない（DocumentModel.Fragile）。
+        // =====================================================================
+
+        /// <summary>前の TextChanged から後の、文書の書き換えの数。</summary>
+        private int _editCount;
+
+        /// <summary>最後の書き換えの場所（文書の位置）。</summary>
+        private int _editOffset;
+
+        /// <summary>書き換えが行をまたいだ（改行を足した・消した）か、大きかったか。</summary>
+        private bool _editSpansLines;
+
+        /// <summary>解析し直すかたまりの行数の上限。これより長いかたまり（空行の無い長い表など）は全体を解析し直す。</summary>
+        private const int PatchLineLimit = 400;
+
+        private void OnDocumentChanged(object sender, DocumentChangeEventArgs e)
+        {
+            _editCount++;
+            _editOffset = e.Offset;
+
+            if (e.RemovalLength > 1000 || e.InsertionLength > 1000
+                || (e.RemovalLength > 0 && e.RemovedText.IndexOfAny(LineBreaks, 0, e.RemovalLength) >= 0)
+                || (e.InsertionLength > 0 && e.InsertedText.IndexOfAny(LineBreaks, 0, e.InsertionLength) >= 0))
+                _editSpansLines = true;
+        }
+
+        private static readonly char[] LineBreaks = { '\r', '\n' };
+
+        /// <summary>
+        /// 打った行を含むかたまりだけを解析し直して、今の解析結果に差し替える。できたら true と、差し替えた行（1 始まり）。
+        /// できなければ何も変えずに false（全体を解析し直す）。
+        /// </summary>
+        private bool TryPatchModel(out int from, out int to)
+        {
+            from = to = -1;
+
+            if (_editCount != 1 || _editSpansLines) return false;
+            if (!_modelValid || _model == null || _model.Fragile) return false;
+
+            var document = Document;
+            var count = document.LineCount;
+            if (_model.Lines.Length != count) return false;
+
+            var line = document.GetLineByOffset(Math.Min(_editOffset, document.TextLength)).LineNumber;
+
+            from = line;
+            while (from > 1 && !IsBlankText(document, from - 1))
+            {
+                from--;
+                if (line - from > PatchLineLimit) return false;
+            }
+
+            to = line;
+            while (to < count && !IsBlankText(document, to + 1))
+            {
+                to++;
+                if (to - line > PatchLineLimit) return false;
+            }
+
+            var texts = new List<string>(to - from + 1);
+            var offsets = new List<int>(to - from + 1);
+            var text = new StringBuilder();
+
+            for (var number = from; number <= to; number++)
+            {
+                var current = document.GetLineByNumber(number);
+                var source = document.GetText(current.Offset, current.Length);
+
+                offsets.Add(text.Length);
+                texts.Add(source);
+                text.Append(source);
+                if (number < to) text.Append('\n');
+            }
+
+            var patch = MarkdownParser.Parse(text.ToString(), texts, offsets);
+            if (patch.Fragile || patch.Lines.Length != texts.Count) return false;
+
+            for (var i = 0; i < patch.Lines.Length; i++)
+            {
+                var before = _model.Lines[from - 1 + i];
+                var after = patch.Lines[i];
+
+                if (before.Kind != after.Kind || before.Level != after.Level || before.ContinuesHeading != after.ContinuesHeading) return false;
+            }
+
+            for (var i = 0; i < patch.Lines.Length; i++)
+            {
+                // 段差は前の見出しで決まる。かたまりの外の見出しは変わっていないので、前の値を引き継ぐ。
+                patch.Lines[i].Depth = _model.Lines[from - 1 + i].Depth;
+                _model.Lines[from - 1 + i] = patch.Lines[i];
+                _model.Inlines[from - 1 + i] = patch.Inlines[i];
+            }
+
+            return true;
+        }
+
+        private static bool IsBlankText(TextDocument document, int lineNumber)
+        {
+            var line = document.GetLineByNumber(lineNumber);
+            for (var offset = line.Offset; offset < line.EndOffset; offset++)
+            {
+                if (!char.IsWhiteSpace(document.GetCharAt(offset))) return false;
+            }
+
+            return true;
+        }
+
+        private bool RangeHasTable(int from, int to)
+        {
+            for (var line = from; line <= to; line++)
+            {
+                if (_model.Lines[line - 1].Kind == LineKind.Table) return true;
+            }
+
+            return false;
+        }
+
+        /// <summary>差し替えた行のうち、見た目が変わった行だけを描き直す（RedrawChangedLines の、差し替えた行だけを見る版）。</summary>
+        private void RedrawPatchedLines(int from, int to, bool redrawAll)
+        {
+            if (redrawAll || _lineMarks == null || _lineMarks.Length != _model.Lines.Length)
+            {
+                RedrawChangedLines(redrawAll);
+                return;
+            }
+
+            var first = -1;
+            var last = -1;
+
+            for (var line = from; line <= to; line++)
+            {
+                var mark = LineMark(_model.Lines[line - 1], _model.Inlines[line - 1]);
+                if (mark == _lineMarks[line - 1]) continue;
+
+                _lineMarks[line - 1] = mark;
+                if (first < 0) first = line;
+                last = line;
+            }
+
+            if (first > 0) RedrawLines(first, last);
         }
 
         // =====================================================================

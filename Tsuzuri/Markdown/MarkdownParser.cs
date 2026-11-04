@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using Markdig;
+using Markdig.Extensions.Footnotes;
 using Markdig.Extensions.Tables;
 using Markdig.Extensions.TaskLists;
 using Markdig.Syntax;
@@ -69,17 +70,22 @@ namespace Tsuzuri.Markdown
                 inlines[i] = new InlineScan();
             }
 
+            var fragile = true;
             try
             {
                 var document = Markdig.Markdown.Parse(text ?? string.Empty, Pipeline);
-                new Walker(lines, inlines, lineTexts, lineOffsets).Walk(document);
+                var walker = new Walker(lines, inlines, lineTexts, lineOffsets);
+                walker.Walk(document);
+                fragile = walker.Fragile;
             }
             catch (Exception)
             {
                 // 解析に失敗しても編集は止めない。素のテキストとして見せる。
             }
 
-            return Finish(lines, inlines);
+            var model = Finish(lines, inlines);
+            model.Fragile = fragile;
+            return model;
         }
 
         // =====================================================================
@@ -102,6 +108,9 @@ namespace Tsuzuri.Markdown
                 _lineOffsets = lineOffsets;
             }
 
+            /// <summary>空行をまたいで効く書き方（HTML のかたまり・リンクの定義・脚注の定義・閉じていないコードフェンス）があったか（DocumentModel.Fragile）。</summary>
+            public bool Fragile;
+
             public void Walk(Block block)
             {
                 Stamp(block);
@@ -119,6 +128,12 @@ namespace Tsuzuri.Markdown
             private void Stamp(Block block)
             {
                 if (block is MarkdownDocument) return;
+
+                if (block is HtmlBlock || block is LinkReferenceDefinition || block is Footnote) Fragile = true;
+
+                // 閉じていないコードフェンスは文書の終わりまで続き、後ろの行の解釈を変える。取り出した段落の ``` が、文書の中では前のフェンスを閉じる行のこともある。
+                var open = block as FencedCodeBlock;
+                if (open != null && open.ClosingFencedCharCount == 0) Fragile = true;
 
                 var from = LineOf(block.Span.Start);
                 if (from < 0) return;

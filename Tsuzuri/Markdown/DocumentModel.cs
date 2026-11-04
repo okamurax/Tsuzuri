@@ -16,6 +16,13 @@ namespace Tsuzuri.Markdown
         /// <summary>文書の中で一番深い段。</summary>
         public readonly int MaxDepth;
 
+        /// <summary>
+        /// 一部だけを解析し直してはいけない文書か（2026-11-04。MarkdownView の打った段落だけを解析し直す近道）。
+        /// 空行をまたいで効く書き方（HTML のかたまり・リンクの定義 [名]: URL・脚注の定義・閉じていないコードフェンス）があると、段落だけを取り出して解析すると結果が変わるため。
+        /// 解析に失敗したときも true。
+        /// </summary>
+        public bool Fragile { get; internal set; }
+
         public DocumentModel(LineInfo[] lines, InlineScan[] inlines, int maxDepth)
         {
             Lines = lines;

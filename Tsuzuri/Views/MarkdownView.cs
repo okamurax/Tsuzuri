@@ -514,12 +514,22 @@ namespace Tsuzuri.Views
         /// <summary>文書の中の1ページを表示する。</summary>
         public void Bind(PageDocument owner, string pageId)
         {
+            FlushPending();
+
             _owner = owner;
             _pageId = pageId ?? PageDocument.RootId;
 
             IsReadOnly = false;
             _lineMarks = null;   // 別のページなので、前の行の目印とは比べない（全部を描き直す）
-            Text = owner.TextOf(_pageId) ?? string.Empty;
+            _loading = true;
+            try
+            {
+                Text = owner.TextOf(_pageId) ?? string.Empty;
+            }
+            finally
+            {
+                _loading = false;
+            }
 
             CaretOffset = 0;
             ScrollToHome();
@@ -575,7 +585,16 @@ namespace Tsuzuri.Views
             var scroll = VerticalOffset;
 
             _lineMarks = null;
-            Text = text;
+            FlushPending();
+            _loading = true;
+            try
+            {
+                Text = text;
+            }
+            finally
+            {
+                _loading = false;
+            }
 
             CaretOffset = Document.GetLineByNumber(Math.Min(line, Document.LineCount)).Offset;
             ScrollToVerticalOffset(scroll);
@@ -621,13 +640,54 @@ namespace Tsuzuri.Views
             return Model.InlineAt(lineNumber);
         }
 
+        /// <summary>Bind・ReloadFromOwner でページの中身を入れている最中。</summary>
+        private bool _loading;
+
+        /// <summary>中身をまだこの画面から取り出していないページ（PageDocument.MarkEdited）。無ければ null。</summary>
+        private PageRegion _pendingPage;
+
+        /// <summary>打ったことを文書に知らせる。中身は、読むときにこの画面の文書から取り出させる。ページが無ければ false。</summary>
+        private bool MarkEdited()
+        {
+            var document = Document;
+            var dispatcher = Dispatcher;
+
+            // 前に渡したページが、もう文書のこのページでなければ（文書を読み直した等）、先に取り出させて手放す。
+            if (_pendingPage != null && !ReferenceEquals(_pendingPage, _owner.PageOf(_pageId))) FlushPending();
+
+            // ほかのスレッドから読まれたら、画面のスレッドで取り出す（AvalonEdit の文書は画面のスレッドでしか読めない）。
+            var page = _owner.MarkEdited(_pageId, () => dispatcher.CheckAccess() ? document.Text : dispatcher.Invoke(() => document.Text));
+            if (page == null) return false;
+
+            _pendingPage = page;
+            return true;
+        }
+
+        /// <summary>
+        /// この画面の文書に別の中身を入れる前に、前のページの中身を取り出させる（2026-11-04）。
+        /// 取り出さずに入れ替えると、前のページを読んだときに新しい中身が返ってしまう。ページが文書から外れていても（消した・読み直した）取り出す。
+        /// </summary>
+        private void FlushPending()
+        {
+            var page = _pendingPage;
+            _pendingPage = null;
+            if (page != null) page.Flush();
+        }
+
         private void OnTextChanged(object sender, EventArgs e)
         {
             // 保存はファイル単位なので、打つたびに文書へ書き戻しておく。
             // こうしておけば、このページを閉じたあとでも編集が残る。
             // 文書にこのページがもう無ければ、打った内容はどこにも保存されない。
             // 黙って受け付け続けると消えるので、それ以上打てないようにする。
-            if (_owner != null && !IsReadOnly && !_owner.SetText(_pageId, Text))
+            // 文書全体の文字列は、ここでは作らない（2026-11-04）。日本語の確定は1文字ずつの書き換えとして届き、そのたびに全体を文字列にすると、
+            // 大きな文書ほど確定が遅れていた。中身は、保存などで読むときに、この画面の文書から取り出す。
+            // ページを入れたとき（Bind・ReloadFromOwner）は、文書の中身と同じなので、今までどおり渡す（同じなら変更扱いにしない）。
+            // 同じ文字での置き換えだけなら、前の SetText と同じく変更扱いにしない（2026-11-04 のレビュー）。
+            var altered = _editAltered;
+            _editAltered = false;
+
+            if (_owner != null && !IsReadOnly && !(_loading ? _owner.SetText(_pageId, Text) : (!altered || MarkEdited())))
             {
                 IsReadOnly = true;
 
@@ -701,6 +761,9 @@ namespace Tsuzuri.Views
         /// <summary>書き換えが行をまたいだ（改行を足した・消した）か。</summary>
         private bool _editSpansLines;
 
+        /// <summary>前の TextChanged から後に、中身の変わる書き換えがあったか（同じ文字での置き換えだけなら false）。</summary>
+        private bool _editAltered;
+
         /// <summary>書き換えが大きかったか（全体を解析し直す）。</summary>
         private bool _editTooLarge;
 
@@ -715,6 +778,9 @@ namespace Tsuzuri.Views
         {
             // 何も変えない書き換え（改行のあとの字下げを、空のまま置き直す等）は数えない。
             if (e.RemovalLength == 0 && e.InsertionLength == 0) return;
+
+            // 同じ文字で置き換えただけ（表の編集を変えずに閉じた・同じレベルの見出しにした等）か。全部そうなら、変更扱いにしない。
+            if (e.RemovalLength != e.InsertionLength || e.RemovedText.Text != e.InsertedText.Text) _editAltered = true;
 
             _editCount++;
             _editOffset = e.Offset;

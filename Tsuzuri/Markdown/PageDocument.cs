@@ -18,12 +18,52 @@ namespace Tsuzuri.Markdown
     public sealed class PageRegion
     {
         public readonly string Id;
-        public string Text;
+
+        private string _text;
+
+        /// <summary>
+        /// 打った画面から今の中身を取り出す手立て（2026-11-04）。中身を読むときに取り出す。
+        /// 日本語の確定は1文字ずつの書き換えとして届くので、打つたびに文書全体を文字列にしていると、大きな文書ほど確定が遅れていたため。
+        /// </summary>
+        private Func<string> _pending;
 
         public PageRegion(string id, string text)
         {
             Id = id;
-            Text = text;
+            _text = text;
+        }
+
+        /// <summary>ページの中身。打った画面があれば、そこから取り出してから返す（読む側は今までどおり、いつでも今の中身を得る）。</summary>
+        public string Text
+        {
+            get
+            {
+                var pending = _pending;
+                if (pending != null)
+                {
+                    _text = pending();
+                    _pending = null;
+                }
+
+                return _text;
+            }
+            set
+            {
+                _pending = null;
+                _text = value;
+            }
+        }
+
+        /// <summary>中身は画面にある。次に読むときに source から取り出す。</summary>
+        internal void SetPending(Func<string> source)
+        {
+            _pending = source;
+        }
+
+        /// <summary>画面にある中身を、今取り出す。</summary>
+        internal void Flush()
+        {
+            _ = Text;
         }
     }
 
@@ -443,6 +483,22 @@ namespace Tsuzuri.Markdown
         {
             var page = Find(id);
             return page == null ? null : page.Text;
+        }
+
+        /// <summary>
+        /// 画面で打った（2026-11-04）。中身はすぐには受け取らず、次に読むときに source から取り出す。渡したページを返す。ページが無ければ null。
+        /// 中身を読むところ（保存・書き出し・ほかのページの照合…）は、どれも PageRegion.Text を通るので、取り出し忘れは起きない。
+        /// source を渡した画面は、別の中身を出す前に、返したページの Text を読んで取り出させること（MarkdownView.Bind）。
+        /// ページを消したあとも、元に戻すで同じページが戻ってくるので、文書から外れたページでも取り出させる。
+        /// </summary>
+        public PageRegion MarkEdited(string id, Func<string> source)
+        {
+            var page = Find(id);
+            if (page == null) return null;
+
+            page.SetPending(source);
+            _dirty = true;
+            return page;
         }
 
         /// <summary>ページが無ければ false。呼び出し側は、その編集が行き場を失ったことを知らせる。</summary>

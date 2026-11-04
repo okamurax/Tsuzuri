@@ -143,7 +143,10 @@ namespace Tsuzuri
   - ファイル全体・ほかのページ・全部のページを相手にするのは、利用者がそう言ったとき（「ファイル全体を見て」「全部のページで」「p5 を」など）だけ。
   - 書くのも範囲の中。範囲の外は別のページで、とくにファイルの末尾に足すと最後のページの中身になる。
     ファイルの末尾に足すのは、新しいサブページを作るときだけ。書いたら、ページの範囲の中に入ったかを読み直して確かめる。
-- SSH でサーバーにつなぐときの接続先と鍵は「{ssh-dir}」にまとめて置いてある（利用者が置く。無ければまだ置いていない）。
+- SSH でサーバーにつなぐときの接続先と鍵は「{ssh-dir}」にまとめて置いてある。
+  利用者が置く元は「{ssh-source}」で、エディタが会話を始めるたびに、本人だけが読める権限にしてここへ写している
+  （元は Mac の共有フォルダのことがあり、そこの鍵は Windows の ssh に断られるため）。使うのはここのもの。元のフォルダは使わず、どちらも書き換えない。
+  ここに無ければ、利用者がまだ置いていないか、置いたあとに会話を始め直していない。
   - 接続先はそのフォルダの config.txt に1行1つ。| で区切った欄の形は auth の値で2通り:
     - auth=publickey（鍵）: 名称 | ホスト:ポート | auth=publickey | user=ユーザー名 | keyfile=キーファイル名（鍵はそのフォルダの中）
     - auth=password（パスワード）: 名称 | ホスト:ポート | auth=password | user=ユーザー名 | passwd=パスワード
@@ -157,8 +160,7 @@ namespace Tsuzuri
     （askpass は TSUZURI_SSH_PASS をそのまま返すだけのもの。エディタが置いている）。
     パスワードをコマンドの引数に書かない。それでも入れなければ（Windows の ssh が古く、askpass が効かないなど）、何度も試さずに利用者に伝える。
   - 鍵・パスワード・config.txt の中身を、文書・コミット・返事に書き写さない。鍵をほかの場所へ写さない。
-  - 鍵の権限が広すぎると Windows の ssh が断る（UNPROTECTED PRIVATE KEY FILE）。そのときは利用者に知らせ、
-    icacls ""<鍵>"" /inheritance:r /grant:r ""%USERNAME%:R"" で本人だけが読めるようにしてよいか尋ねる。
+  - それでも鍵の権限で断られたら（UNPROTECTED PRIVATE KEY FILE）、権限を変えたり鍵を写したりせず、利用者に伝える。
   - サーバーの中を変える操作（書き換え・削除・再起動・設定の変更）は、する前に何をするかを利用者に伝えて確かめる。
 - 返事は日本語で、欄は狭いので短めに書く。";
 
@@ -167,6 +169,14 @@ namespace Tsuzuri
 
         /// <summary>AI の欄から SSH でつなぐときの鍵・設定を置くフォルダ（2026-11-04。SPEC 19章）。exe の隣の ssh。</summary>
         private static readonly string AiSshFolder = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "ssh");
+
+        /// <summary>
+        /// ssh フォルダを写す先（2026-11-04）。exe が Mac の共有フォルダ（\\Mac\...）にあると、そこのファイルには Windows の権限を付けられず
+        /// （icacls は成功と言うが「All users have full control」のまま）、Windows の ssh が鍵を使ってくれない。
+        /// 会話を始めるたびにここへ写し、フォルダとファイルを本人だけが触れる権限にする。known_hosts はここで育てる（元から写さない・消さない）。
+        /// </summary>
+        private static readonly string AiSshLocal = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Tsuzuri", "ssh");
 
         /// <summary>Windows の ssh（Git の ssh は .cmd の askpass を動かせず、鍵の権限の見方も違うので、こちらを使わせる）。</summary>
         private static readonly string AiSshExe = Path.Combine(Environment.SystemDirectory, "OpenSSH", "ssh.exe");
@@ -620,9 +630,11 @@ namespace Tsuzuri
 
                 var askpass = Path.Combine(AiFolder, "ssh-askpass.cmd");
                 WriteIfChanged(askpass, AiSshAskpass);
+                CopySshFolder();
                 WriteIfChanged(instructions, AiInstructions
                     .Replace("{drawing-format}", AiDrawingFormat)
-                    .Replace("{ssh-dir}", AiSshFolder)
+                    .Replace("{ssh-dir}", AiSshLocal)
+                    .Replace("{ssh-source}", AiSshFolder)
                     .Replace("{ssh-exe}", AiSshExe)
                     .Replace("{ssh-askpass}", askpass));
                 File.WriteAllText(settings, AiSettings(_aiContextPath, AiPipeName), new UTF8Encoding(false));
@@ -965,6 +977,53 @@ namespace Tsuzuri
         /// 全部の画面・全部のエディタで共有するファイル（instructions.md）を書く。中身が同じなら書かない。書くときは一時ファイルから置き換える
         /// （2026-11-02。前は起動のたびに書き直し、ほかのタブの claude が起動する瞬間と重なると、空や途中の指示を読むおそれがあった）。
         /// </summary>
+        /// <summary>
+        /// exe の隣の ssh フォルダを AiSshLocal へ写し、本人だけが触れる権限にする（2026-11-04。SPEC 19章）。
+        /// 元で消したファイルは写した先からも消す（known_hosts は除く）。失敗しても claude の起動は止めない。
+        /// </summary>
+        private void CopySshFolder()
+        {
+            try
+            {
+                if (!Directory.Exists(AiSshFolder)) return;
+
+                Directory.CreateDirectory(AiSshLocal);
+                var folderSecurity = new DirectorySecurity();
+                folderSecurity.SetAccessRuleProtection(true, false);
+                folderSecurity.AddAccessRule(new FileSystemAccessRule(WindowsIdentity.GetCurrent().User, FileSystemRights.FullControl,
+                    InheritanceFlags.ContainerInherit | InheritanceFlags.ObjectInherit, PropagationFlags.None, AccessControlType.Allow));
+                Directory.SetAccessControl(AiSshLocal, folderSecurity);
+
+                var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                foreach (var source in Directory.GetFiles(AiSshFolder))
+                {
+                    var name = Path.GetFileName(source);
+                    if (string.Equals(name, "known_hosts", StringComparison.OrdinalIgnoreCase)) continue;
+                    if (string.Equals(name, "Thumbs.db", StringComparison.OrdinalIgnoreCase) || name.StartsWith("._", StringComparison.Ordinal)) continue;
+
+                    names.Add(name);
+                    var target = Path.Combine(AiSshLocal, name);
+                    File.WriteAllBytes(target, File.ReadAllBytes(source));
+
+                    var fileSecurity = new FileSecurity();
+                    fileSecurity.SetAccessRuleProtection(true, false);
+                    fileSecurity.AddAccessRule(new FileSystemAccessRule(WindowsIdentity.GetCurrent().User, FileSystemRights.FullControl, AccessControlType.Allow));
+                    File.SetAccessControl(target, fileSecurity);
+                }
+
+                foreach (var target in Directory.GetFiles(AiSshLocal))
+                {
+                    var name = Path.GetFileName(target);
+                    if (string.Equals(name, "known_hosts", StringComparison.OrdinalIgnoreCase) || names.Contains(name)) continue;
+                    File.Delete(target);
+                }
+            }
+            catch (Exception ex)
+            {
+                Status("SSH の鍵を写せませんでした: " + ex.Message);
+            }
+        }
+
         private static void WriteIfChanged(string path, string text)
         {
             try

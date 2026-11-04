@@ -136,6 +136,9 @@ namespace Tsuzuri.Views
         // 検索結果の一覧（SPEC 12章）。当たった行だけを並べる。
         private readonly Border _resultArea;
         private readonly StackPanel _resultList;
+        private readonly Button _searchClear;
+        private readonly Button _favoriteButton;
+        private readonly StackPanel _favoriteList;
         private Border _selectedResult;
 
         // 当たりの位置。移動ボタンで飛ぶために、行ではなく文書内の位置で持つ。
@@ -317,6 +320,25 @@ namespace Tsuzuri.Views
             DockPanel.SetDock(previous, Dock.Right);
             DockPanel.SetDock(_searchCount, Dock.Right);
 
+            // 検索語を消す × と、お気に入りに足す・外す ☆（2026-11-04）。検索欄のすぐ右に 検索欄 × ☆ 件数 ↑ ↓ と並べる。
+            // × は検索語があるときだけ見せる（場所は空けておき、出し入れで検索欄の幅が変わらないようにする）。
+            _searchClear = CreateStepButton("\uE711", "検索語を消す");
+            _searchClear.Visibility = Visibility.Hidden;
+            _searchClear.Click += delegate
+            {
+                _searchBox.Clear();
+                _searchBox.Focus();
+            };
+            DockPanel.SetDock(_searchClear, Dock.Right);
+
+            _favoriteButton = CreateStepButton("\uE734", "この検索語をお気に入りに足す");
+            _favoriteButton.Click += delegate
+            {
+                SearchFavorites.Toggle(_searchBox.Text);
+                _searchBox.Focus();
+            };
+            DockPanel.SetDock(_favoriteButton, Dock.Right);
+
             // 「ランチャー」「AI」はウィンドウ全体の機能なので、ツールバーの右端に移した（2026-10-31）。この段には、このページに効くものだけを置く。
 
             var imageGap = CreateSwitchGap(new Thickness(8, 0, 8, 0));
@@ -350,6 +372,8 @@ namespace Tsuzuri.Views
             searchRow.Children.Add(next);
             searchRow.Children.Add(previous);
             searchRow.Children.Add(_searchCount);
+            searchRow.Children.Add(_favoriteButton);
+            searchRow.Children.Add(_searchClear);
             searchRow.Children.Add(_searchBox);
 
             var searchArea = new Border();
@@ -360,24 +384,57 @@ namespace Tsuzuri.Views
             searchArea.Child = searchRow;
             DockPanel.SetDock(searchArea, Dock.Top);
 
-            // 検索結果の一覧。検索欄の下に広がり、本文はその分だけ下がる。
+            // 検索結果の一覧とお気に入り（2026-11-04。前は当たりがあるときだけ一覧を 220px まで広げていた）。
+            // 検索欄の下にいつも同じ高さで出し、左右半分に分ける。左は当たった行の一覧、右は検索語のお気に入り。
             // 本文の行は隠さない（SPEC 12章「本文は絞り込まない」）。
             _resultList = new StackPanel();
 
             var resultScroll = new ScrollViewer();
             resultScroll.Content = _resultList;
-            resultScroll.MaxHeight = 220;
             resultScroll.VerticalScrollBarVisibility = ScrollBarVisibility.Auto;
             resultScroll.HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled;
 
+            _favoriteList = new StackPanel();
+
+            var favoriteScroll = new ScrollViewer();
+            favoriteScroll.Content = _favoriteList;
+            favoriteScroll.VerticalScrollBarVisibility = ScrollBarVisibility.Auto;
+            favoriteScroll.HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled;
+
+            var halves = new Grid();
+            halves.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            halves.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            halves.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+
+            var halvesLine = new Border();
+            halvesLine.Width = 1;
+            halvesLine.Background = Theme.Divider;
+            Grid.SetColumn(halvesLine, 1);
+            Grid.SetColumn(favoriteScroll, 2);
+
+            halves.Children.Add(resultScroll);
+            halves.Children.Add(halvesLine);
+            halves.Children.Add(favoriteScroll);
+
             _resultArea = new Border();
+            _resultArea.Height = ResultAreaHeight;
             _resultArea.Background = Theme.Background;
             _resultArea.BorderBrush = Theme.Divider;
             _resultArea.BorderThickness = new Thickness(0, 0, 0, 1);
             _resultArea.Padding = new Thickness(0, 3, 0, 3);
-            _resultArea.Child = resultScroll;
-            _resultArea.Visibility = Visibility.Collapsed;
+            _resultArea.Child = halves;
             DockPanel.SetDock(_resultArea, Dock.Top);
+
+            // お気に入りはどの検索欄からも同じ一覧。画面に出ている間だけ、変わったら並べ直す。
+            EventHandler favoritesChanged = delegate { RebuildFavorites(); };
+            _resultArea.Loaded += delegate
+            {
+                SearchFavorites.Changed -= favoritesChanged;
+                SearchFavorites.Changed += favoritesChanged;
+                RebuildFavorites();
+            };
+            _resultArea.Unloaded += delegate { SearchFavorites.Changed -= favoritesChanged; };
+            RebuildResults();   // 検索語が無いときの案内を出しておく
 
             _searchDelay.Interval = TimeSpan.FromMilliseconds(150);
             _searchDelay.Tick += delegate
@@ -2400,6 +2457,10 @@ namespace Tsuzuri.Views
 
         private void OnSearchTextChanged(object sender, TextChangedEventArgs e)
         {
+            _searchClear.Visibility = _searchBox.Text.Length > 0 ? Visibility.Visible : Visibility.Hidden;
+            UpdateFavoriteButton();
+            HighlightFavorite();
+
             _searchDelay.Stop();
             _searchDelay.Start();
         }
@@ -2462,6 +2523,9 @@ namespace Tsuzuri.Views
         /// <summary>並べる行の上限。これを超えたら残りの行数だけ出す。</summary>
         private const int MaxResultRows = 300;
 
+        /// <summary>検索欄の下の、一覧とお気に入りの欄の高さ（2026-11-04。いつも出す）。</summary>
+        private const double ResultAreaHeight = 132;
+
         private void RebuildResults()
         {
             _resultList.Children.Clear();
@@ -2469,7 +2533,9 @@ namespace Tsuzuri.Views
 
             if (_search == null || _matchOffsets.Count == 0)
             {
-                _resultArea.Visibility = Visibility.Collapsed;
+                _resultList.Children.Add(CreateHint(_searchBox.Text.Length == 0
+                    ? "検索語を入れると、当たった行をここに出す"
+                    : _search == null ? "正規表現として読めない" : "当たりなし"));
                 return;
             }
 
@@ -2502,7 +2568,106 @@ namespace Tsuzuri.Views
                 _resultList.Children.Add(more);
             }
 
-            _resultArea.Visibility = Visibility.Visible;
+        }
+
+        private static TextBlock CreateHint(string text)
+        {
+            var hint = new TextBlock();
+            hint.Text = text;
+            hint.Foreground = Theme.MarkerFaint;
+            hint.FontSize = 12;
+            hint.Margin = new Thickness(14, 2, 8, 2);
+            hint.TextWrapping = TextWrapping.Wrap;
+            return hint;
+        }
+
+        // --- お気に入り（2026-11-04） ---------------------------------
+
+        /// <summary>お気に入りの欄を並べ直す。押すとその検索語で探す。行にマウスを載せると × が出て、外せる。</summary>
+        private void RebuildFavorites()
+        {
+            _favoriteList.Children.Clear();
+            UpdateFavoriteButton();
+
+            if (SearchFavorites.Items.Count == 0)
+            {
+                _favoriteList.Children.Add(CreateHint("検索欄の ☆ で、検索語をお気に入りに足せる"));
+                return;
+            }
+
+            foreach (var item in SearchFavorites.Items) _favoriteList.Children.Add(CreateFavoriteRow(item));
+            HighlightFavorite();
+        }
+
+        private Border CreateFavoriteRow(string pattern)
+        {
+            var text = new TextBlock();
+            text.Text = pattern;
+            text.Foreground = Theme.Text;
+            text.FontSize = 13;
+            text.TextTrimming = TextTrimming.CharacterEllipsis;
+            text.VerticalAlignment = VerticalAlignment.Center;
+
+            var remove = CreateStepButton("\uE711", "お気に入りから外す");
+            remove.Margin = new Thickness(4, 0, 0, 0);
+            remove.Height = 20;
+            remove.Visibility = Visibility.Hidden;
+            remove.Click += delegate { SearchFavorites.Remove(pattern); };
+            DockPanel.SetDock(remove, Dock.Right);
+
+            var content = new DockPanel();
+            content.Children.Add(remove);
+            content.Children.Add(text);
+
+            var row = new Border();
+            row.Padding = new Thickness(12, 1, 6, 1);
+            row.Background = Brushes.Transparent;
+            row.Cursor = Cursors.Hand;
+            row.Child = content;
+            row.Tag = pattern;
+            row.ToolTip = pattern;
+
+            row.MouseEnter += delegate
+            {
+                remove.Visibility = Visibility.Visible;
+                if (_searchBox.Text != pattern) row.Background = ResourceBrush("HoverFill");
+            };
+
+            row.MouseLeave += delegate
+            {
+                remove.Visibility = Visibility.Hidden;
+                if (_searchBox.Text != pattern) row.Background = Brushes.Transparent;
+            };
+
+            row.MouseLeftButtonUp += delegate
+            {
+                _searchBox.Text = pattern;
+                _searchBox.CaretIndex = pattern.Length;
+                _searchBox.Focus();
+            };
+
+            return row;
+        }
+
+        /// <summary>今の検索語と同じお気に入りに印を付ける。</summary>
+        private void HighlightFavorite()
+        {
+            foreach (var child in _favoriteList.Children)
+            {
+                var row = child as Border;
+                if (row == null || !(row.Tag is string)) continue;
+                row.Background = (string)row.Tag == _searchBox.Text ? ResourceBrush("SelectionFill") : Brushes.Transparent;
+            }
+        }
+
+        /// <summary>☆ を、今の検索語がお気に入りにあれば塗りつぶし（押すと外す）、無ければ枠だけ（押すと足す）にする。</summary>
+        private void UpdateFavoriteButton()
+        {
+            var text = _searchBox.Text;
+            var saved = text.Length > 0 && SearchFavorites.Contains(text);
+            _favoriteButton.Content = saved ? "\uE735" : "\uE734";
+            _favoriteButton.ToolTip = saved ? "この検索語をお気に入りから外す" : "この検索語をお気に入りに足す";
+            _favoriteButton.IsEnabled = text.Length > 0;
         }
 
         /// <summary>

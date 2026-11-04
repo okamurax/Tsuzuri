@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 using System.Threading;
 using System.Windows;
 using System.Windows.Interop;
@@ -50,6 +51,14 @@ namespace Tsuzuri
             // 打ってから画面に出るまでの時間を測る（2026-11-04。perfLog が true のときだけ）。
             PerfLog.Enabled = settings.PerfLog;
             if (PerfLog.Enabled) CompositionTarget.Rendering += delegate { PerfLog.Rendered(); };
+
+            // 検索語のお気に入り（2026-11-04）。どの画面の検索欄からも同じ一覧を使い、変わったら app.json に書く。
+            Views.SearchFavorites.Load(settings.SearchFavorites);
+            Views.SearchFavorites.Changed += delegate
+            {
+                settings.SearchFavorites = Views.SearchFavorites.Items.ToList();
+                settings.Save();
+            };
 
             var window = new Tsuzuri.MainWindow(settings);
             MainWindow = window;

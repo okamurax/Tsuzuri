@@ -139,6 +139,11 @@ namespace Tsuzuri.Views
         private readonly Button _searchClear;
         private readonly Button _favoriteButton;
         private readonly StackPanel _favoriteList;
+
+        // パンくず（2026-11-04。SPEC 12章の下）。本文の上に、カーソルのある見出しの道筋を出す。
+        private readonly StackPanel _breadcrumb = new StackPanel();
+        private readonly DispatcherTimer _breadcrumbDelay = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(150) };
+        private string _breadcrumbKey;
         private Border _selectedResult;
 
         // 当たりの位置。移動ボタンで飛ぶために、行ではなく文書内の位置で持つ。
@@ -450,10 +455,37 @@ namespace Tsuzuri.Views
                 ApplySearch();
             };
 
+            // パンくず。カーソルが動く・本文が変わるたびに、少し待ってから出し直す。
+            _breadcrumb.Orientation = Orientation.Horizontal;
+            _breadcrumb.VerticalAlignment = VerticalAlignment.Center;
+
+            var breadcrumbArea = new Border();
+            breadcrumbArea.Height = 24;
+            breadcrumbArea.Background = Theme.Background;
+            breadcrumbArea.Padding = new Thickness(14, 0, 8, 0);
+            breadcrumbArea.ClipToBounds = true;
+            breadcrumbArea.Child = _breadcrumb;
+            DockPanel.SetDock(breadcrumbArea, Dock.Top);
+
+            _breadcrumbDelay.Tick += delegate
+            {
+                _breadcrumbDelay.Stop();
+                UpdateBreadcrumb();
+            };
+            EventHandler breadcrumbLater = delegate
+            {
+                _breadcrumbDelay.Stop();
+                _breadcrumbDelay.Start();
+            };
+            TextArea.Caret.PositionChanged += breadcrumbLater;
+            TextChanged += breadcrumbLater;
+            breadcrumbArea.IsVisibleChanged += delegate { if (breadcrumbArea.IsVisible) UpdateBreadcrumb(); };
+
             var body = new DockPanel();
             body.LastChildFill = true;
             body.Children.Add(searchArea);
             body.Children.Add(_resultArea);
+            body.Children.Add(breadcrumbArea);
             body.Children.Add(this);
 
             // エディタ自身ではなくこの枠を画面に出し入れするので、
@@ -2588,6 +2620,97 @@ namespace Tsuzuri.Views
             hint.Margin = new Thickness(14, 2, 8, 2);
             hint.TextWrapping = TextWrapping.Wrap;
             return hint;
+        }
+
+        // --- パンくず（2026-11-04） -----------------------------------
+
+        /// <summary>
+        /// カーソルのある見出しと、その親の見出しを「1章 › 1.2 › 手順」と並べる。押すとその見出しへ移る。
+        /// 見出しより前にいるときは何も出さない（段の高さは残し、本文が上下しないようにする）。
+        /// </summary>
+        private void UpdateBreadcrumb()
+        {
+            if (!_breadcrumb.IsVisible) return;
+
+            var snapshot = GetOutline();
+            var chain = new List<OutlineHeading>();
+            var level = int.MaxValue;
+            for (var i = snapshot.CurrentIndex; i >= 0; i--)
+            {
+                var entry = snapshot.Entries[i];
+                if (entry.Level >= level) continue;
+                chain.Insert(0, entry);
+                level = entry.Level;
+                if (level <= 1) break;
+            }
+
+            var key = string.Join("\n", chain.Select(entry => entry.Line + ":" + entry.Text));
+            if (key == _breadcrumbKey) return;
+            _breadcrumbKey = key;
+
+            _breadcrumb.Children.Clear();
+            for (var i = 0; i < chain.Count; i++)
+            {
+                if (i > 0)
+                {
+                    var separator = new TextBlock();
+                    separator.Text = "›";
+                    separator.FontSize = 12;
+                    separator.Foreground = Theme.MarkerFaint;
+                    separator.Margin = new Thickness(6, 0, 6, 0);
+                    separator.VerticalAlignment = VerticalAlignment.Center;
+                    _breadcrumb.Children.Add(separator);
+                }
+
+                _breadcrumb.Children.Add(CreateBreadcrumbItem(chain[i], i == chain.Count - 1));
+            }
+        }
+
+        private TextBlock CreateBreadcrumbItem(OutlineHeading entry, bool last)
+        {
+            var normal = last ? Theme.Text : Theme.Muted;
+
+            var item = new TextBlock();
+            item.Text = entry.Text.Length > 0 ? HeadingText.Display(entry.Text) : "(無題の見出し)";
+            item.FontSize = 12;
+            item.Foreground = normal;
+            item.MaxWidth = 260;
+            item.TextTrimming = TextTrimming.CharacterEllipsis;
+            item.VerticalAlignment = VerticalAlignment.Center;
+            item.Cursor = Cursors.Hand;
+            item.ToolTip = item.Text;
+
+            item.MouseEnter += delegate
+            {
+                item.Foreground = Theme.Heading;
+                item.TextDecorations = TextDecorations.Underline;
+            };
+            item.MouseLeave += delegate
+            {
+                item.Foreground = normal;
+                item.TextDecorations = null;
+            };
+
+            var text = entry.Text;
+            var hint = entry.Line;
+            item.MouseLeftButtonUp += (sender, e) =>
+            {
+                e.Handled = true;
+
+                // 出したあとに上の行が増減していても、押した時点の見出しから同じ名前で一番近いものへ移る。
+                var entries = GetOutline().Entries;
+                OutlineHeading target = null;
+                foreach (var candidate in entries)
+                {
+                    if (candidate.Text != text) continue;
+                    if (target == null || Math.Abs(candidate.Line - hint) < Math.Abs(target.Line - hint)) target = candidate;
+                }
+
+                if (target != null) GoToLine(target.Line);
+                Focus();
+            };
+
+            return item;
         }
 
         // --- お気に入り（2026-11-04） ---------------------------------

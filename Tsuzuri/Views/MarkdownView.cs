@@ -894,6 +894,12 @@ namespace Tsuzuri.Views
             // かたまりを書き換えると、外の空行の種類が変わることがある（2026-11-04。確かめの途中で見つかった）。
             if (TouchesCode(from - 1, -1) || TouchesCode(to + 1, 1)) return false;
 
+            // 空行をまたいで続く HTML のかたまり（<script>・<!-- --> など）に触れるなら使わない（2026-11-04）。
+            if (_model.TouchesHtml(from - 1, to + 1)) return false;
+
+            // かたまりの1行目がリストの印・HTML で始まるなら使わない。読み方が上のかたまり（空行の向こう）で変わるのに、取り出すと上が無くなる（2026-11-04）。
+            if (MayNotInterrupt(texts[0]) || (line == from && MayNotInterrupt(editedBefore))) return false;
+
             // 空行に打った・行を空にしたときは、上で続いていたリストの項目が、ここで閉じる・閉じなくなる。
             // すると空行の向こうの字下げした行（項目の続き）の意味が変わるので、下の最初の行が字下げで始まるなら使わない（2026-11-04。確かめの途中で見つかった）。
             if (blankChanged && StartsIndented(FirstTextBelow(to))) return false;
@@ -918,6 +924,8 @@ namespace Tsuzuri.Views
             // 本文と # の見出しは、空行の向こうへ続くもの（リストの項目・引用・フェンス）を持たないので、変わるのは後ろの行の段差だけ。段差は決め直す。
             if (shapeChanged && !(OnlyTextAndHeadings(_model.Lines, from - 1, patch.Lines.Length) && OnlyTextAndHeadings(patch.Lines, 0, patch.Lines.Length)))
                 return false;
+
+            if (shapeChanged && MayNotInterrupt(FirstTextBelow(to))) return false;
 
             for (var i = 0; i < patch.Lines.Length; i++)
             {
@@ -1010,11 +1018,14 @@ namespace Tsuzuri.Views
             // 1行の中の書き換えで空行が変わったときと同じ確かめ（字下げのコードが外の空行を含むか・下で続くリストの項目が閉じるか）。
             if (TouchesCode(from - 1, -1) || TouchesCode(oldTo + 1, 1)) return false;
             if (StartsIndented(FirstTextBelow(oldTo))) return false;
+            if (_model.TouchesHtml(from - 1, oldTo + 1)) return false;
+            if (MayNotInterrupt(texts[0]) || MayNotInterrupt(old[from - 1].Source)) return false;
 
             var patch = ParseBlock(from, to, texts);
             if (patch == null) return false;
 
             if (!OnlyTextAndHeadings(old, from - 1, oldTo - from + 1) || !OnlyTextAndHeadings(patch.Lines, 0, patch.Lines.Length)) return false;
+            if (MayNotInterrupt(FirstTextBelow(oldTo))) return false;
 
             var lines = new LineInfo[count];
             var inlines = new InlineScan[count];
@@ -1028,6 +1039,15 @@ namespace Tsuzuri.Views
 
             var model = new DocumentModel(lines, inlines, 0);
             model.RecomputeDepths();
+
+            // かたまりより後ろの HTML の行は、行の数の差だけずらす（かたまりに触れるものは無いことを上で確かめた）。
+            foreach (var range in _model.HtmlRanges)
+            {
+                model.HtmlRanges.Add(range.Key + 1 > oldTo
+                    ? new KeyValuePair<int, int>(range.Key + delta, range.Value + delta)
+                    : range);
+            }
+
             _model = model;
 
             return true;
@@ -1074,7 +1094,7 @@ namespace Tsuzuri.Views
             }
 
             var parsed = MarkdownParser.Parse(text.ToString(), all, offsets);
-            if (parsed.Fragile || parsed.Lines.Length != all.Count) return null;
+            if (parsed.Fragile || parsed.HtmlRanges.Count > 0 || parsed.Lines.Length != all.Count) return null;
 
             var lines = new LineInfo[texts.Count];
             var inlines = new InlineScan[texts.Count];
@@ -1105,6 +1125,17 @@ namespace Tsuzuri.Views
 
             return true;
         }
+
+        /// <summary>
+        /// 前のかたまりが段落かどうかで読み方の変わる行か（リストの印・HTML で始まる行）。Markdig は、空の項目（「- 」だけ）や HTML の一部が段落の後ろに来られないという決まりを、
+        /// 間に空行があっても当てる。かたまりの行の種類が変わる（見出し ⇔ 本文）と、空行の向こうのその行の読み方まで変わる（2026-11-04。確かめの途中で見つかった）。
+        /// </summary>
+        private static bool MayNotInterrupt(string text)
+        {
+            return InterruptSensitive.IsMatch(text);
+        }
+
+        private static readonly Regex InterruptSensitive = new Regex(@"^ {0,3}(?:[-+*]|[0-9]{1,9}[.)])(?:[ \t]|$)|^ {0,3}<", RegexOptions.Compiled);
 
         /// <summary># の見出しの行（行頭の空白は 3 つまで）。</summary>
         private static readonly Regex AtxHeading = new Regex(@"^ {0,3}#{1,6}(?:[ \t]|$)", RegexOptions.Compiled);

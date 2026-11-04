@@ -71,12 +71,14 @@ namespace Tsuzuri.Markdown
             }
 
             var fragile = true;
+            var htmlRanges = new List<KeyValuePair<int, int>>();
             try
             {
                 var document = Markdig.Markdown.Parse(text ?? string.Empty, Pipeline);
                 var walker = new Walker(lines, inlines, lineTexts, lineOffsets);
                 walker.Walk(document);
                 fragile = walker.Fragile;
+                htmlRanges = walker.HtmlRanges;
             }
             catch (Exception)
             {
@@ -85,6 +87,7 @@ namespace Tsuzuri.Markdown
 
             var model = Finish(lines, inlines);
             model.Fragile = fragile;
+            model.HtmlRanges = htmlRanges;
             return model;
         }
 
@@ -108,8 +111,11 @@ namespace Tsuzuri.Markdown
                 _lineOffsets = lineOffsets;
             }
 
-            /// <summary>空行をまたいで効く書き方（HTML のかたまり・リンクの定義・脚注の定義・閉じていないコードフェンス）があったか（DocumentModel.Fragile）。</summary>
+            /// <summary>空行をまたいで効く書き方（リンクの定義・脚注の定義・閉じていないコードフェンス）があったか（DocumentModel.Fragile）。</summary>
             public bool Fragile;
+
+            /// <summary>空行をまたいで続く HTML のかたまりの行（DocumentModel.HtmlRanges）。</summary>
+            public readonly List<KeyValuePair<int, int>> HtmlRanges = new List<KeyValuePair<int, int>>();
 
             public void Walk(Block block)
             {
@@ -129,17 +135,28 @@ namespace Tsuzuri.Markdown
             {
                 if (block is MarkdownDocument) return;
 
-                if (block is HtmlBlock || block is LinkReferenceDefinition || block is Footnote) Fragile = true;
+                if (block is LinkReferenceDefinition || block is Footnote) Fragile = true;
 
                 // 閉じていないコードフェンスは文書の終わりまで続き、後ろの行の解釈を変える。取り出した段落の ``` が、文書の中では前のフェンスを閉じる行のこともある。
                 var open = block as FencedCodeBlock;
                 if (open != null && open.ClosingFencedCharCount == 0) Fragile = true;
 
                 var from = LineOf(block.Span.Start);
-                if (from < 0) return;
+                if (from < 0)
+                {
+                    if (block is HtmlBlock) Fragile = true;   // 行が分からなければ、近道を使わない
+                    return;
+                }
 
                 var to = LineOf(block.Span.End);
                 if (to < from) to = from;
+
+                // HTML のかたまりのうち、<script>・<pre>・<style>・<!-- -->・<? ?>・<!X>・CDATA は、閉じるまで空行をまたいで続く（2026-11-04）。
+                // その行を覚えておき、打った段落だけを解析し直す近道を、その近くでは使わない。ほかの HTML（<div>・<a …> だけの行など）は空行で終わるので、段落と同じに扱える。
+                // 前は HTML のかたまりが1つでもあると、文書のどこでも近道を使わなかった（<a …> の行がある大きな文書で、確定のたびに全体を解析していた）。
+                var html = block as HtmlBlock;
+                if (html != null && html.Type != HtmlBlockType.InterruptingBlock && html.Type != HtmlBlockType.NonInterruptingBlock)
+                    HtmlRanges.Add(new KeyValuePair<int, int>(from, to));
 
                 if (block is ThematicBreakBlock)
                 {

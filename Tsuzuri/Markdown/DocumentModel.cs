@@ -23,6 +23,23 @@ namespace Tsuzuri.Markdown
         /// </summary>
         public bool Fragile { get; internal set; }
 
+        /// <summary>
+        /// 空行をまたいで続く HTML のかたまり（&lt;script&gt;・&lt;!-- --&gt; など）の、最初と最後の行（0 始まり）。2026-11-04。
+        /// 打った段落だけを解析し直す近道は、この行に触れるところでは使わない。
+        /// </summary>
+        public List<KeyValuePair<int, int>> HtmlRanges { get; internal set; } = new List<KeyValuePair<int, int>>();
+
+        /// <summary>first から last の行（1 始まり）が、空行をまたいで続く HTML のかたまりに触れるか。</summary>
+        public bool TouchesHtml(int first, int last)
+        {
+            foreach (var range in HtmlRanges)
+            {
+                if (range.Key + 1 <= last && range.Value + 1 >= first) return true;
+            }
+
+            return false;
+        }
+
         public DocumentModel(LineInfo[] lines, InlineScan[] inlines, int maxDepth)
         {
             Lines = lines;

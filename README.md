@@ -182,6 +182,8 @@ Mac では、XAML を除いた C# のコンパイルだけを `bash tools/check-
 |---|---|
 | `app.json` | ウィンドウの位置、仕切りの位置、前回開いていたファイル、ランチャーの登録、開いていた画面（タブ）・休止した画面・AI の会話のタブなど。自動で作る。仮想マシンで画面がちらつくときは、終了してから `"softwareRendering": true` にすると GPU を使わずに描く。`"perfLog": true` にすると、打ってから画面に出るまでの時間を exe の隣の `perf.log` に書く（遅さの原因を探すため） |
 | `wordpress.json` | WordPress の接続先とアプリケーションパスワード。WordPress を使うときだけ自分で書く |
+| `schedule.json`・`schedule-shown.txt` | 予定の一覧（AI の欄で頼むと Claude が書く）と、知らせた時刻（Tsuzuri が書く） |
+| `ssh/` | AI の欄から SSH でつなぐ接続先の一覧 `config.txt` と鍵。使うときだけ自分で置く（Tsuzuri が `%LOCALAPPDATA%\Tsuzuri\ssh` に写して使う） |
 
 文書ごとの状態（ページの並び、見出しのブックマーク、変更の記録）は、文書の隣の添付フォルダ `.文書名/` に置きます。
 

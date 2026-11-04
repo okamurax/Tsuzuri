@@ -51,6 +51,16 @@ namespace Tsuzuri
             view.BookmarkToggleRequested += (sender, line) => ToggleHeadingBookmark(view, line);
             view.ImageDisplayToggleRequested += delegate { ToggleImageDisplay(); };
             view.SetLinkTextOnly(_settings.ImageLinkTextOnly);
+
+            // 検索語のお気に入りは、ファイルごとに state.json に覚える（2026-11-04。SPEC 12章）。
+            view.SearchFavoritesSource = () =>
+            {
+                var state = view.FilePath == null ? null : StateOf(view.FilePath);
+                if (state == null) return null;
+                if (state.SearchFavorites == null) state.SearchFavorites = new List<string>();
+                return state.SearchFavorites;
+            };
+            view.SearchFavoritesEdited += delegate { SaveSearchFavorites(view.FilePath); };
             view.PageLost += delegate { OnPageLost(view); };
             view.TextChanged += OnViewTextChanged;
             view.TextArea.Caret.PositionChanged += delegate { ScheduleOutlineRefresh(); };
@@ -61,6 +71,23 @@ namespace Tsuzuri
             view.TextArea.AddHandler(UIElement.PreviewKeyDownEvent, new KeyEventHandler((sender, e) => NoteHeadingKey(view, e)), true);
 
             return view;
+        }
+
+        /// <summary>検索語のお気に入りを変えた。そのファイルの state.json に書き、同じファイルのページの欄を並べ直す。</summary>
+        private void SaveSearchFavorites(string path)
+        {
+            var state = path == null ? null : StateOf(path);
+            if (state == null) return;
+
+            var list = state.SearchFavorites;
+            if (list != null && list.Count == 0) state.SearchFavorites = null;
+            SaveState(path, state);
+            if (state.SearchFavorites == null) state.SearchFavorites = list;
+
+            foreach (var other in _stack)
+            {
+                if (SamePath(other.FilePath, path)) other.RefreshSearchFavorites();
+            }
         }
 
         /// <summary>

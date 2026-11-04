@@ -45,6 +45,10 @@ namespace Tsuzuri.Markdown
         [DataMember(Name = "exportExcludeSubpages", EmitDefaultValue = false)]
         public bool ExportExcludeSubpages { get; set; }
 
+        /// <summary>検索語のお気に入り（2026-11-04。SPEC 12章）。足した順。無ければ null（書き出さない）。</summary>
+        [DataMember(Name = "searchFavorites", EmitDefaultValue = false)]
+        public List<string> SearchFavorites { get; set; }
+
         /// <summary>見出しのブックマーク。新しいものが先頭。無ければ null（書き出さない）。</summary>
         [DataMember(Name = "headings", EmitDefaultValue = false)]
         public List<HeadingMark> Headings { get; set; }

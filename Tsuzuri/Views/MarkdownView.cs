@@ -176,6 +176,14 @@ namespace Tsuzuri.Views
         /// </summary>
         public event EventHandler<int> BookmarkToggleRequested;
 
+        /// <summary>
+        /// 検索語のお気に入り（2026-11-04。SPEC 12章）。ファイルごとの一覧を MainWindow が渡す（state.json の分）。
+        /// ファイルが無い（状態を持たない）ときは null を返し、お気に入りは使えない。変えたら SearchFavoritesEdited で知らせ、受け手が書く。
+        /// </summary>
+        public Func<List<string>> SearchFavoritesSource;
+
+        public event EventHandler SearchFavoritesEdited;
+
         // 画像の行を、リンクの文字だけで見せるか（2026-10-15）。false なら画像だけ（リンクの文字列は隠す）。
         private bool _linkTextOnly;
         private readonly Button _imageDisplayButton;
@@ -334,7 +342,13 @@ namespace Tsuzuri.Views
             _favoriteButton = CreateStepButton("\uE734", "この検索語をお気に入りに足す");
             _favoriteButton.Click += delegate
             {
-                SearchFavorites.Toggle(_searchBox.Text);
+                var list = Favorites;
+                var text = _searchBox.Text;
+                if (list != null && text.Length > 0)
+                {
+                    if (!list.Remove(text)) list.Add(text);
+                    FavoritesEdited();
+                }
                 _searchBox.Focus();
             };
             DockPanel.SetDock(_favoriteButton, Dock.Right);
@@ -425,15 +439,8 @@ namespace Tsuzuri.Views
             _resultArea.Child = halves;
             DockPanel.SetDock(_resultArea, Dock.Top);
 
-            // お気に入りはどの検索欄からも同じ一覧。画面に出ている間だけ、変わったら並べ直す。
-            EventHandler favoritesChanged = delegate { RebuildFavorites(); };
-            _resultArea.Loaded += delegate
-            {
-                SearchFavorites.Changed -= favoritesChanged;
-                SearchFavorites.Changed += favoritesChanged;
-                RebuildFavorites();
-            };
-            _resultArea.Unloaded += delegate { SearchFavorites.Changed -= favoritesChanged; };
+            // お気に入りはファイルごと。画面に出るたびに、そのファイルの分で並べ直す。
+            _resultArea.Loaded += delegate { RebuildFavorites(); };
             RebuildResults();   // 検索語が無いときの案内を出しておく
 
             _searchDelay.Interval = TimeSpan.FromMilliseconds(150);
@@ -608,6 +615,8 @@ namespace Tsuzuri.Views
             _followCaret = false;
             _liveLine = -1;
             _hiddenLine = -1;
+
+            RebuildFavorites();   // お気に入りはファイルごと（2026-11-04）
         }
 
         /// <summary>検索欄の文字。画面の状態として覚え、戻す（2026-10-25）。</summary>
@@ -2583,19 +2592,41 @@ namespace Tsuzuri.Views
 
         // --- お気に入り（2026-11-04） ---------------------------------
 
+        /// <summary>このファイルのお気に入り。ファイルが無ければ null。</summary>
+        private List<string> Favorites
+        {
+            get { return SearchFavoritesSource == null ? null : SearchFavoritesSource(); }
+        }
+
+        /// <summary>同じファイルのほかのページでお気に入りが変わったとき（MainWindow から）。</summary>
+        public void RefreshSearchFavorites()
+        {
+            RebuildFavorites();
+        }
+
+        private void FavoritesEdited()
+        {
+            var handler = SearchFavoritesEdited;
+            if (handler != null) handler(this, EventArgs.Empty);
+            RebuildFavorites();
+        }
+
         /// <summary>お気に入りの欄を並べ直す。押すとその検索語で探す。行にマウスを載せると × が出て、外せる。</summary>
         private void RebuildFavorites()
         {
             _favoriteList.Children.Clear();
             UpdateFavoriteButton();
 
-            if (SearchFavorites.Items.Count == 0)
+            var list = Favorites;
+            if (list == null || list.Count == 0)
             {
-                _favoriteList.Children.Add(CreateHint("検索欄の ☆ で、検索語をお気に入りに足せる"));
+                _favoriteList.Children.Add(CreateHint(list == null
+                    ? "ファイルを保存すると、検索語をお気に入りに足せる"
+                    : "検索欄の ☆ で、このファイルの検索語をお気に入りに足せる"));
                 return;
             }
 
-            foreach (var item in SearchFavorites.Items) _favoriteList.Children.Add(CreateFavoriteRow(item));
+            foreach (var item in list.ToList()) _favoriteList.Children.Add(CreateFavoriteRow(item));
             HighlightFavorite();
         }
 
@@ -2612,7 +2643,11 @@ namespace Tsuzuri.Views
             remove.Margin = new Thickness(4, 0, 0, 0);
             remove.Height = 20;
             remove.Visibility = Visibility.Hidden;
-            remove.Click += delegate { SearchFavorites.Remove(pattern); };
+            remove.Click += delegate
+            {
+                var list = Favorites;
+                if (list != null && list.Remove(pattern)) FavoritesEdited();
+            };
             DockPanel.SetDock(remove, Dock.Right);
 
             var content = new DockPanel();
@@ -2664,10 +2699,11 @@ namespace Tsuzuri.Views
         private void UpdateFavoriteButton()
         {
             var text = _searchBox.Text;
-            var saved = text.Length > 0 && SearchFavorites.Contains(text);
+            var list = Favorites;
+            var saved = text.Length > 0 && list != null && list.Contains(text);
             _favoriteButton.Content = saved ? "\uE735" : "\uE734";
             _favoriteButton.ToolTip = saved ? "この検索語をお気に入りから外す" : "この検索語をお気に入りに足す";
-            _favoriteButton.IsEnabled = text.Length > 0;
+            _favoriteButton.IsEnabled = text.Length > 0 && list != null;
         }
 
         /// <summary>

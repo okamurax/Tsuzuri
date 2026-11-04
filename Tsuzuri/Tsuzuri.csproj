@@ -198,7 +198,6 @@
     <Compile Include="Views\CodeCopyLayer.cs" />
     <Compile Include="Views\CodeBlockRenderer.cs" />
     <Compile Include="Views\SearchColorizer.cs" />
-    <Compile Include="Views\SearchFavorites.cs" />
     <Compile Include="Views\MarkdownView.cs" />
     <Compile Include="Views\MarkdownView.Sections.cs">
       <DependentUpon>MarkdownView.cs</DependentUpon>

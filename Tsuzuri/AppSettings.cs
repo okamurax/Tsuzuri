@@ -108,10 +108,6 @@ namespace Tsuzuri
         [DataMember(Name = "windows", EmitDefaultValue = false)]
         public List<WindowSession> Windows { get; set; }
 
-        /// <summary>検索語のお気に入り（2026-11-04。SPEC 12章）。足した順。</summary>
-        [DataMember(Name = "searchFavorites", EmitDefaultValue = false)]
-        public List<string> SearchFavorites { get; set; }
-
         // 前回のエクスポートの選び方は、文書ごとに .文書名/state.json に覚える（2026-10-16。前はここ）。
 
         public AppSettings()

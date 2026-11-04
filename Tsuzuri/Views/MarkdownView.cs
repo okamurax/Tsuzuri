@@ -744,10 +744,12 @@ namespace Tsuzuri.Views
             var edited = document.GetLineByOffset(Math.Min(_editOffset, document.TextLength));
             var line = edited.LineNumber;
 
-            // 空行（空白とタブだけ）だった行・空行になった行は、かたまりの区切りが変わるので使わない。
-            // 全角の空白（U+3000）だけの行は Markdown では空行ではなく、空行に打つと前後の段落がつながる（2026-11-04）。
+            // 空行（空白とタブだけ）だった行に打った・空行にした行は、前後のかたまりがつながる・分かれる。
+            // そのときは、つながった全体を取り出し、下で「形が変わった」として扱う（本文と # の見出しだけのときだけ差し替える。2026-11-04）。
+            // 全角の空白（U+3000）だけの行は Markdown では空行ではない。空行に全角の空白を打っても、前後の段落がつながる。
             var editedText = document.GetText(edited.Offset, edited.Length);
-            if (IsBlank(editedText) || IsBlank(TextBeforeEdit(editedText, _editOffset - edited.Offset))) return false;
+            var editedBefore = TextBeforeEdit(editedText, _editOffset - edited.Offset);
+            var blankChanged = IsBlank(editedText) != IsBlank(editedBefore) || IsBlank(editedText);
 
             from = line;
             while (from > 1 && !IsBlankText(document, from - 1))
@@ -778,15 +780,30 @@ namespace Tsuzuri.Views
                 if (number < to) text.Append('\n');
             }
 
-            // かたまりの1行目が字下げで始まるなら、前のリストの項目の続きかもしれない。項目の中での解釈は、取り出すと変わるので使わない（2026-11-04 のレビュー）。
-            // 打った行が1行目なら、書き換える前の行も見る（字下げを消してリストの外に出した、など）。
-            if (StartsIndented(texts[0])) return false;
-            if (line == from && StartsIndented(TextBeforeEdit(texts[0], _editOffset - edited.Offset))) return false;
+            // かたまりの始まり（取り出した1行目と、空行のすぐ後ろの行）が字下げで始まるなら、前のリストの項目の続きかもしれない。
+            // 項目の中での解釈は、取り出すと変わるので使わない（2026-11-04 のレビュー）。書き換える前の行も見る（字下げを消してリストの外に出した、空行を消した、など）。
+            for (var number = from; number <= to; number++)
+            {
+                var now = texts[number - from];
+                var before = number == line ? editedBefore : now;
+                var startsNow = number == from || IsBlank(texts[number - 1 - from]);
+                var startsBefore = number == from || IsBlank(number - 1 == line ? editedBefore : texts[number - 1 - from]);
+
+                if ((startsNow && StartsIndented(now)) || (startsBefore && StartsIndented(before))) return false;
+            }
+
+            // かたまりの外の空行の向こうがコードなら使わない。字下げのコードは、後ろの空行を、さらにその後ろに何が来るかでコードに含めたり含めなかったりする。
+            // かたまりを書き換えると、外の空行の種類が変わることがある（2026-11-04。確かめの途中で見つかった）。
+            if (TouchesCode(from - 1, -1) || TouchesCode(to + 1, 1)) return false;
+
+            // 空行に打った・行を空にしたときは、上で続いていたリストの項目が、ここで閉じる・閉じなくなる。
+            // すると空行の向こうの字下げした行（項目の続き）の意味が変わるので、下の最初の行が字下げで始まるなら使わない（2026-11-04。確かめの途中で見つかった）。
+            if (blankChanged && StartsIndented(FirstTextBelow(to))) return false;
 
             var patch = MarkdownParser.Parse(text.ToString(), texts, offsets);
             if (patch.Fragile || patch.Lines.Length != texts.Count) return false;
 
-            var shapeChanged = false;
+            var shapeChanged = blankChanged;
             for (var i = 0; i < patch.Lines.Length; i++)
             {
                 var before = _model.Lines[from - 1 + i];
@@ -848,6 +865,31 @@ namespace Tsuzuri.Views
         {
             var line = document.GetLineByNumber(lineNumber);
             return IsBlank(document.GetText(line.Offset, line.Length));
+        }
+
+        /// <summary>start の行から step の向きに空行をたどり、空行がコードの一部か、その先の行がコード・フェンスなら true。</summary>
+        private bool TouchesCode(int start, int step)
+        {
+            for (var number = start; number >= 1 && number <= _model.Lines.Length; number += step)
+            {
+                var kind = _model.Lines[number - 1].Kind;
+                if (kind == LineKind.Code || kind == LineKind.Fence) return true;
+                if (!IsBlank(_model.Lines[number - 1].Source)) return false;
+            }
+
+            return false;
+        }
+
+        /// <summary>その行より下で、空行でない最初の行の文字。無ければ空。</summary>
+        private string FirstTextBelow(int lineNumber)
+        {
+            for (var number = lineNumber + 1; number <= _model.Lines.Length; number++)
+            {
+                var source = _model.Lines[number - 1].Source;
+                if (!IsBlank(source)) return source;
+            }
+
+            return string.Empty;
         }
 
         private static bool IsBlank(string text)

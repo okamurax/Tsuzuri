@@ -188,6 +188,7 @@
     <Compile Include="Views\FilerView.cs" />
     <Compile Include="Views\IndentGuideRenderer.cs" />
     <Compile Include="Views\MarkdownColorizer.cs" />
+    <Compile Include="Views\CodeHighlighter.cs" />
     <Compile Include="Views\MarkerHideGenerator.cs" />
     <Compile Include="Views\TableElement.cs" />
     <Compile Include="Views\RuleRenderer.cs" />

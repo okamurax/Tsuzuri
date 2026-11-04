@@ -34,8 +34,15 @@ namespace Tsuzuri.Views
 
             ApplyLineStyle(info, start, end);
 
-            // フェンスの内側は一切解釈しない。
-            if (info.Kind == LineKind.Code) return;
+            // フェンスの内側は Markdown として解釈しない。字の種類で軽く色分けするだけ（SPEC 8.4.0）。
+            if (info.Kind == LineKind.Code)
+            {
+                var text = _owner.Document.GetText(start, end - start);
+                CodeHighlighter.Scan(text, (from, length, brush) =>
+                    ChangeLinePart(start + from, start + from + length, element =>
+                        element.TextRunProperties.SetForegroundBrush(brush)));
+                return;
+            }
 
             // 解析結果は1手古い可能性がある。行をはみ出すと例外になるので必ず丸める。
             if (info.Marker.Length > 0)
@@ -111,9 +118,11 @@ namespace Tsuzuri.Views
                 case LineKind.Fence:
                 case LineKind.Code:
                     // 地はブロック全体に CodeBlockRenderer が塗る（2026-10-29。前はここで字の背景だけを塗っていた）。
+                    // 中身の字は明るい灰色にし、その上に CodeHighlighter が色を載せる（2026-11-04。前は全部 CodeFore の橙）。
+                    var fore = info.Kind == LineKind.Code ? CodeHighlighter.Plain : Theme.CodeFore;
                     ChangeLinePart(start, end, element =>
                     {
-                        element.TextRunProperties.SetForegroundBrush(Theme.CodeFore);
+                        element.TextRunProperties.SetForegroundBrush(fore);
                         SetFamily(element, Theme.CodeFont);
                     });
                     break;

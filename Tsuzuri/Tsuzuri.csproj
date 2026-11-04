@@ -194,6 +194,7 @@
     <Compile Include="Views\RuleRenderer.cs" />
     <Compile Include="Views\HeadingRuleRenderer.cs" />
     <Compile Include="PerfLog.cs" />
+    <Compile Include="Schedule.cs" />
     <Compile Include="Views\ScrollThumbLength.cs" />
     <Compile Include="Views\CodeCopyLayer.cs" />
     <Compile Include="Views\CodeBlockRenderer.cs" />

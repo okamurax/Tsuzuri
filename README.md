@@ -173,6 +173,12 @@ Mac では、XAML を除いた C# のコンパイルだけを `bash tools/check-
 
 `git config core.hooksPath tools/git-hooks` をしておくと、`Tsuzuri/WordPress/` を変えたコミットの前に、これを自動で回し、通らなければコミットを止めます。
 
+### 解析を変えるとき
+
+`bash tools/parse-fuzz.sh` で、編集画面が打った段落だけを解析し直した結果が、全体を解析し直した結果と同じかを確かめます
+（名前を付けた例と、文書をでたらめに書き換えては比べるのを繰り返す。既定 3000 回で2〜3分）。
+`Tsuzuri/Markdown/` や、`MarkdownView` の部分解析を変えたら回してください。部分解析の判断は `tools/parse-fuzz/Program.cs` に写してあるので、そちらも合わせます。
+
 ## 設定ファイル
 
 どれも exe と同じフォルダに置きます。持ち運べるように、`%AppData%` は使いません。
@@ -200,7 +206,7 @@ Tsuzuri/
 └ ConPty/                AI の欄の端末で使う ConPTY（conpty.dll・OpenConsole.exe）
 TableEditor/             表エディタ（WPF。本体から DLL として読み込む）
 DrawingEditor/           図エディタ（WPF。本体から DLL として読み込む）
-tools/                   Mac でのコンパイル確認、WordPress の変換の確かめ（wp-check）、コミット前のフック、アイコンの生成
+tools/                   Mac でのコンパイル確認、WordPress の変換の確かめ（wp-check）、部分解析の確かめ（parse-fuzz）、コミット前のフック、アイコンの生成
 sample/                  動作確認用の文書
 ```
 

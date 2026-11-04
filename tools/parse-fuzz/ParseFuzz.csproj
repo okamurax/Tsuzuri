@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- 部分解析の確かめ（tools/parse-fuzz.sh から動かす）。エディタと同じ解析のコードをそのままコンパイルする -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <LangVersion>7.3</LangVersion>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <Optimize>true</Optimize>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="../../Tsuzuri/Markdown/DocumentModel.cs" />
+    <Compile Include="../../Tsuzuri/Markdown/InlineSpan.cs" />
+    <Compile Include="../../Tsuzuri/Markdown/LineInfo.cs" />
+    <Compile Include="../../Tsuzuri/Markdown/LineKind.cs" />
+    <Compile Include="../../Tsuzuri/Markdown/MarkdownParser.cs" />
+    <Compile Include="../../Tsuzuri/Markdown/TableModel.cs" />
+    <!-- 本体の Tsuzuri.csproj と同じ版にする -->
+    <PackageReference Include="Markdig" Version="0.33.0" />
+  </ItemGroup>
+</Project>

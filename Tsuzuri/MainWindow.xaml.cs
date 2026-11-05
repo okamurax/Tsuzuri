@@ -235,14 +235,10 @@ namespace Tsuzuri
             PreviewMouseDown += CloseLauncherOnOutsideClick;
             LauncherHost.KeyDown += LauncherHost_KeyDown;
 
-            // アウトラインのドラッグで節を動かす（SPEC 7章）。
-            OutlineTree.PreviewMouseLeftButtonDown += OutlineTree_PreviewMouseLeftButtonDown;
+            // アウトラインのドラッグで節を動かす（SPEC 7章）。木はページごとに作るので、つなぐのは HookOutlineTree で（2026-11-05）。
+            HookOutlineTree(OutlineTree);
             SetUpHeadingBookmarkDrag();
-
-            OutlineTree.PreviewMouseMove += OutlineTree_PreviewMouseMove;
             _outlineAutoScroll.Tick += delegate { OutlineAutoScroll(); };
-            OutlineTree.PreviewMouseLeftButtonUp += OutlineTree_PreviewMouseLeftButtonUp;
-            OutlineTree.LostMouseCapture += delegate { EndOutlineDrag(); };
             if (opener != null) PlaceLike(opener);
             else RestoreWindowBounds();
             ApplyHistorySplit();

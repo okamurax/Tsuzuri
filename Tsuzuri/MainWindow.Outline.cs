@@ -54,7 +54,8 @@ namespace Tsuzuri
                 _outlineParents.Clear();
                 _outlineSignature = null;
                 _outlineOwner = null;
-                _outlineStashes.Clear();
+                _outlineBuiltSignature = null;
+                DropOutlineStashes();
                 UpdateFoldButtons();
                 return;
             }
@@ -98,6 +99,7 @@ namespace Tsuzuri
 
                 _outlineOwner = owner;
                 _outlineSignature = signature;
+                _outlineBuiltSignature = signature;
                 UpdateFoldButtons();
                 SyncOutlineLines(snapshot.Entries);
             }
@@ -120,13 +122,16 @@ namespace Tsuzuri
         {
             public string Signature;
             public string RootPath;
-            public List<TreeViewItem> Roots;
+            public TreeView Tree;
             public List<TreeViewItem> Order;
             public Dictionary<TreeViewItem, TreeViewItem> Parents;
         }
 
         /// <summary>今アウトラインに出している木が、どのページのものか。</summary>
         private MarkdownView _outlineOwner;
+
+        /// <summary>今の木を作ったときの見出しの構成。_outlineSignature と違い、作り直させるために null にされることはない。</summary>
+        private string _outlineBuiltSignature;
 
         private readonly Dictionary<MarkdownView, OutlineStash> _outlineStashes = new Dictionary<MarkdownView, OutlineStash>();
 
@@ -135,46 +140,101 @@ namespace Tsuzuri
             return view != null ? view.FilePath + "|" + view.PageId : string.Empty;
         }
 
-        /// <summary>今の木を、そのページの分としてしまう。木は外すだけで、項目はそのまま持っておく（作り直さずに戻せる）。</summary>
-        private void StashOutline()
+        /// <summary>アウトラインの木に、ドラッグで節を動かす処理をつなぐ。</summary>
+        private void HookOutlineTree(TreeView tree)
         {
-            var owner = _outlineOwner;
-            if (owner != null && _outlineSignature != null && _stack.Contains(owner))
-            {
-                RememberCollapsed();
-                _outlineStashes[owner] = new OutlineStash
-                {
-                    Signature = _outlineSignature,
-                    RootPath = OutlineRootPath(owner),
-                    Roots = OutlineTree.Items.OfType<TreeViewItem>().ToList(),
-                    Order = _outlineOrder.ToList(),
-                    Parents = new Dictionary<TreeViewItem, TreeViewItem>(_outlineParents),
-                };
-            }
+            tree.PreviewMouseLeftButtonDown += OutlineTree_PreviewMouseLeftButtonDown;
+            tree.PreviewMouseMove += OutlineTree_PreviewMouseMove;
+            tree.PreviewMouseLeftButtonUp += OutlineTree_PreviewMouseLeftButtonUp;
+            tree.LostMouseCapture += delegate { EndOutlineDrag(); };
+        }
 
-            OutlineTree.Items.Clear();
-            _outlineOrder.Clear();
-            _outlineParents.Clear();
-            _outlineOwner = null;
+        /// <summary>空の木を作って、今の木と同じ所に置く（見た目は今の木と同じ）。</summary>
+        private TreeView CreateOutlineTree(TreeView like)
+        {
+            var tree = new TreeView();
+            tree.Padding = like.Padding;
+            ScrollViewer.SetHorizontalScrollBarVisibility(tree, ScrollBarVisibility.Disabled);
+            HookOutlineTree(tree);
+
+            var host = like.Parent as Panel;
+            if (host != null) host.Children.Add(tree);
+            return tree;
+        }
+
+        private static void DropOutlineTree(TreeView tree)
+        {
+            var host = tree.Parent as Panel;
+            if (host != null) host.Children.Remove(tree);
         }
 
         /// <summary>
-        /// しまっておいた木を戻す。見出しの構成とファイル・ページが変わっていないときだけ（変わっていれば作り直す）。
+        /// 今の木を、そのページの分としてしまう（2026-11-05）。木（TreeView）ごと隠して持っておき、新しいページには空の木を出す。
+        /// 項目を外して付け直す形（最初の作り）では、外すのに 0.3 秒、付け直したあとの配置に 1〜3 秒かかった（見出し 1189 の文書）。
+        /// 隠した木は配置を覚えたままなので、出し直すだけなら配置し直さずに済む。
+        /// </summary>
+        private void StashOutline()
+        {
+            var owner = _outlineOwner;
+            var tree = OutlineTree;
+
+            if (owner != null && _outlineBuiltSignature != null && _stack.Contains(owner))
+            {
+                RememberCollapsed();
+                tree.Visibility = Visibility.Collapsed;
+
+                OutlineStash old;
+                if (_outlineStashes.TryGetValue(owner, out old)) DropOutlineTree(old.Tree);
+
+                _outlineStashes[owner] = new OutlineStash
+                {
+                    Signature = _outlineBuiltSignature,
+                    RootPath = OutlineRootPath(owner),
+                    Tree = tree,
+                    Order = _outlineOrder.ToList(),
+                    Parents = new Dictionary<TreeViewItem, TreeViewItem>(_outlineParents),
+                };
+
+                OutlineTree = CreateOutlineTree(tree);
+            }
+            else
+            {
+                tree.Items.Clear();
+            }
+
+            _outlineOrder.Clear();
+            _outlineParents.Clear();
+            _outlineOwner = null;
+            _outlineBuiltSignature = null;
+        }
+
+        /// <summary>
+        /// しまっておいた木を出す。見出しの構成とファイル・ページが変わっていないときだけ（変わっていれば捨てて、作り直させる）。
         /// 閉じたページの分は、ここで捨てる。
         /// </summary>
         private bool RestoreOutline(MarkdownView owner, string signature)
         {
-            foreach (var gone in _outlineStashes.Keys.Where(view => !_stack.Contains(view)).ToList())
-                _outlineStashes.Remove(gone);
+            foreach (var gone in _outlineStashes.Where(pair => !_stack.Contains(pair.Key)).ToList())
+            {
+                DropOutlineTree(gone.Value.Tree);
+                _outlineStashes.Remove(gone.Key);
+            }
 
             OutlineStash stash;
             if (owner == null || !_outlineStashes.TryGetValue(owner, out stash)) return false;
             _outlineStashes.Remove(owner);
 
-            if (stash.Signature != signature || stash.RootPath != OutlineRootPath(owner)) return false;
+            if (stash.Signature != signature || stash.RootPath != OutlineRootPath(owner))
+            {
+                DropOutlineTree(stash.Tree);
+                return false;
+            }
 
-            OutlineTree.Items.Clear();
-            foreach (var root in stash.Roots) OutlineTree.Items.Add(root);
+            // StashOutline が置いた空の木と入れ替える。
+            DropOutlineTree(OutlineTree);
+            OutlineTree = stash.Tree;
+            OutlineTree.Visibility = Visibility.Visible;
+
             _outlineOrder.Clear();
             _outlineOrder.AddRange(stash.Order);
             _outlineParents.Clear();
@@ -184,10 +244,20 @@ namespace Tsuzuri
             foreach (var item in _outlineOrder)
             {
                 var node = item.Tag as OutlineNode;
-                if (node != null && item.Items.Count > 0) item.IsExpanded = !_collapsedPaths.Contains(node.Path);
+                if (node != null && item.Items.Count > 0)
+                {
+                    var expanded = !_collapsedPaths.Contains(node.Path);
+                    if (item.IsExpanded != expanded) item.IsExpanded = expanded;
+                }
             }
 
             return true;
+        }
+
+        private void DropOutlineStashes()
+        {
+            foreach (var stash in _outlineStashes.Values) DropOutlineTree(stash.Tree);
+            _outlineStashes.Clear();
         }
 
         private static string OutlineSignature(List<OutlineHeading> entries)

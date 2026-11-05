@@ -238,17 +238,38 @@ namespace Tsuzuri
         /// <summary>この画面を、今の画面と同じ位置・大きさにして前に出し、ほかの画面を隠す（先に出してから隠すので、間に何も見えない時が無い）。</summary>
         private void BringForward(MainWindow from)
         {
+            // 切り替えの時間を perf.log に書く（2026-11-05。app.json の perfLog が true のときだけ）。タブの切り替えがもっさりする原因を探すため。
+            var measuring = PerfLog.Enabled && !IsVisible;
+            if (measuring) PerfLog.BeginSteps("タブ " + _windowNumber + (_stack.Count > 0 ? " " + System.IO.Path.GetFileName(_stack[0].FilePath) : string.Empty));
+
+            var started = PerfLog.Start();
             if (from != null && !ReferenceEquals(from, this)) PlaceLike(from);
             if (WindowState == WindowState.Minimized) WindowState = WindowState.Normal;
+            PerfLog.Step("位置合わせ", started);
 
+            started = PerfLog.Start();
             Show();
+            PerfLog.Step("Show", started);
+
+            started = PerfLog.Start();
             Activate();
+            PerfLog.Step("Activate", started);
             _frontWindow = this;
 
             // ダイアログを出している画面は隠さない（起動のとき、戻している画面が「フォルダを作りますか」などを尋ねている最中に、
             // 最初の画面を前に出すことがある。隠すと、尋ねている窓が見えなくなる。2026-11-02）。後ろに重なって残るだけ。
+            started = PerfLog.Start();
             foreach (var other in OpenWindows.Where(window => !ReferenceEquals(window, this) && window.IsVisible && !window.IsShowingDialog()).ToList())
                 other.Hide();
+            PerfLog.Step("ほかを隠す", started);
+
+            if (measuring)
+            {
+                started = PerfLog.Start();
+                UpdateLayout();
+                PerfLog.Step("配置", started);
+                FinishStepsLater();
+            }
         }
 
         /// <summary>前に出ている画面。無ければ、見えている画面のどれか。</summary>

@@ -264,6 +264,7 @@ namespace Tsuzuri
             {
                 _rememberScheduled = false;
 
+                var started = PerfLog.Start();
                 foreach (var window in OpenWindows.ToList())
                 {
                     window.RememberLastScreen();
@@ -272,6 +273,7 @@ namespace Tsuzuri
                 }
 
                 _settings.Save();
+                PerfLog.Step("画面の状態を覚える", started);
             }), DispatcherPriority.ApplicationIdle);
         }
 

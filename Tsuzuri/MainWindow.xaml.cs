@@ -167,7 +167,12 @@ namespace Tsuzuri
             };
 
             // 戻ってきたら、外で変わった文書を読み直す（SPEC 19章）。離れるときに保存するのはやめた（2026-10-25。自動保存をやめた）。
-            Activated += delegate { ReloadChangedDocuments(); };
+            Activated += delegate
+            {
+                var started = PerfLog.Start();
+                ReloadChangedDocuments();
+                PerfLog.Step("外の書き換えの確かめ", started);
+            };
 
             // ほかのアプリに切り替えたら、全部の画面の状態を覚える（2026-10-31。VM ごと止める前は、たいてい Mac 側に移るため）。
             Deactivated += delegate { ScheduleRememberScreens(); };

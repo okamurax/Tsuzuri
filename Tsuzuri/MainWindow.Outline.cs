@@ -59,13 +59,20 @@ namespace Tsuzuri
                 return;
             }
 
+            var started = PerfLog.Start();
             var snapshot = Active.GetOutline();
+            PerfLog.Step("見出しを集める", started);
+            PerfLog.StepNote("見出し数", snapshot.Entries.Count);
 
             // 組み直す前に、書き換えられた見出しにブックマークを追いかけさせる。
             // 先にやっておけば、組み直した項目の • が新しい名前で付く。
+            started = PerfLog.Start();
             TrackHeadingBookmarks(Active, snapshot.Entries);
+            PerfLog.Step("ブックマークの追従", started);
 
+            started = PerfLog.Start();
             var signature = OutlineSignature(snapshot.Entries);
+            PerfLog.Step("構成の比較用", started);
 
             // 見出しの構成が変わったときだけ組み直す。入力のたびに開閉状態が
             // 飛ばないようにするため。
@@ -74,10 +81,20 @@ namespace Tsuzuri
                 // ページを移ったときは、今の木を元のページの分としてしまい、移った先の木がしまってあればそれを戻す（2026-11-05）。
                 // 前は移るたびに作り直していて、2万行の本体（見出しが数千）からサブページを開いて戻るたびに、本体の木を全部作り直して遅かった。
                 var owner = Active;
+                started = PerfLog.Start();
                 if (!ReferenceEquals(owner, _outlineOwner)) StashOutline();
+                PerfLog.Step("木をしまう", started);
 
+                started = PerfLog.Start();
                 if (ReferenceEquals(owner, _outlineOwner) || !RestoreOutline(owner, signature))
+                {
                     RebuildOutline(snapshot.Entries);
+                    PerfLog.Step("木を作り直す", started);
+                }
+                else
+                {
+                    PerfLog.Step("木を戻す", started);
+                }
 
                 _outlineOwner = owner;
                 _outlineSignature = signature;
@@ -90,8 +107,12 @@ namespace Tsuzuri
                 SyncOutlineLines(snapshot.Entries);
             }
 
+            started = PerfLog.Start();
             HighlightOutline(snapshot.CurrentIndex);
-            RecordHeadingVisit(Active, snapshot, false);   // 履歴の一番上の見出しを追いかける（積むのはクリック2度・キー。2026-10-30）
+            PerfLog.Step("今の見出しを選ぶ", started);
+            started = PerfLog.Start();
+            RecordHeadingVisit(Active, snapshot, false);
+            PerfLog.Step("見出しの履歴", started);   // 履歴の一番上の見出しを追いかける（積むのはクリック2度・キー。2026-10-30）
         }
 
         /// <summary>しまっておいたアウトラインの木。ページ（MarkdownView）ごとに1つ。</summary>

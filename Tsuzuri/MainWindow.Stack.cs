@@ -357,9 +357,14 @@ namespace Tsuzuri
             var index = _stack.IndexOf(source);
             if (index < 0) index = _stack.Count - 1;
 
+            PerfLog.BeginSteps("開く " + pageId);
+            var started = PerfLog.Start();
             if (!ConfirmLeaving(_stack.Take(index + 1), document)) return;
+            PerfLog.Step("保存の確認", started);
 
+            started = PerfLog.Start();
             var view = NewView(document, pageId);
+            PerfLog.Step("画面を作る", started);
 
             while (_stack.Count > index + 1)
                 _stack.RemoveAt(_stack.Count - 1);
@@ -367,22 +372,58 @@ namespace Tsuzuri
             _stack.Add(view);
             _focused = view;
 
+            started = PerfLog.Start();
             RebuildStack(true);
+            PerfLog.Step("組み直し", started);
             AfterStackChanged();
+            FinishStepsLater();
         }
 
         /// <summary>帯をクリックしたとき。それより右のページは閉じる（SPEC 6章）。</summary>
         private void PopTo(int index)
         {
+            PerfLog.BeginSteps("戻る " + (index >= 0 && index < _stack.Count ? _stack[index].PageId : string.Empty));
+            var started = PerfLog.Start();
             if (!ConfirmLeaving(_stack.Take(index + 1), null)) return;
+            PerfLog.Step("保存の確認", started);
 
             while (_stack.Count > index + 1)
                 _stack.RemoveAt(_stack.Count - 1);
 
             _focused = _stack.Count > 0 ? _stack[_stack.Count - 1] : null;
 
+            started = PerfLog.Start();
             RebuildStack(false);
+            PerfLog.Step("組み直し", started);
             AfterStackChanged();
+            FinishStepsLater();
+        }
+
+        /// <summary>
+        /// ページを移ったあと、配置・描画・落ち着くまでの経過を perf.log に書く（2026-11-05。app.json の perfLog が true のときだけ）。
+        /// Loaded の優先度で動く処理（配置のあと）→ 次の描画 → 手が空いたとき、の順に印を付けて1行にする。
+        /// </summary>
+        private void FinishStepsLater()
+        {
+            if (!PerfLog.Stepping) return;
+
+            Dispatcher.BeginInvoke(new Action(delegate
+            {
+                PerfLog.StepMark("配置後");
+
+                EventHandler rendering = null;
+                rendering = delegate
+                {
+                    CompositionTarget.Rendering -= rendering;
+                    PerfLog.StepMark("描画");
+                    Dispatcher.BeginInvoke(new Action(delegate
+                    {
+                        PerfLog.StepMark("落ち着き");
+                        PerfLog.EndSteps();
+                    }), DispatcherPriority.ApplicationIdle);
+                };
+                CompositionTarget.Rendering += rendering;
+            }), DispatcherPriority.Loaded);
         }
 
         private MarkdownView NewView(PageDocument document, string pageId)
@@ -420,6 +461,8 @@ namespace Tsuzuri
         /// </summary>
         private void RebuildStack(bool animate)
         {
+            var started = PerfLog.Start();
+
             // 外すと表示位置を失うので、外す前に覚えておく。
             // あわせて、枠を今の入れ物から確実に外す。外し忘れると次に入れられない。
             foreach (var shown in _visible)
@@ -431,6 +474,7 @@ namespace Tsuzuri
             _visible.Clear();
             _pageTitles.Clear();
             StackPanelHost.Children.Clear();
+            PerfLog.Step("外す", started);
 
             if (_stack.Count == 0)
             {
@@ -472,9 +516,12 @@ namespace Tsuzuri
 
             var page = _stack[last];
 
+            started = PerfLog.Start();
             StackPanelHost.Children.Add(CreatePageSurface(page));   // LastChildFill
             _visible.Add(page);
             page.RestoreViewState();
+            PerfLog.Step("ページを入れる", started);
+            PerfLog.StepNote("行数", page.Document.LineCount);
 
             if (animate) SlideIn(page.Frame);
         }
@@ -624,14 +671,33 @@ namespace Tsuzuri
 
         private void AfterStackChanged()
         {
+            var started = PerfLog.Start();
             SyncHeadingBookmarks();
+            PerfLog.Step("見出しのブックマーク", started);
 
+            started = PerfLog.Start();
             _outlineSignature = null;   // 別のページなので見出しの対応付けを作り直す
             RefreshOutline();
+            PerfLog.Step("アウトライン", started);
+
+            started = PerfLog.Start();
             UpdateChrome();
+            PerfLog.Step("ツールバーなど", started);
 
             ShowRest();
             ScheduleRememberScreens();   // ファイル・記事を開いた・ページを移ったら、画面の状態を覚える（2026-10-31）
+
+            // 測っているときだけ、配置をここで済ませて、アウトラインと本文のどちらに時間がかかるかを分けて測る。
+            if (PerfLog.Stepping)
+            {
+                started = PerfLog.Start();
+                OutlineTree.UpdateLayout();
+                PerfLog.Step("アウトラインの配置", started);
+
+                started = PerfLog.Start();
+                UpdateLayout();
+                PerfLog.Step("残りの配置", started);
+            }
 
             // 開いたページにはフォーカスを渡さない。渡すとキャレットの行が
             // 生ソースになり、読みに来ただけのページが崩れて見える。

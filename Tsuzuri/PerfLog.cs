@@ -80,6 +80,73 @@ namespace Tsuzuri
             }
         }
 
+        // ---------------------------------------------------------------
+        // ページを移るときの時間（2026-11-05）。2万行の本体からサブページへ行って戻るのが遅い原因を探すためのもの。
+        // 打鍵の行とは別に1行にまとめる。移り始めから、組み直し・アウトライン・配置・描画・落ち着くまでの経過を書く。
+        // ---------------------------------------------------------------
+
+        private static readonly StringBuilder StepLine = new StringBuilder();
+        private static double _stepStart = -1;
+        private static int _stepGen0, _stepGen1, _stepGen2;
+
+        public static bool Stepping
+        {
+            get { return Enabled && _stepStart >= 0; }
+        }
+
+        /// <summary>ページを移り始めた。</summary>
+        public static void BeginSteps(string label)
+        {
+            if (!Enabled) return;
+
+            _stepStart = Now;
+            _stepGen0 = GC.CollectionCount(0);
+            _stepGen1 = GC.CollectionCount(1);
+            _stepGen2 = GC.CollectionCount(2);
+            StepLine.Clear();
+            StepLine.Append(DateTime.Now.ToString("HH:mm:ss.fff")).Append(" [ページ移動] ").Append(label).Append(" |");
+        }
+
+        /// <summary>1つの段にかかった時間（started は Start() の値）。</summary>
+        public static void Step(string name, double started)
+        {
+            if (!Stepping) return;
+            StepLine.Append(' ').Append(name).Append('=').Append((Now - started).ToString("0.0")).Append("ms");
+        }
+
+        /// <summary>途中の印（移り始めからの経過）。</summary>
+        public static void StepMark(string name)
+        {
+            if (!Stepping) return;
+            StepLine.Append(' ').Append(name).Append('@').Append((Now - _stepStart).ToString("0.0"));
+        }
+
+        /// <summary>補足（数など）。</summary>
+        public static void StepNote(string name, object value)
+        {
+            if (!Stepping) return;
+            StepLine.Append(' ').Append(name).Append('=').Append(value);
+        }
+
+        /// <summary>書き出して終わる。</summary>
+        public static void EndSteps()
+        {
+            if (!Stepping) return;
+
+            StepLine.Append(" 計=").Append((Now - _stepStart).ToString("0.0")).Append("ms")
+                .Append(" GC=").Append(GC.CollectionCount(0) - _stepGen0).Append('/').Append(GC.CollectionCount(1) - _stepGen1).Append('/').Append(GC.CollectionCount(2) - _stepGen2);
+            _stepStart = -1;
+
+            try
+            {
+                File.AppendAllText(FilePath, StepLine.ToString() + Environment.NewLine, Encoding.UTF8);
+            }
+            catch (Exception)
+            {
+                // 書けなくても動作は止めない。
+            }
+        }
+
         /// <summary>今の時計（ミリ秒）。かかった時間を測るときの始まりに使う。</summary>
         public static double Start()
         {

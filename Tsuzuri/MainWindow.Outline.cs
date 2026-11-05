@@ -53,6 +53,8 @@ namespace Tsuzuri
                 _outlineOrder.Clear();
                 _outlineParents.Clear();
                 _outlineSignature = null;
+                _outlineOwner = null;
+                _outlineStashes.Clear();
                 UpdateFoldButtons();
                 return;
             }
@@ -69,9 +71,18 @@ namespace Tsuzuri
             // 飛ばないようにするため。
             if (signature != _outlineSignature)
             {
-                RebuildOutline(snapshot.Entries);
+                // ページを移ったときは、今の木を元のページの分としてしまい、移った先の木がしまってあればそれを戻す（2026-11-05）。
+                // 前は移るたびに作り直していて、2万行の本体（見出しが数千）からサブページを開いて戻るたびに、本体の木を全部作り直して遅かった。
+                var owner = Active;
+                if (!ReferenceEquals(owner, _outlineOwner)) StashOutline();
+
+                if (ReferenceEquals(owner, _outlineOwner) || !RestoreOutline(owner, signature))
+                    RebuildOutline(snapshot.Entries);
+
+                _outlineOwner = owner;
                 _outlineSignature = signature;
                 UpdateFoldButtons();
+                SyncOutlineLines(snapshot.Entries);
             }
             else
             {
@@ -81,6 +92,81 @@ namespace Tsuzuri
 
             HighlightOutline(snapshot.CurrentIndex);
             RecordHeadingVisit(Active, snapshot, false);   // 履歴の一番上の見出しを追いかける（積むのはクリック2度・キー。2026-10-30）
+        }
+
+        /// <summary>しまっておいたアウトラインの木。ページ（MarkdownView）ごとに1つ。</summary>
+        private sealed class OutlineStash
+        {
+            public string Signature;
+            public string RootPath;
+            public List<TreeViewItem> Roots;
+            public List<TreeViewItem> Order;
+            public Dictionary<TreeViewItem, TreeViewItem> Parents;
+        }
+
+        /// <summary>今アウトラインに出している木が、どのページのものか。</summary>
+        private MarkdownView _outlineOwner;
+
+        private readonly Dictionary<MarkdownView, OutlineStash> _outlineStashes = new Dictionary<MarkdownView, OutlineStash>();
+
+        private static string OutlineRootPath(MarkdownView view)
+        {
+            return view != null ? view.FilePath + "|" + view.PageId : string.Empty;
+        }
+
+        /// <summary>今の木を、そのページの分としてしまう。木は外すだけで、項目はそのまま持っておく（作り直さずに戻せる）。</summary>
+        private void StashOutline()
+        {
+            var owner = _outlineOwner;
+            if (owner != null && _outlineSignature != null && _stack.Contains(owner))
+            {
+                RememberCollapsed();
+                _outlineStashes[owner] = new OutlineStash
+                {
+                    Signature = _outlineSignature,
+                    RootPath = OutlineRootPath(owner),
+                    Roots = OutlineTree.Items.OfType<TreeViewItem>().ToList(),
+                    Order = _outlineOrder.ToList(),
+                    Parents = new Dictionary<TreeViewItem, TreeViewItem>(_outlineParents),
+                };
+            }
+
+            OutlineTree.Items.Clear();
+            _outlineOrder.Clear();
+            _outlineParents.Clear();
+            _outlineOwner = null;
+        }
+
+        /// <summary>
+        /// しまっておいた木を戻す。見出しの構成とファイル・ページが変わっていないときだけ（変わっていれば作り直す）。
+        /// 閉じたページの分は、ここで捨てる。
+        /// </summary>
+        private bool RestoreOutline(MarkdownView owner, string signature)
+        {
+            foreach (var gone in _outlineStashes.Keys.Where(view => !_stack.Contains(view)).ToList())
+                _outlineStashes.Remove(gone);
+
+            OutlineStash stash;
+            if (owner == null || !_outlineStashes.TryGetValue(owner, out stash)) return false;
+            _outlineStashes.Remove(owner);
+
+            if (stash.Signature != signature || stash.RootPath != OutlineRootPath(owner)) return false;
+
+            OutlineTree.Items.Clear();
+            foreach (var root in stash.Roots) OutlineTree.Items.Add(root);
+            _outlineOrder.Clear();
+            _outlineOrder.AddRange(stash.Order);
+            _outlineParents.Clear();
+            foreach (var pair in stash.Parents) _outlineParents[pair.Key] = pair.Value;
+
+            // しまっている間にほかの窓などでたたみ状態が変わっていれば合わせる。
+            foreach (var item in _outlineOrder)
+            {
+                var node = item.Tag as OutlineNode;
+                if (node != null && item.Items.Count > 0) item.IsExpanded = !_collapsedPaths.Contains(node.Path);
+            }
+
+            return true;
         }
 
         private static string OutlineSignature(List<OutlineHeading> entries)

@@ -151,48 +151,77 @@
   const container = document.getElementById('terminal');
   const cursorHidden = () => { try { return !!term._core.coreService.isCursorHidden; } catch (e) { return false; } };
   // Claude Code の入力欄の行（「> 」で始まる行。枠の「│」があってもよい）を、画面の下から探す（2026-10-28）。
-  // 見つかれば、その行の打った文字の後ろ（薄く出ている例文は数えない）の位置を返す。見つからなければ null（欄の下端に出す）。
+  // 見つかれば、打った文字の後ろ（薄く出ている例文は数えない）の位置を返す。見つからなければ null（欄の下端に出す）。
   // 前は下端に固定するだけで、入力欄の下に出る行（ヒントなど）の分や、文字の大きさによって入力欄から外れて見えた。
+  // 2026-11-05、ときどき見当違いの所に出たので、次を足した:
+  // ・上へ巻き戻して読んでいるときは、先に一番下へ戻す（前は見えている行の中から探し、昔の出力の「> 」に付いた）
+  // ・選ぶ一覧（「❯ 1. Yes」）は入力欄と見なさない（前はその行に付いた）
+  // ・入力が何行かにわたるときは、最後の行の後ろに出す（前は1行目の後ろに出た）
+  const isPromptLine = (text) => /^\s*│?\s*[>❯›]\s/.test(text) && !/^\s*│?\s*[>❯›]\s+\d+\.\s/.test(text);
+  const isMenuLine = (text) => /^\s*│?\s*[>❯›]\s+\d+\.\s/.test(text);
+  const isRuleLine = (text) => /^\s*[╭╰├─━]{3,}/.test(text);
+
+  // その行の、打った文字の終わりの桁。from より前（「> 」など）は数えない。
+  const inputEnd = (line, from) => {
+    let end = from;
+    for (let x = from; x < term.cols; x++) {
+      const cell = line.getCell(x);
+      if (!cell) break;
+      const chars = cell.getChars();
+      if (chars && chars.trim() && chars !== '│' && !cell.isDim()) end = x + Math.max(1, cell.getWidth());
+    }
+    return end;
+  };
+
   const imeAnchor = () => {
     try {
+      const buffer = term.buffer.active;
+      if (buffer.viewportY !== buffer.baseY) term.scrollToBottom();
+
       const screen = term.element.querySelector('.xterm-screen');
       if (!screen) return null;
       const rect = screen.getBoundingClientRect();
       const cellWidth = rect.width / term.cols, cellHeight = rect.height / term.rows;
-      const buffer = term.buffer.active;
+      const textOf = (row) => { const line = buffer.getLine(buffer.baseY + row); return line ? line.translateToString(true) : ''; };
 
       for (let row = term.rows - 1; row >= 0; row--) {
-        const line = buffer.getLine(buffer.viewportY + row);
-        if (!line) continue;
+        const text = textOf(row);
+        if (isMenuLine(text)) return null;
+        if (!isPromptLine(text)) continue;
 
-        const prompt = /^(\s*│?\s*)[>❯›]\s/.exec(line.translateToString(true));
-        if (!prompt) continue;
-
-        let end = prompt[0].length;
-        for (let x = end; x < term.cols; x++) {
-          const cell = line.getCell(x);
-          if (!cell) break;
-          const chars = cell.getChars();
-          if (chars && chars.trim() && chars !== '│' && !cell.isDim()) end = x + Math.max(1, cell.getWidth());
+        // 入力の続きの行（枠の線か空の行の手前まで）があれば、その最後の行にする。
+        let last = row;
+        while (last + 1 < term.rows) {
+          const next = textOf(last + 1);
+          if (!next.trim() || isRuleLine(next) || isPromptLine(next)) break;
+          last++;
         }
 
-        return { left: rect.left + Math.min(end, term.cols - 2) * cellWidth, top: rect.top + row * cellHeight };
+        const line = buffer.getLine(buffer.baseY + last);
+        const from = last === row ? /^(\s*│?\s*)[>❯›]\s/.exec(text)[0].length : 0;
+        const end = inputEnd(line, from);
+        return { left: rect.left + Math.min(end, term.cols - 2) * cellWidth, top: rect.top + last * cellHeight };
       }
     } catch (e) { }
     return null;
   };
 
+  // 変換中の文字と候補の窓の置き場所を決める。変換を始めたときに加え、文字が変わるたびにも決め直す（2026-11-05）。
+  // 変換の途中で Claude Code が画面を描き直すと、入力欄が動いても前の位置に残っていた。
+  const placeIme = () => {
+    const hidden = cursorHidden();
+    const anchor = hidden ? imeAnchor() : null;
+    if (anchor) {
+      container.style.setProperty('--ime-left', anchor.left + 'px');
+      container.style.setProperty('--ime-top', anchor.top + 'px');
+    }
+    container.classList.toggle('ime-docked', hidden);
+    container.classList.toggle('ime-anchored', !!anchor);
+  };
+
   if (term.textarea) {
-    term.textarea.addEventListener('compositionstart', () => {
-      const hidden = cursorHidden();
-      const anchor = hidden ? imeAnchor() : null;
-      if (anchor) {
-        container.style.setProperty('--ime-left', anchor.left + 'px');
-        container.style.setProperty('--ime-top', anchor.top + 'px');
-      }
-      container.classList.toggle('ime-docked', hidden);
-      container.classList.toggle('ime-anchored', !!anchor);
-    });
+    term.textarea.addEventListener('compositionstart', placeIme);
+    term.textarea.addEventListener('compositionupdate', placeIme);
     term.textarea.addEventListener('compositionend', (e) => {
       committed = { text: e.data || '', at: performance.now(), sent: false };
       setTimeout(() => container.classList.remove('ime-docked', 'ime-anchored'), 0);

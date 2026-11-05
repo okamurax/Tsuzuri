@@ -573,6 +573,15 @@ namespace Tsuzuri
 
             _filer.Navigate(folder);
 
+            // 移ったらすぐ覚える（2026-11-05）。前は窓を閉じるとき・仕切りを動かしたときだけ覚え、しかも前に出ている画面の分だけだった。
+            // 文書や画面ごとには分けず、アプリで1つ。
+            _filer.FolderChanged += moved =>
+            {
+                if (string.Equals(moved, _settings.FilerFolder, StringComparison.OrdinalIgnoreCase)) return;
+                _settings.FilerFolder = moved;
+                _settings.Save();
+            };
+
             FilerHost.Child = _filer;
             FilerColumn.Width = new GridLength(_settings.FilerWidth);
         }
@@ -650,8 +659,7 @@ namespace Tsuzuri
             {
                 _settings.SidebarWidth = SidebarColumn.ActualWidth;
                 StoreFilerWidth();
-                if (_filer != null && !string.IsNullOrEmpty(_filer.Folder)) _settings.FilerFolder = _filer.Folder;
-                StoreWindowBounds();
+                StoreWindowBounds();   // ファイラーのフォルダは、移ったときにすぐ覚えている（2026-11-05）
             }
 
             if (IsPrimary) _settings.LastFile = _stack.Count > 0 ? _stack[0].FilePath : null;   // 前回のファイルは最初の画面の分だけ

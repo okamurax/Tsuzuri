@@ -208,6 +208,9 @@ namespace Tsuzuri.Views
             Children.Add(_scroll);
         }
 
+        /// <summary>見ているフォルダが変わった（2026-11-05。アプリで1つの「最後に見たフォルダ」として、すぐ app.json に覚える）。</summary>
+        public event Action<string> FolderChanged;
+
         /// <summary>今表示しているフォルダ。</summary>
         public string Folder
         {
@@ -232,6 +235,9 @@ namespace Tsuzuri.Views
             _searchDelay.Stop();   // 空にしたことによる検索のやり直しは要らない
 
             Refresh();
+
+            var changed = FolderChanged;
+            if (changed != null) changed(folder);
         }
 
         /// <summary>動いている検索を止める。アプリを終えるときに呼ぶ。</summary>

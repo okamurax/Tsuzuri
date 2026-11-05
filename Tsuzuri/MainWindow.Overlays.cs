@@ -50,6 +50,12 @@ namespace Tsuzuri
                 return;
             }
 
+            // ほかの画面のファイラーで別のフォルダへ移っていたら、そこから出す（最後に見たフォルダはアプリで1つ。2026-11-05）。
+            var last = _settings.FilerFolder;
+            if (_filer != null && !string.IsNullOrEmpty(last) && Directory.Exists(last)
+                && !string.Equals(last, _filer.Folder, StringComparison.OrdinalIgnoreCase))
+                _filer.Navigate(last);
+
             _launcher = new LauncherView(_settings, OpenFromLauncher, Status, folder =>
             {
                 _filer.Navigate(folder);

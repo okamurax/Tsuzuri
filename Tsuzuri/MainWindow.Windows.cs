@@ -2,7 +2,10 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
+using System.Runtime.InteropServices;
 using System.Windows;
+using System.Windows.Interop;
+using System.Windows.Threading;
 using System.Windows.Controls;
 using System.Windows.Media;
 using Tsuzuri.Markdown;
@@ -238,6 +241,14 @@ namespace Tsuzuri
         /// <summary>この画面を、今の画面と同じ位置・大きさにして前に出し、ほかの画面を隠す（先に出してから隠すので、間に何も見えない時が無い）。</summary>
         private void BringForward(MainWindow from)
         {
+            // タブで隠れている画面へ切り替えるときは、今の画面の後ろで先に描かせてから入れ替える（2026-11-05）。
+            if (from != null && !ReferenceEquals(from, this) && from.IsVisible && !IsVisible
+                && from.WindowState != WindowState.Minimized && _stack.Count > 0)
+            {
+                BringForwardBehind(from);
+                return;
+            }
+
             // 切り替えの時間を perf.log に書く（2026-11-05。app.json の perfLog が true のときだけ）。タブの切り替えがもっさりする原因を探すため。
             var measuring = PerfLog.Enabled && !IsVisible;
             if (measuring) PerfLog.BeginSteps("タブ " + _windowNumber + (_stack.Count > 0 ? " " + System.IO.Path.GetFileName(_stack[0].FilePath) : string.Empty));
@@ -270,6 +281,79 @@ namespace Tsuzuri
                 PerfLog.Step("配置", started);
                 FinishStepsLater();
             }
+        }
+
+        /// <summary>入れ替えを待っている切り替えの番号。新しい切り替えが来たら、待っていた分はやめる。</summary>
+        private static int _switchToken;
+
+        /// <summary>
+        /// 隠れている画面を、今の画面（from）のすぐ後ろに出して描かせ、描き終わってから前に出してほかを隠す（2026-11-05）。
+        /// 前は前に出してから描いたので、描いている途中（空の窓・AI の欄が遅れて出る）が見え、ちらついてもっさりして見えた
+        /// （perf.log では綴の処理は 0.05〜0.3 秒で終わっていて、残りは隠していた窓を出し直す Windows の側の時間だった）。
+        /// 入れ替えは、配置が済んで（Loaded の優先度）から描画を2回待ったあと。待つ間も今の画面はそのまま見えていて、操作もできる。
+        /// </summary>
+        private void BringForwardBehind(MainWindow from)
+        {
+            var token = ++_switchToken;
+            var measuring = PerfLog.Enabled;
+            if (measuring) PerfLog.BeginSteps("タブ(後ろで描く) " + _windowNumber + " " + System.IO.Path.GetFileName(_stack[0].FilePath));
+
+            var started = PerfLog.Start();
+            PlaceLike(from);
+
+            var window = new WindowInteropHelper(this).EnsureHandle();
+            var under = new WindowInteropHelper(from).Handle;
+            PlaceBelow(window, under);
+
+            var activate = ShowActivated;
+            ShowActivated = false;   // 出すだけで前に出さない（SW_SHOWNA。重なりの順は上で決めた所のまま）
+            Show();
+            ShowActivated = activate;
+            PlaceBelow(window, under);
+            PerfLog.Step("後ろに出す", started);
+
+            Dispatcher.BeginInvoke(new Action(delegate
+            {
+                PerfLog.StepMark("配置後");
+                var frames = 0;
+                EventHandler rendering = null;
+                rendering = delegate
+                {
+                    if (++frames < 2 && token == _switchToken) return;
+                    System.Windows.Media.CompositionTarget.Rendering -= rendering;
+                    PerfLog.StepMark("描画");
+
+                    // 待っている間にほかの切り替えが来た・閉じた等なら、入れ替えない（隠すのは次の切り替えがやる）。
+                    if (token != _switchToken || !IsVisible || !OpenWindows.Contains(this)) return;
+
+                    var swap = PerfLog.Start();
+                    Activate();
+                    _frontWindow = this;
+                    foreach (var other in OpenWindows.Where(each => !ReferenceEquals(each, this) && each.IsVisible && !each.IsShowingDialog()).ToList())
+                        other.Hide();
+                    PerfLog.Step("入れ替え", swap);
+
+                    if (measuring)
+                        Dispatcher.BeginInvoke(new Action(delegate
+                        {
+                            PerfLog.StepMark("落ち着き");
+                            PerfLog.EndSteps();
+                        }), DispatcherPriority.ApplicationIdle);
+                };
+                System.Windows.Media.CompositionTarget.Rendering += rendering;
+            }), DispatcherPriority.Loaded);
+        }
+
+        private const uint SwpNoSize = 0x0001, SwpNoMove = 0x0002, SwpNoActivate = 0x0010;
+
+        [DllImport("user32.dll")]
+        private static extern bool SetWindowPos(IntPtr window, IntPtr insertAfter, int x, int y, int width, int height, uint flags);
+
+        /// <summary>window を under のすぐ後ろに置く（前に出さない）。</summary>
+        private static void PlaceBelow(IntPtr window, IntPtr under)
+        {
+            if (window == IntPtr.Zero || under == IntPtr.Zero) return;
+            SetWindowPos(window, under, 0, 0, 0, 0, SwpNoSize | SwpNoMove | SwpNoActivate);
         }
 
         /// <summary>前に出ている画面。無ければ、見えている画面のどれか。</summary>

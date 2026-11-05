@@ -139,7 +139,11 @@ namespace Tsuzuri.Views
             {
                 // WebView2 の作業フォルダ。既定は exe の隣で、書けない場所のことがあるので、利用者のフォルダにする。
                 var data = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Tsuzuri", "WebView2");
-                var environment = await CoreWebView2Environment.CreateAsync(null, data);
+                // 窓がほかの窓に覆われていても描くようにする（2026-11-05）。画面のタブの切り替えで、次の画面を今の画面の後ろで先に描かせるため。
+                // 既定では覆われた窓を描かないので、前に出たあとで AI の欄が遅れて描かれた。
+                // 作業フォルダが同じなら、どこで作っても同じ設定にしないと作れない（作るのはここだけ）。
+                var options = new CoreWebView2EnvironmentOptions("--disable-features=CalculateNativeWinOcclusion");
+                var environment = await CoreWebView2Environment.CreateAsync(null, data, options);
                 if (_disposed) return;   // 用意している間にタブを閉じた
                 await _web.EnsureCoreWebView2Async(environment);
                 if (_disposed) return;

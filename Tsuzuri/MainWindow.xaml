@@ -118,25 +118,13 @@
                 <DockPanel>
                     <!-- アウトラインを開く・たたむボタン (SPEC 7章。2026-11-04。前は見出しの検索欄だった)。
                          サイドバーの一番上に置き、エディタの検索欄の段と高さ・下の線をそろえる。
-                         ボタンは記号と数字だけ（何をするかはツールチップ）。数字は「その見出しまで開く」 -->
+                         ボタンは記号だけ（何をするかはツールチップ）。すべてたたむ・すべて開くの2つを右に寄せる（2026-11-06。見出し n まで開く 1 2 3 はやめた） -->
                     <Border x:Name="OutlineFoldArea" DockPanel.Dock="Top" Height="32"
                             BorderBrush="{StaticResource BorderBrushSoft}" BorderThickness="0,0,0,1"
                             Margin="0,0,0,6" Background="Transparent">
-                        <StackPanel Orientation="Horizontal" Margin="10,0,6,0" VerticalAlignment="Center">
+                        <StackPanel Orientation="Horizontal" Margin="10,0,6,0" VerticalAlignment="Center" HorizontalAlignment="Right">
                             <Button x:Name="OutlineFoldAll" Tag="0" Content="⊟" FontFamily="Segoe UI Symbol" FontSize="15"
                                     ToolTip="すべてたたむ（いちばん上の見出しだけにする）"
-                                    Style="{StaticResource ToolButton}" MinWidth="28" Padding="3,0,3,0" Margin="0,0,2,0"
-                                    Focusable="False" Click="OutlineFold_Click" />
-                            <Button x:Name="OutlineFold1" Tag="1" Content="1" FontSize="13"
-                                    ToolTip="見出し1だけ開く（見出し2以下はたたむ）"
-                                    Style="{StaticResource ToolButton}" MinWidth="28" Padding="3,0,3,0" Margin="0,0,2,0"
-                                    Focusable="False" Click="OutlineFold_Click" />
-                            <Button x:Name="OutlineFold2" Tag="2" Content="2" FontSize="13"
-                                    ToolTip="見出し2まで開く（見出し3以下はたたむ）"
-                                    Style="{StaticResource ToolButton}" MinWidth="28" Padding="3,0,3,0" Margin="0,0,2,0"
-                                    Focusable="False" Click="OutlineFold_Click" />
-                            <Button x:Name="OutlineFold3" Tag="3" Content="3" FontSize="13"
-                                    ToolTip="見出し3まで開く（見出し4以下はたたむ）"
                                     Style="{StaticResource ToolButton}" MinWidth="28" Padding="3,0,3,0" Margin="0,0,2,0"
                                     Focusable="False" Click="OutlineFold_Click" />
                             <Button x:Name="OutlineExpandAll" Tag="99" Content="⊞" FontFamily="Segoe UI Symbol" FontSize="15"

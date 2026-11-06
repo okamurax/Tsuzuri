@@ -16,9 +16,10 @@ using Tsuzuri.Markdown;
 namespace Tsuzuri.Views
 {
     /// <summary>
-    /// 添付を本文へドラッグするための、右のサイドパネルのファイラー（SPEC 9章）。
+    /// 添付を本文へドラッグするための、ファイラー（SPEC 9章）。
     ///
-    /// 右のサイドパネルに常に置き、見えているページの本文へファイルをドラッグする。
+    /// ランチャーと1つの画面に並べ、その右側に置く（MainWindow の LauncherHost の FilerHost）。その画面はツールバーの「ランチャー」で
+    /// 本文の上半分に重ねて出し入れする（2026-10-31。前は右のサイドパネルに常に置いていた）。下半分に見えている本文へファイルをドラッグする。
     /// フォルダの木でも、作業フォルダの登録でもない（SPEC 1章。フォルダの登録はランチャー）。
     /// できるのは探すこと、ドラッグ、開くこと（Markdown はこのエディタで、ほかは既定のアプリで）と、
     /// 右クリックでの作成・名前の変更・削除（2026-10-12）。コピーや移動など、それ以上はエクスプローラーで行う。
@@ -102,8 +103,9 @@ namespace Tsuzuri.Views
 
             // コピーや移動など、右クリックで足りないことはエクスプローラーで行う（SPEC 9章）。
             // エクスプローラーで開いて作業し、戻ったら「更新」で読み直す。アドレスの欄を狭めないよう、文字でなくアイコンにする。
+            // 作成・名前の変更・削除はファイラーの右クリックでできるので、ツールチップではコピー・移動を挙げる。
             // 字は「新しいウィンドウで開く」（四角から矢印が出る形）。エクスプローラーの絵（EC50）は細かく、小さいとつぶれたため。
-            var explorer = CreateIconButton("\uE8A7", "このフォルダをエクスプローラーで開く（ファイルの作成・名前の変更などはそちらで）");
+            var explorer = CreateIconButton("\uE8A7", "このフォルダをエクスプローラーで開く（コピーや移動などはそちらで）");
             explorer.Click += delegate { OpenInExplorer(); };
             DockPanel.SetDock(explorer, Dock.Right);
 
@@ -316,7 +318,6 @@ namespace Tsuzuri.Views
             }
         }
 
-        /// <summary>検索欄が空ならフォルダの中身を、何か入っていれば検索の結果を出す。</summary>
         /// <summary>
         /// 「更新」。今のフォルダ（検索中なら検索）を読み直す。フォルダの一覧ならスクロール位置を残す
         /// （エクスプローラーでファイルを作って戻ったとき、見ていた場所が先頭に飛ばないように）。
@@ -362,6 +363,7 @@ namespace Tsuzuri.Views
             }
         }
 
+        /// <summary>検索欄が空ならフォルダの中身を、何か入っていれば検索の結果を出す。</summary>
         private void Refresh()
         {
             if (string.IsNullOrEmpty(_folder)) return;
@@ -554,8 +556,8 @@ namespace Tsuzuri.Views
         }
 
         /// <summary>
-        /// 一覧の1行。フォルダはクリックで中へ。ファイルはドラッグで本文へ、
-        /// ダブルクリックで既定のアプリで開く。
+        /// 一覧の1行。フォルダはクリックで中へ。ファイルはドラッグで本文へ、クリック（1回）で開く
+        /// （Markdown はこのエディタで、スクリプトは別の窓で、ほかは既定のアプリで。Open）。2回目のクリックは無視する。
         /// </summary>
         private Border CreateRow(string path, bool isFolder, string name, string where)
         {
@@ -670,7 +672,7 @@ namespace Tsuzuri.Views
         // 作成・名前の変更・削除（右クリック。2026-10-12）
         //
         // エディタで開いているファイル（と、それが入っているフォルダ）は、名前を変えさせず、消させない。
-        // 添付フォルダ（.文書名）は一緒には変えない。利用者が手で揃える（SPEC 9章）。
+        // Markdown の名前を変えたら、添付フォルダ（.文書名）も一緒に変える（2026-11-03。前は利用者が手で揃えていた。Rename）。
         // =====================================================================
 
         /// <summary>右クリックのメニュー。path が null なら何も無いところ（作るメニューだけ）。</summary>
@@ -1250,7 +1252,6 @@ namespace Tsuzuri.Views
             ".git", ".svn", ".hg", ".vs", ".idea",
         };
 
-        /// <param name="styleKey">App.xaml のスタイル。ボタンは全部 ToolButton にそろえている。</param>
         /// <summary>アイコンだけの小さなボタン。字は Windows 標準のアイコン用フォント（検索欄の虫眼鏡と同じ）。</summary>
         private static Button CreateIconButton(string glyph, string tip)
         {
@@ -1262,6 +1263,7 @@ namespace Tsuzuri.Views
             return button;
         }
 
+        /// <param name="styleKey">App.xaml のスタイル。ボタンは全部 ToolButton にそろえている。</param>
         private static Button CreateButton(string content, string tip, string styleKey = "ToolButton")
         {
             var button = new Button();

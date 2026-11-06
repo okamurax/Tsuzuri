@@ -599,7 +599,7 @@ namespace Tsuzuri
 
             var powershell = "\"" + Path.Combine(Environment.SystemDirectory, "WindowsPowerShell", "v1.0", "powershell.exe") + "\" -NoLogo";
 
-            var claude = ChatView.FindClaude();
+            var claude = FindClaude();
             if (claude == null)
             {
                 if (start == null) return powershell;
@@ -656,6 +656,32 @@ namespace Tsuzuri
                          + (string.IsNullOrEmpty(name) ? string.Empty : " --name " + Quote(name)) + " @args }";
             if (start != null) command += ";claude " + start;
             return powershell + " -NoExit -EncodedCommand " + Convert.ToBase64String(Encoding.Unicode.GetBytes(command));
+        }
+
+        /// <summary>
+        /// 入れた場所（%USERPROFILE%\.local\bin）か、PATH の通った場所の claude.exe。無ければ null。
+        /// （2026-11-06。前は使っていない Views/ChatView にあった。ChatView ごと消してここへ移した）
+        /// </summary>
+        private static string FindClaude()
+        {
+            var local = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".local", "bin", "claude.exe");
+            if (File.Exists(local)) return local;
+
+            var path = Environment.GetEnvironmentVariable("PATH") ?? string.Empty;
+            foreach (var folder in path.Split(';'))
+            {
+                try
+                {
+                    var candidate = Path.Combine(folder.Trim().Trim('"'), "claude.exe");
+                    if (File.Exists(candidate)) return candidate;
+                }
+                catch (Exception)
+                {
+                    // PATH に変な項目があっても飛ばす。
+                }
+            }
+
+            return null;
         }
 
         private void ShowAiPane()
@@ -735,7 +761,8 @@ namespace Tsuzuri
 
         /// <summary>
         /// 前に落ちたエディタ（閉じる処理を通らなかったもの）が残した settings-番号.json・context-番号.md を消す（2026-10-27）。
-        /// 番号のエディタがもう動いていなければ消す。動いているもの（2つ目の起動など）のファイルは残す。できる範囲で。
+        /// 番号のプロセスがもう動いていないか、別のプログラムに番号が使い回されていれば消す。同じ名前のプロセスが動いていれば念のため残す
+        /// （アプリは1つしか動かない（App）ので、ふつうは落ちたエディタの残りだけ）。できる範囲で。
         /// </summary>
         private static void DeleteStaleAiFiles()
         {
@@ -802,7 +829,7 @@ namespace Tsuzuri
         /// ・会話が始まった・終わったとき（SessionStart・SessionEnd）: SessionHook
         /// ・話しかけたとき（UserPromptSubmit）: 「prompt」。エディタが保存して今の状態を書き出し、「ok」を返す。
         ///   そのあとで今の状態のファイルを出力する。出力は Claude への文脈になる。
-        ///   エディタが閉じていてつながらなければ、前に書いた状態をそのまま出す
+        ///   つながらなくても、状態のファイルが残っていれば前に書いた状態をそのまま出す（エディタを閉じるとファイルは消える（StopAi）ので、そのときは何も出さない）
         /// </summary>
         private static string AiSettings(string contextPath, string pipeName)
         {
@@ -974,10 +1001,6 @@ namespace Tsuzuri
         private readonly Dictionary<string, DateTime> _aiDrawingFailures = new Dictionary<string, DateTime>(StringComparer.OrdinalIgnoreCase);
 
         /// <summary>
-        /// 全部の画面・全部のエディタで共有するファイル（instructions.md）を書く。中身が同じなら書かない。書くときは一時ファイルから置き換える
-        /// （2026-11-02。前は起動のたびに書き直し、ほかのタブの claude が起動する瞬間と重なると、空や途中の指示を読むおそれがあった）。
-        /// </summary>
-        /// <summary>
         /// exe の隣の ssh フォルダを AiSshLocal へ写し、本人だけが触れる権限にする（2026-11-04。SPEC 19章）。
         /// 元で消したファイルは写した先からも消す（known_hosts は除く）。失敗しても claude の起動は止めない。
         /// </summary>
@@ -1024,6 +1047,10 @@ namespace Tsuzuri
             }
         }
 
+        /// <summary>
+        /// 全部の画面・全部のエディタで共有するファイル（instructions.md・ssh-askpass.cmd）を書く。中身が同じなら書かない。書くときは一時ファイルから置き換える
+        /// （2026-11-02。前は起動のたびに書き直し、ほかのタブの claude が起動する瞬間と重なると、空や途中の指示を読むおそれがあった）。
+        /// </summary>
         private static void WriteIfChanged(string path, string text)
         {
             try
@@ -1293,7 +1320,7 @@ namespace Tsuzuri
         }
 
         /// <summary>
-        /// AI の欄の上端の段に、今渡した状態を1行で出す（2026-10-24）。話しかけられて状態を書いたとき。
+        /// AI の欄の下端の細い行に、今渡した状態を1行で出す（2026-10-24。2026-10-26 に上端の段から下端へ移した）。話しかけられて状態を書いたとき。
         /// 例: 渡した状態  TODO.md › p3「Tasks」 12 行目  14:05:31
         /// </summary>
         private void ShowAiContextSummary()
@@ -1430,8 +1457,9 @@ namespace Tsuzuri
             if (reloaded.Count == 0) return;
 
             // 無くなったページから右は閉じる。ルートはいつもあるので、先頭は残る。
-            // 右には別のファイルのページもありうる。閉じるとそのファイルは保存の対象から外れるので、閉じる前に保存する
-            // （2026-10-24。保存せずに閉じて、別のファイルの未保存の編集が黙って消えた）。保存も別名での書き出しもできなければ閉じない。
+            // 右には別のファイルのページもありうる。閉じるとそのファイルの未保存の編集が消えるので、そこにしか無い文書に
+            // 未保存の編集があれば閉じない（KeepClosingDocuments。保存はしない）。2026-10-24 に、保存せずに閉じて別のファイルの編集が黙って消えたため。
+            // 前は閉じる前に保存していたが、2026-10-25 に自動保存をやめた。
             var lost = _stack.FindIndex(view => reloaded.Contains(view.Owner) && !view.Owner.Contains(view.PageId));
             if (lost > 0 && KeepClosingDocuments(lost))
             {

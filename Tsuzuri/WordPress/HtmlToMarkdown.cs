@@ -12,14 +12,15 @@ namespace Tsuzuri.WordPress
     ///
     /// 方針は「失わない」。Markdown で同じに書けるものだけ Markdown にし、それ以外（属性の付いた画像・div・figure・iframe・
     /// 結合した表のセルなど）は、元の HTML の文字をそのまま本文に残す。Markdown は HTML をそのまま通すので、
-    /// 保存して HTML に戻したときに、同じものが WordPress に返る。
+    /// アップロードして HTML に戻したときに、同じものが WordPress に返る。
+    /// ただし、Markdown にした部分では、Markdown で書けない飾りは残さない（2026-11-06。簡素に保つ、と利用者が決めた）。
+    /// 例: 表のセルの style は、文字の寄せ（text-align）だけを表の寄せにし、ほかの宣言は落とす。
     ///
-    /// 改行の扱い: WordPress（クラシック）は表示するときに wpautop で、段落の中の改行を &lt;br&gt; にする。
-    /// Markdown の段落の中の改行は HTML でも改行のまま出るので、WordPress では同じく &lt;br&gt; になる。
-    /// そこで、本文の改行も &lt;br&gt; も、Markdown では段落の中の改行にする。
+    /// 改行の扱い: 本文の改行（文字の中の \n）は、Markdown でも段落の中の改行にする（WordPress のクラシックは表示するときに
+    /// wpautop で &lt;br&gt; にする）。&lt;br&gt; は行末の \（強い改行）にし、アップロードすると &lt;br /&gt; に戻る（AppendInline）。
     ///
     /// コメントはそのまま残す。ブロックエディタの印（&lt;!-- wp:paragraph --&gt; など）も、サブページの印（&lt;!--page:…--&gt;）も。
-    /// 印は1行ずつの塊になり、保存すると同じ形で WordPress に返る（ブロックエディタの記事はブロックのまま）。
+    /// 印は1行ずつの塊になり、アップロードすると同じ形で WordPress に返る（ブロックエディタの記事はブロックのまま）。
     /// </summary>
     public static class HtmlToMarkdown
     {
@@ -240,8 +241,8 @@ namespace Tsuzuri.WordPress
         /// <summary>
         /// 見た目に関わらない属性（2026-10-30）。無いものとして扱い、Markdown にしてよいかの判断に入れない。
         /// Google ドキュメント等から貼った本文は、段落ごとに dir="ltr" が付いていて、前はそれだけで段落が全部 HTML のまま残った。
-        /// 保存すると、これらの属性は落ちる（見た目は変わらない）。
-        /// - dir="ltr"（左から右は既定）・dir="auto"・表の見出しの scope・role="presentation"・aria-*・data-*
+        /// 読み込んだ時点でこれらの属性は落ち、アップロードすると WordPress からも消える（見た目は変わらない）。
+        /// - dir="ltr"（左から右は既定）・dir="auto"・表のセルの scope・role（値によらず）・aria-*・data-*
         /// - 画像の width・height・decoding・loading・srcset・sizes
         /// - 何もしないと分かっているクラス（IsJunkClass）
         /// - 表の cellspacing・cellpadding、セルの valign
@@ -288,7 +289,8 @@ namespace Tsuzuri.WordPress
 
             // クラスは、全部が「何もしないと分かっているもの」（IsJunkClass）のときだけ捨てる。1つでも分からないものがあれば残す。
             // Mac のメモ等の p1・s1（#7906・#6758）、Tailwind（#6758）、クラシックエディタの画像の size-full・wp-image-123（#7825）など。
-            // pre のクラスは言語や色付けのプラグイン（Crayon など）が読むので、ここでは落とさない（Code が見る）。
+            // pre のクラスは言語や色付けのプラグイン（Crayon など）が読むので、ふつうは落とさない（Code が見る）。
+            // 例外は下の、全部が crayon- で始まるクラス（要素を問わず落とす。pre でも）。Crayon の印（lang:… などの「名前:値」）はこれに当たらない。
             // ほかのサイトから貼ったコードの色付けの span（Prism の token・highlight.js の hljs-*・Crayon の crayon-*）。
             // 色を付けるだけで、そのプラグインの枠の外では何もしない。色は消してよいと決めた（2026-10-31）。
             if (name == "class" && element == "span" && IsHighlightClass(value)) return true;
@@ -317,7 +319,8 @@ namespace Tsuzuri.WordPress
 
             // auto は、中の字から向きを決める（2026-10-31。claude.ai からコピーした表を包む <div dir="auto">。#7873）。日本語・英語の文では ltr と同じ。
             // 文字の色などの style（2026-10-31。全記事の点検で、青字の span が 151 記事・約 3,300 か所）。消してよいと決めた（利用者の判断）。
-            // 色（color）は何でも、字の大きさ・太さは本文と同じもの（1rem・400）だけ。ほかの宣言が1つでもあれば残す。
+            // 色（color）は何でも、字の大きさ・太さは本文と同じもの（1rem・400 など）だけ。ほかの宣言が1つでもあれば残す。
+            // ただし表のセル（td・th）は、ここで残っても Table が寄せ（text-align）だけを使い、ほかの宣言は落とす（2026-11-06。Markdown で書けないものは残さない）。
             if (name == "style") return IsDroppableStyle(value);
 
             if (name == "dir") return value.Trim().Equals("ltr", StringComparison.OrdinalIgnoreCase) || value.Trim().Equals("auto", StringComparison.OrdinalIgnoreCase);
@@ -745,6 +748,8 @@ namespace Tsuzuri.WordPress
                 {
                     if (cell.IsText && string.IsNullOrWhiteSpace(cell.Text)) continue;
                     if (!cell.IsElement || (cell.Name != "td" && cell.Name != "th")) return null;
+                    // セルの属性は style・align だけなら表にする。使うのは文字の寄せ（AlignmentOf）だけで、style のほかの宣言（背景の色など）は落とす
+                    // （2026-11-06。簡素に保つ、Markdown で書けないものは残さない、と利用者が決めた）。
                     if (cell.Attributes.Keys.Any(key => !key.Equals("style", StringComparison.OrdinalIgnoreCase)
                                                         && !key.Equals("align", StringComparison.OrdinalIgnoreCase))) return null;
                     // セルの中の | は、文字のものだけ \| で逃がせる。コード・属性・コメントの中の | は逃がせない（\ が残る）ので、表を HTML のまま。
@@ -878,7 +883,7 @@ namespace Tsuzuri.WordPress
             switch (node.Name)
             {
                 case "br":
-                    // 強い改行（行末の \）。保存すると <br /> に戻る。
+                    // 強い改行（行末の \）。アップロードすると <br /> に戻る。
                     // 前は段落の中の改行（WordPress のクラシックが表示するときに <br> にする）にしていたが、
                     // ブロックエディタの記事ではそれが効かず、<br><br> も1つになった（2026-10-30 のレビュー）。
                     builder.Append("\\\n");
@@ -986,7 +991,7 @@ namespace Tsuzuri.WordPress
 
         /// <summary>
         /// 太字・斜体・打消し。CommonMark は、記号の内側が句読点・括弧で、外側が文字だと強調にならない（例: 文字**「語」**文字）。
-        /// そうなるときは HTML のまま残す（Markdown にすると、保存したときに強調が消えるため）。
+        /// そうなるときは HTML のまま残す（Markdown にすると、アップロードしたときに強調が消えるため）。
         /// 属性の付いたもの（style など）も HTML のまま。
         /// </summary>
         private static void AppendEmphasis(StringBuilder builder, Node node, Node next, string mark, string html)

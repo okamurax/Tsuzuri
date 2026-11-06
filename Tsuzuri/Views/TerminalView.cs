@@ -20,7 +20,8 @@ namespace Tsuzuri.Views
     /// claude.exe とは ConPTY（Views/PseudoConsole）でつなぐ。どれも正式に公開・保守されている部品で、
     /// 前に試した「コンソールの窓を入れ子にする」形のような小細工は要らない。
     ///
-    /// ページの用意ができたら（ready）、その桁数と行数で claude を起動する。終わったら、Enter で新しく起動し直す。
+    /// ページの用意ができたら（ready）、その桁数と行数で、渡されたコマンド（PowerShell。最初は中で claude も起動する）を動かす。
+    /// 終わったら、Enter で新しく起動し直す（そのときのコマンドは、また尋ねる。AI の欄では PowerShell だけになる）。
     /// タブを閉じるとき・エディタを閉じるときは Dispose で、中のプログラムも WebView2 も片付ける（2026-10-27）。
     /// </summary>
     public sealed class TerminalView : Border, IDisposable
@@ -54,14 +55,15 @@ namespace Tsuzuri.Views
 
         // 出力はためて、まとめて渡す（2026-10-27）。前は 8KB ごとに画面のスレッドへ頼んでいて（優先度も普通）、
         // 出力が多いとき（長い差分など）にエディタの打鍵や描画が待たされた。
-        // ためる口は読む側のスレッド、渡すのは画面のスレッド。頼みは1つだけ出しておき、打鍵より低い優先度（Background）で動かす。
+        // ためる口は読む側のスレッド、渡すのは画面のスレッド。頼みは1つだけ出しておき、普通の優先度（Normal）で動かす（QueueOutput。
+        // 2026-10-28。前は打鍵より低い Background で、打った文字が出るまでの遅れに足されていた）。
         private readonly object _outputGate = new object();
         private readonly StringBuilder _output = new StringBuilder();
         private PseudoConsole _outputConsole;
         private bool _flushQueued;
 
-        /// <param name="commandLine">起動するコマンド（claude.exe と引数）。起動するたびに尋ねる。用意できなければ null。</param>
-        /// <param name="folder">起動するフォルダ（開いているファイルのフォルダ）。起動するたびに尋ねる。</param>
+        /// <param name="commandLine">起動するコマンド（exe のパスと引数。AI の欄では powershell.exe）。起動するたびに尋ねる。null を返せば起動しない。</param>
+        /// <param name="folder">起動するフォルダ（AI の欄では、戻した会話のフォルダ・開いているファイルのフォルダ・利用者のフォルダなど）。起動するたびに尋ねる。</param>
         public TerminalView(Func<string> commandLine, Func<string> folder)
         {
             _commandLine = commandLine;
@@ -386,8 +388,8 @@ namespace Tsuzuri.Views
                 return;
             }
 
-            // 起動するコマンドは、フォルダを確かめてから尋ねる（2026-10-27）。尋ねると「＋」で選んだ起動のしかた（続き・履歴など）を
-            // 使い切るので、前のように先に尋ねてからフォルダが無くて起動しないと、Enter で起動し直したときにただの PowerShell になった。
+            // 起動するコマンドは、フォルダを確かめてから尋ねる（2026-10-27）。尋ねると最初の1回だけの起動のしかた（claude を起動する・
+            // 前の会話の続き）を使い切るので、前のように先に尋ねてからフォルダが無くて起動しないと、Enter で起動し直したときにただの PowerShell になった。
             var commandLine = _commandLine != null ? _commandLine() : null;
             if (commandLine == null)
             {

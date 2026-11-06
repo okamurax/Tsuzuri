@@ -25,7 +25,8 @@ namespace Tsuzuri.Views
     /// 空きマスは描かない。落とす先だけ青い枠で示す。
     /// ウィンドウの幅が変わっても回り込ませない（場所で覚えている用途の並びが崩れるため）。はみ出したらスクロール。
     ///
-    /// ファイラーと一緒の画面の左側に置く（MainWindow の LauncherHost）。その画面は、本文の場所にぴったり重ねて出す（2026-10-31）。
+    /// ファイラーと一緒の画面の左側に置く（MainWindow の LauncherHost）。その画面は、本文の場所の上半分に重ねて出す（2026-10-31）。
+    /// 下半分のエディタは見えたままで、ファイラーからドラッグできる。
     /// </summary>
     public sealed class LauncherView : DockPanel
     {
@@ -39,20 +40,8 @@ namespace Tsuzuri.Views
         private const double Gap = 4;
         private const double Margin0 = 16;
 
-        // スクロールバーの分の空き。マス目がちょうど収まるかを見るときに引く（Rebuild の fitColumns と同じ）。
+        // スクロールバーの分の空き。画面にマス目がいくつ収まるかを見るときに引く（Rebuild の fitColumns・fitRows）。
         private const double ScrollAllowance = 12;
-
-        /// <summary>
-        /// 画面に出すときの幅で、横に並ぶマスの数（2026-10-14）。ファイラーと並べるので、本文の幅に合わせず決まった幅にする。
-        /// 登録がこれより右にあれば、横にスクロールする。
-        /// </summary>
-        public const int VisibleColumns = 5;   // 6 から減らした（2026-10-24）
-
-        /// <summary>マスが横に VisibleColumns 個ちょうど並ぶ幅（MainWindow がランチャーとファイラーの画面の幅を決めるのに使う）。</summary>
-        public static double PreferredWidth
-        {
-            get { return Margin0 * 2 + VisibleColumns * TileWidth + (VisibleColumns - 1) * Gap + ScrollAllowance; }
-        }
 
         private const double EdgeZone = 40;
         private const double EdgeStep = 20;
@@ -127,8 +116,8 @@ namespace Tsuzuri.Views
             LastChildFill = true;
             Background = Resource("SidebarBackground");   // アウトラインと同じ地（SPEC 4章）
 
-            // 見出しの段は持たない。開いた画面の上端の段（検索欄）がそのまま見えていて、
-            // その右端の「ランチャー」で閉じる（SPEC 4章）。
+            // 見出しの段は持たない。ツールバーの「ランチャー」をもう一度押すか、外を押すと閉じる（SPEC 4章。
+            // 前はページの上端の段の右端に「ランチャー」があった）。
 
             _canvas.HorizontalAlignment = HorizontalAlignment.Left;
             _canvas.VerticalAlignment = VerticalAlignment.Top;

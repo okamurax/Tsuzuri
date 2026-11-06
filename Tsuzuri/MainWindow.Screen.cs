@@ -13,7 +13,7 @@ namespace Tsuzuri
     //
     // 終了したときと同じ画面で起動し、ブックマークを開いたときも登録したときと同じ画面にする。
     // 覚えるのは、開いていたページの並び（別のファイルのページも）と、それぞれのカーソル・スクロール・検索欄、
-    // フォーカスのあったページ、ランチャー、AI の欄（ScreenState）。
+    // フォーカスのあったページ（今はいつもいちばん右のページ）、ランチャー、AI の欄（ScreenState）。
     // 前は、起動ではルートのページとカーソルの行だけ、ブックマークではいちばん右のページと全幅だけを戻していた。
     public partial class MainWindow
     {
@@ -77,8 +77,10 @@ namespace Tsuzuri
         {
             if (screen == null || screen.Pages == null || screen.Pages.Count == 0) return ScreenNotApplicable;
 
-            // 画面に出すのはいちばん右のページだけ（SPEC 6章）。左右2画面だった前の版で覚えたものは、
+            // 画面に出すのはいちばん右のページだけ（SPEC 6章）。左右2画面だった前の版（2026-10-27 より前）で覚えたものは、
             // フォーカスのあったページより右を捨てて、そのページを出す。並びを決める前に切る。
+            // 今の版が覚える Focus はいつもいちばん右のページ（フォーカスを持てるのは出ているページだけ）なので、ここで切るのは
+            // 前の版の app.json・state.json（見出しのブックマークの画面）だけ。
             var saved = screen.Focus >= 0 && screen.Focus < screen.Pages.Count - 1
                 ? screen.Pages.Take(screen.Focus + 1).ToList()
                 : screen.Pages;
@@ -277,7 +279,10 @@ namespace Tsuzuri
             }), DispatcherPriority.ApplicationIdle);
         }
 
-        /// <summary>終了するとき、今の画面の状態とたたんでいた見出しを覚える（app.json に書くのは StoreLayout）。</summary>
+        /// <summary>
+        /// 今の画面の状態とたたんでいた見出しを、設定（メモリの上）に覚える。終了するとき（app.json に書くのは StoreLayout）と、
+        /// ScheduleRememberScreens から（ページを移った・保存した・ほかのアプリに切り替えたとき。app.json に書くのはそちら）。
+        /// </summary>
         private void RememberLastScreen()
         {
             // 戻し終わる前（WordPress の記事を読み込み直している最中など）に書くと、覚えていた画面を空の画面で上書きしてしまう。

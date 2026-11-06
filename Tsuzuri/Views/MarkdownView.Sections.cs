@@ -18,7 +18,7 @@ using Tsuzuri.Markdown;
 
 namespace Tsuzuri.Views
 {
-    // MarkdownView の一部: 見出しの節を動かす・レベルを変える・足す・消す・名前を変える（アウトラインから呼ぶ）。
+    // MarkdownView の一部: 見出しの節を動かす・レベルを変える・子を並べ替える・消す（アウトラインから呼ぶ）。
     // MarkdownView.cs が大きくなりすぎたので分けた（2026-10-14。中身は変えていない）。
     public partial class MarkdownView
     {
@@ -189,99 +189,19 @@ namespace Tsuzuri.Views
 
         private static readonly Regex AtxHashes = new Regex(@"^ {0,3}(#{1,6})(?=[ \t]|$)", RegexOptions.Compiled);
 
-        /// <summary>
-        /// 見出しの行の # の数を delta だけ増やす・減らす（SPEC 7章 アウトラインの ◀ ▶）。
-        /// 変えるのはその行の # だけで、位置も配下の見出しもそのまま。1〜6 の外へは変えない（LevelOutOfRange）。
-        /// 下線式の見出しは # が無いので変えない（LevelNotAtx）。引用・リストの中の見出しも変えない（LevelNotPlain）。
-        /// 見出しの行でなければ -1。1回の置き換えなので元に戻す1回で戻る。新しいレベルを返す。
-        /// </summary>
-        public int ChangeHeadingLevel(int headingLine, int delta)
-        {
-            if (IsReadOnly || headingLine < 1 || headingLine > Document.LineCount) return -1;
-
-            var info = GetLineInfo(headingLine);
-            if (info == null || info.Kind != LineKind.Heading || info.ContinuesHeading) return -1;
-
-            var line = Document.GetLineByNumber(headingLine);
-            var match = AtxHashes.Match(Document.GetText(line.Offset, line.Length));
-            if (!match.Success) return NotAtxReason(Document.GetText(line.Offset, line.Length));
-
-            var hashes = match.Groups[1];
-            var level = hashes.Length + delta;
-            if (level < 1 || level > 6) return LevelOutOfRange;
-
-            Document.Replace(line.Offset + hashes.Index, hashes.Length, new string('#', level));
-            return level;
-        }
+        // 見出しのレベルを変える（アウトラインの右クリック）は、MoveSectionTo をその場に置いたまま使う（MainWindow.ChangeHeadingLevel）。
+        // その行の # だけを変える ChangeHeadingLevel は、使われなくなったので外した（2026-11-06）。
 
         // ---------------------------------------------------------------
-        // 見出しを足す・消す・名前を変える（SPEC 7章 アウトラインの右クリック）
+        // 見出しの子を並べ替える・見出しを消す（SPEC 7章 アウトラインの右クリック）
         //
         // どれも書き換えたあとの文書を読み直し、見出しの顔ぶれが思ったとおりでなければ取りやめる。
         // 1回の書き換えで済ませるので、元に戻す1回で戻る。
+        // 見出しを足す（InsertHeading）・名前を変える（RenameHeading）は、アウトラインの名前の入力と一緒に外した（2026-11-06）。
         // ---------------------------------------------------------------
 
-        /// <summary>名前が空、または書き換えると見出しとして読めない・ほかの見出しが変わる。</summary>
-        public const int HeadingNameInvalid = -7;
-
-        /// <summary>この見出しの名前はここでは変えられない（引用・リストの中、2行以上の下線式の見出し）。</summary>
+        /// <summary>引用・リストの中の見出しが節の切れ目になるので、消せない（DeleteSection）。</summary>
         public const int HeadingNotEditable = -8;
-
-        /// <summary>
-        /// 見出しを足す。headingLine の見出しの節のすぐ後ろに、asChild なら1つ下のレベル（その見出しの中の最後）、
-        /// そうでなければ同じレベル（すぐ後ろの兄弟）で。headingLine が 0 以下なら文書の最後に、文書の中で一番浅いレベル（無ければ #）で。
-        /// 足した見出しの行番号を返す。
-        /// </summary>
-        public int InsertHeading(int headingLine, bool asChild, string name)
-        {
-            if (IsReadOnly) return -1;
-
-            name = OneLine(name);
-            if (name.Length == 0) return HeadingNameInvalid;
-
-            var entries = EnsureOutline();
-            var text = Document.Text;
-
-            int at, level;
-            if (headingLine <= 0)
-            {
-                at = text.Length;
-                level = entries.Count > 0 ? entries.Min(entry => entry.Level) : 1;
-            }
-            else
-            {
-                var index = IndexOfHeading(entries, headingLine);
-                if (index < 0) return -1;
-
-                var end = SectionEnd(entries, index);
-                at = end >= 0 ? Document.GetLineByNumber(entries[end].Line).Offset : text.Length;
-                level = entries[index].Level + (asChild ? 1 : 0);
-                if (level > 6) return LevelOutOfRange;
-            }
-
-            // 足す位置のすぐ後ろが引用・リストの中の見出しなら足さない。引用やリストが途中で切れるため。
-            if (at < text.Length && InsideContainer(Document.GetLineByOffset(at).LineNumber)) return HeadingNotEditable;
-
-            if (EndsWithClosingHashes(name)) return HeadingNameInvalid;
-
-            // 足す見出しは、前を空行で区切る。後ろに見出しが続くなら、そこも空行で区切る。
-            var before = text.Substring(0, at);
-            var lead = at == 0 ? string.Empty : BreaksToBlankLine(before);
-            var follows = at < text.Length;
-            var inserted = lead + new string('#', level) + " " + name + "\n" + (follows ? "\n" : string.Empty);
-
-            // 足したあとの見出しが、前の見出しに新しい1つを足したものになっているか確かめる。
-            // 名前の読み方（** などの書式を外した名前）は、その名前だけの見出しを読んで決める。
-            var parsed = MarkdownParser.Headings(new string('#', level) + " " + name);
-            if (parsed.Count != 1 || parsed[0].Text.Length == 0) return HeadingNameInvalid;
-
-            var expected = new List<OutlineHeading>(entries) { new OutlineHeading(level, parsed[0].Text, 0) };
-            var candidate = before + inserted + text.Substring(at);
-            if (!SameHeadings(expected, MarkdownParser.Headings(candidate))) return HeadingNameInvalid;
-
-            Document.Insert(at, inserted);
-            return Document.GetLineByOffset(at + lead.Length).LineNumber;
-        }
 
         /// <summary>並べ替える子の見出しが2つ未満。</summary>
         public const int SortTooFew = -9;
@@ -290,7 +210,7 @@ namespace Tsuzuri.Views
         /// 見出しの直下の子の見出しを、名前で並べ替える（SPEC 7章。2026-10-27）。孫の見出しと本文は、それぞれの子と一緒に動く。
         /// 直下の子は、アウトラインの木と同じ決め方（親の節の中で、それより前のどの見出しよりも浅いか同じ見出し）。
         /// 最初の子より前の本文は、親のものとしてその場に残す。
-        /// 並べる順は CompareNames（数字は数として比べる。ひらがなとカタカナ・全角と半角は区別しない）。同じ名前は元の並びのまま。
+        /// 並べる順は NameComparer（数字は数として比べる。ひらがなとカタカナ・全角と半角は区別しない）。同じ名前は元の並びのまま。
         /// 並べ替えたあとの見出しの並びが思ったとおりでなければ取りやめる（MoveChangesMeaning）。
         /// 子が2つ未満なら SortTooFew、引用・リストの中の見出しが境目になるなら LevelNotPlain、並びが変わらなければ MoveUnchanged。
         /// 変わった部分だけを1回で置き換えるので、元に戻すも1回で戻る。成功なら親の見出しの行番号。
@@ -478,116 +398,6 @@ namespace Tsuzuri.Views
             return 0;
         }
 
-        /// <summary>
-        /// 見出しの名前の部分（# と空白の後ろ、閉じの # の手前）。本文に書いてあるとおりの文字（** などの書式も含む）。
-        /// # の見出しと、1行の下線式の見出しだけ。それ以外は null（HeadingNotEditable）。
-        /// </summary>
-        public string HeadingName(int headingLine)
-        {
-            int start, length;
-            return HeadingNameRange(headingLine, out start, out length);
-        }
-
-        /// <summary>見出しの名前を書き換える。ほかの見出しもレベルも変わらないときだけ。見出しの行番号を返す。</summary>
-        public int RenameHeading(int headingLine, string name)
-        {
-            if (IsReadOnly) return -1;
-
-            name = OneLine(name);
-            if (name.Length == 0) return HeadingNameInvalid;
-
-            var entries = EnsureOutline();
-            var index = IndexOfHeading(entries, headingLine);
-            if (index < 0) return -1;
-
-            int start, length;
-            if (HeadingNameRange(headingLine, out start, out length) == null) return HeadingNotEditable;
-
-            if (EndsWithClosingHashes(name)) return HeadingNameInvalid;
-
-            // 下線式の見出しの名前を、行の頭が別の意味になる文字（# > - + * 1.）で始めると、見出しの形が変わる
-            // （「## 名前」にすると # の見出しと横線になる）。# の見出しなら、名前の中なのでかまわない。
-            var line = Document.GetLineByNumber(headingLine);
-            if (!AtxHeadingLine.IsMatch(Document.GetText(line.Offset, line.Length)) && BlockStart.IsMatch(name)) return HeadingNameInvalid;
-
-            var text = Document.Text;
-            if (start > 0 && text[start - 1] == '#') name = " " + name;   // 名前の無かった見出し。# の直後に空白が要る
-
-            var candidate = text.Substring(0, start) + name + text.Substring(start + length);
-            var after = MarkdownParser.Headings(candidate);
-            if (after.Count != entries.Count) return HeadingNameInvalid;
-
-            for (var i = 0; i < after.Count; i++)
-            {
-                if (after[i].Level != entries[i].Level) return HeadingNameInvalid;
-                if (i != index && after[i].Text != entries[i].Text) return HeadingNameInvalid;
-                if (i == index && after[i].Text.Length == 0) return HeadingNameInvalid;
-            }
-
-            Document.Replace(start, length, name);
-            return headingLine;
-        }
-
-        private string HeadingNameRange(int headingLine, out int start, out int length)
-        {
-            start = 0;
-            length = 0;
-            if (headingLine < 1 || headingLine > Document.LineCount) return null;
-
-            var line = Document.GetLineByNumber(headingLine);
-            var text = Document.GetText(line.Offset, line.Length);
-
-            var atx = AtxHeadingLine.Match(text);
-            if (atx.Success)
-            {
-                var content = atx.Groups[2];
-                if (!content.Success)
-                {
-                    // 名前の無い見出し（「##」だけ）。# の後ろ全部を名前の場所にする（書くときに空白を足す）。
-                    start = line.Offset + atx.Groups[1].Length;
-                    length = text.Length - atx.Groups[1].Length;
-                    return string.Empty;
-                }
-
-                start = line.Offset + content.Index;
-                length = content.Length;
-                return content.Value;
-            }
-
-            var next = line.NextLine;
-            if (next != null && SetextUnderline.IsMatch(Document.GetText(next.Offset, next.Length))
-                && !QuoteOrListStart.IsMatch(text))
-            {
-                // 1行の下線式の見出し。前の行が見出しの続き（2行以上）なら変えない。
-                var info = GetLineInfo(headingLine);
-                if (info != null && info.ContinuesHeading) return null;
-
-                var trimmed = text.Trim();
-                if (trimmed.Length == 0) return null;
-                start = line.Offset + text.IndexOf(trimmed, StringComparison.Ordinal);
-                length = trimmed.Length;
-                return trimmed;
-            }
-
-            return null;
-        }
-
-        /// <summary># の見出しの行。2つ目のかたまりが名前（閉じの # と前後の空白は含めない）。</summary>
-        private static readonly Regex AtxHeadingLine = new Regex(@"^( {0,3}#{1,6})(?:[ \t]+(.*?))??(?:[ \t]+#+)?[ \t]*$", RegexOptions.Compiled);
-
-        private static readonly Regex SetextUnderline = new Regex(@"^ {0,3}(=+|-+)[ \t]*$", RegexOptions.Compiled);
-
-        /// <summary>行の頭に置くと、段落ではなく別のもの（見出し・引用・リスト）になる書き出し。</summary>
-        private static readonly Regex BlockStart = new Regex(@"^(#|>|[-*+]([ \t]|$)|\d{1,9}[.)]([ \t]|$))", RegexOptions.Compiled);
-
-        /// <summary>
-        /// 名前の終わりが「空白 + #」（または # だけ）。# の見出しでは閉じの # とみなされて消えるので、その名前では作らない・変えない。
-        /// </summary>
-        private static bool EndsWithClosingHashes(string name)
-        {
-            return Regex.IsMatch(name, @"(^|[ \t])#+$");
-        }
-
         /// <summary>その行が引用・リストの中か（印で始まる・4つ以上字下げしている）。</summary>
         private bool InsideContainer(int lineNumber)
         {
@@ -595,12 +405,6 @@ namespace Tsuzuri.Views
 
             var line = Document.GetLineByNumber(lineNumber);
             return QuoteOrListStart.IsMatch(Document.GetText(line.Offset, line.Length));
-        }
-
-        /// <summary>見出しの名前は1行。改行が入っていたら空白にし、前後の空白を外す。</summary>
-        private static string OneLine(string name)
-        {
-            return (name ?? string.Empty).Replace("\r", " ").Replace("\n", " ").Trim();
         }
 
         /// <summary>text の後ろに見出しを置くとき、空行1つ（改行2つ）にするために足りない改行。</summary>

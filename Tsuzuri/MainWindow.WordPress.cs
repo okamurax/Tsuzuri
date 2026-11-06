@@ -30,8 +30,8 @@ namespace Tsuzuri
         // 保存は手元の一時ファイルまで。WordPress を更新するのは「WordPress」の「アップロード」を押したときだけ（2026-10-30。
         // 初めは保存で更新していたが、Claude に話しかけたときの保存でも更新され、参考に話しかけただけで公開中の記事を上書きしかねないため）。
         // 新しい記事は、開いている .md を写して作る（「この .md を新しい記事にする」）。初めてアップロードしたときに WordPress に作る。閉じるときに、アップロードしていない変更があれば知らせる（アップロードはしない）。
-        // 手元には状態を残さない。読み込んだ記事は一時フォルダの .md として開くだけで、エディタを閉じたら（落ちても）それで終わり。
-        // 一時フォルダは次に起動したときに消す。手元に残したければ「.md で保存…」で、ふつうの .md として別に書き出す（WordPress とは結び付かない）。
+        // 手元には状態を残さない。読み込んだ記事は一時フォルダの .md として開くだけで、エディタを閉じたら（落ちても）手元の中身はそれで終わり
+        // （アップロードしていない変更は残らない）。一時フォルダは次に起動したときに消し、開いていた記事は WordPress から読み込み直す（ReopenWordPressPost）。手元に残したければ「.md で保存…」で、ふつうの .md として別に書き出す（WordPress とは結び付かない）。
         // 接続先は exe の隣の wordpress.json（WordPressSettings。GitHub に出さない）。
         // ---------------------------------------------------------------
 
@@ -81,7 +81,7 @@ namespace Tsuzuri
             }
         }
 
-        /// <summary>前の起動の一時フォルダを消す（最初の画面が起動したとき。増やした画面は、ほかの画面の記事を消してしまうので呼ばない）。読み込んだ記事は、エディタを閉じたらそれで終わり。</summary>
+        /// <summary>前の起動の一時フォルダを消す（最初の画面が起動したとき。増やした画面は、ほかの画面の記事を消してしまうので呼ばない）。手元の中身は残さず、開いていた記事は WordPress から読み込み直す（ReopenWordPressPost）。</summary>
         private static void CleanWordPressTemp()
         {
             try
@@ -432,7 +432,7 @@ namespace Tsuzuri
             load();
         }
 
-        /// <summary>今開いている記事の欄。状態（下書き・公開…）は、次に保存したときに WordPress に送る。</summary>
+        /// <summary>今開いている記事の欄。状態（下書き・公開…）は、次にアップロードしたときに WordPress に送る。</summary>
         private void AddCurrentPostSection(StackPanel panel, Action close, MarkdownView view, WordPressLink link)
         {
             var divider = new Border { Height = 1, Background = (Brush)FindResource("BorderBrushSoft"), Margin = new Thickness(0, 12, 0, 12) };

@@ -38,7 +38,7 @@ namespace Tsuzuri.WordPress
 
     /// <summary>
     /// WordPress の REST API（/wp-json/wp/v2/posts）。アプリケーションパスワードの Basic 認証で読み書きする（SPEC 20章）。
-    /// 呼び出しは待つ（同期）。保存のときは、反映できたかで保存の成否を決めるため。一覧などは呼び出し側が裏のスレッドで呼ぶ。
+    /// 呼び出しは待つ（同期）。アップロードのときは、反映できたかでアップロードの成否を決めるため。一覧などは呼び出し側が裏のスレッドで呼ぶ。
     /// </summary>
     public sealed class WordPressClient
     {

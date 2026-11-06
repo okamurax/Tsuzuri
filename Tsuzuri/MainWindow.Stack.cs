@@ -101,7 +101,7 @@ namespace Tsuzuri
             foreach (var view in _stack) view.SetLinkTextOnly(_settings.ImageLinkTextOnly);
         }
 
-        /// <summary>連鎖を捨てて、このファイルのルートページを全幅で開く。</summary>
+        /// <summary>連鎖を捨てて、このファイルのルートページを開く。</summary>
         private void OpenRoot(string path)
         {
             path = ShellActions.CanonicalPath(path);   // 入口でパスの書き方を揃える。中では文字列で比べる
@@ -146,7 +146,8 @@ namespace Tsuzuri
 
         /// <summary>
         /// 起動時に、前回終了したときに開いていたファイルを開き直す（SPEC 4章）。カーソルの行は OpenRoot が state.json から戻す。
-        /// ファイルが見つからなければ（移した・消した・同期がまだ等）黙って何も開かない。覚えた場所は終了時に書き換わる。
+        /// ファイルが見つからなければ（移した・消した・同期がまだ等）黙って何も開かない。
+        /// 覚えた場所は、ファイルを開いたとき（OpenRoot）・画面の状態を覚えるとき（ScheduleRememberScreens）・終了時に書き換わる。
         /// </summary>
         private void OpenLastFile()
         {
@@ -566,6 +567,7 @@ namespace Tsuzuri
             _filer = new FilerView(Status, OpenInApp, CreateFromFiler, IsInUse, OnFilerRenamed);
 
             // 前回最後に見ていたフォルダから。無ければ見ているページのフォルダ、それも無ければドキュメント。
+            // ただし作るのはコンストラクタの中で、まだ何も開いていないので、今は「見ているページのフォルダ」になることは無い。
             var folder = _settings.FilerFolder;
             if (string.IsNullOrEmpty(folder) || !Directory.Exists(folder)) folder = CurrentFolder();
             if (string.IsNullOrEmpty(folder))
@@ -600,7 +602,10 @@ namespace Tsuzuri
             _settings.FilerWidth = FilerColumn.ActualWidth;
         }
 
-        /// <summary>見出しを書き換えたら、帯のタイトルも追いかける。</summary>
+        /// <summary>
+        /// 見出しを書き換えたら、出ているページの上端のタイトル（TitleSlot）も追いかける。
+        /// 左の縦帯の題は追いかけない（組み直す（RebuildStack）ときに作り直す）。
+        /// </summary>
         private void RefreshPageTitles()
         {
             var count = Math.Min(_pageTitles.Count, _visible.Count);

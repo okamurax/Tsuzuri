@@ -6,7 +6,7 @@ using System.Windows.Shapes;
 namespace Tsuzuri.Views
 {
     /// <summary>
-    /// ファイラーやブックマークの行の頭に置く、種類ごとに色を付けたアイコン（SPEC 16章）。
+    /// ファイラーの行の頭に置く、種類ごとに色を付けたアイコン（SPEC 16章）。Windows のアイコン（ShellIcons.ForListing）が取れなかったときだけ使う。
     ///
     /// 絵文字（📁 📄）は WPF では色が付かず、どれも同じ灰色の形になって見分けにくい。
     /// Visual Studio のソリューション エクスプローラーと同じく、塗らずに 1px の線だけで描く

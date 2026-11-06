@@ -104,7 +104,7 @@ namespace Tsuzuri
                 // リンク切れはソフトで管理しない方針なので、その場で作るかだけ尋ねる。
                 var answer = MessageBox.Show(this,
                     "リンク先のファイルがありません。作成しますか？" + Environment.NewLine + path,
-                    "サブページ", MessageBoxButton.YesNo, MessageBoxImage.Question);
+                    "新しいファイル", MessageBoxButton.YesNo, MessageBoxImage.Question);
 
                 if (answer != MessageBoxResult.Yes) return;
 
@@ -430,7 +430,8 @@ namespace Tsuzuri
         // ---------------------------------------------------------------
         // 本文へのドロップ = リンク挿入（SPEC 9章）
         //
-        // ファイルのコピーも移動もしない。元の場所を指すリンクを書くだけ。
+        // 落としたファイルは、文書の添付フォルダ（.文書名/）に写して取り込み、そこを指すリンクを書く（Localize）。元のファイルは動かさない。
+        // .md は文書なので取り込まず、元の場所を指すリンクにする。
         //
         // AvalonEdit も自前でドロップを受け取るため、Preview（親から子へ降りる
         // 経路）で先に捕まえて Handled にする。そうしないとエディタが

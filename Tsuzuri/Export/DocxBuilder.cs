@@ -110,7 +110,7 @@ namespace Tsuzuri.Export
         /// <summary>左の字下げ（twip）。0 なら書かず、スタイルに任せる。</summary>
         public int Indent;
 
-        /// <summary>1行目だけ左へぶら下げる幅（twip）。箇条書きの記号の置き場所。</summary>
+        /// <summary>1行目だけ左へぶら下げる幅（twip）。番号付きの箇条書きの番号の置き場所。</summary>
         public int Hanging;
 
         /// <summary>"center" / "right"。null なら左。</summary>
@@ -164,7 +164,10 @@ namespace Tsuzuri.Export
         /// <summary>見出しの深さとして使う段の数。見出し 1〜6 に合わせる。</summary>
         public const int MaxDepth = 6;
 
-        /// <summary>記号の箇条書きは全部これを使う。番号付きは段落ごとに振り直すので別に作る。</summary>
+        /// <summary>
+        /// 記号の箇条書きの番号定義（numbering.xml に書くだけ）。今は記号の箇条書きに記号を付けない（DocxExporter.WriteList）ので、
+        /// これを使う段落は無い。番号付きはリストごとに振り直すので、この次の番号から別に作る。
+        /// </summary>
         public const int BulletNumbering = 1;
 
         private sealed class Media

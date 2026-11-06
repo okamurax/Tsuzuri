@@ -875,7 +875,9 @@ namespace Tsuzuri.Views
         // 1行の中だけを書き換えたときは、その行を含む「空行で区切られたかたまり」だけを解析し直し、結果を差し替える。
         // 差し替えてよいのは、かたまりの行の種類（見出し・箇条書き・表…）とレベルが前と全部同じときだけ。
         // 種類が変わる（# を打って見出しにした、``` を打った等）と、後ろの行の意味まで変わりうるので、今までどおり全体を解析し直す。
-        // 空行をまたいで効く書き方（HTML のかたまり・リンクや脚注の定義）がある文書では使わない（DocumentModel.Fragile）。
+        // 空行をまたいで効く書き方（リンクや脚注の定義・閉じていないコードフェンス）がある文書では使わない（DocumentModel.Fragile）。
+        // 空行をまたいで続く HTML のかたまり（<script>・<!-- --> など）は、文書全体では止めず、その近くの行だけで使わない（TouchesHtml。
+        // 前は HTML のかたまりが1つでもあると文書全体で使わなかった）。
         // =====================================================================
 
         /// <summary>前の TextChanged から後の、文書の書き換えの数。</summary>
@@ -1813,7 +1815,7 @@ namespace Tsuzuri.Views
         /// </summary>
         private void OnRevealMouseDown(object sender, MouseButtonEventArgs e)
         {
-            if (IsInTable(e.OriginalSource)) return;   // 表の上は表の部品が受け持つ（押すと生の Markdown に戻す。SPEC 8.4.1）
+            if (IsInTable(e.OriginalSource)) return;   // 表の上は表の部品が受け持つ（押すと表エディタを開く。SPEC 8.4.2）
 
             _followCaret = false;
 
@@ -2090,7 +2092,8 @@ namespace Tsuzuri.Views
         }
 
         /// <summary>
-        /// その行で画面から消す範囲。カーソルのある行は消さない（生のソースを見せる）。
+        /// その行で画面から消す範囲。生ソースで見せている行（_liveLine）と、選択がかかっている行は消さない（IsLive）。
+        /// クリックしただけのカーソルの行は、生ソースにしていなければ消す。
         /// 消すものが無ければ null。
         ///
         /// 生成器が1行につき何度も呼ぶので、直前の1行ぶんだけ覚えておく。
@@ -2292,10 +2295,6 @@ namespace Tsuzuri.Views
             return images;
         }
 
-        /// <summary>
-        /// 画像の行の見せ方。true ならリンクの文字だけ、false なら画像だけ（リンクの文字列は隠す）。
-        /// どちらでも、カーソルのある行（生ソースの行）ではリンクの文字列を出す。
-        /// </summary>
         /// <summary>画像を読み直して描き直す（図エディタで図を描き直したあと。SPEC 8.4.3）。読んだ画像は更新時刻で見分けるので、変わった物だけ読み直す。</summary>
         public void RefreshImages()
         {
@@ -2305,6 +2304,10 @@ namespace Tsuzuri.Views
             TextArea.TextView.Redraw();
         }
 
+        /// <summary>
+        /// 画像の行の見せ方。true ならリンクの文字だけ、false なら画像だけ（リンクの文字列は隠す）。
+        /// どちらでも、生ソースで見せている行ではリンクの文字列を出す。
+        /// </summary>
         public void SetLinkTextOnly(bool linkTextOnly)
         {
             if (_linkTextOnly == linkTextOnly) return;
@@ -3202,7 +3205,7 @@ namespace Tsuzuri.Views
             // できなくなり、リンクを含む文字列を編集できなくなる。
             if (e.ClickCount != 1) return;
             if (Keyboard.Modifiers != ModifierKeys.None) return;
-            if (IsInTable(e.OriginalSource)) return;   // 表の中のリンクは開かない。押すと生の Markdown に戻す
+            if (IsInTable(e.OriginalSource)) return;   // 表の中のリンクは開かない。押すと表エディタを開く（表の部品が受け持つ）
 
             // 画像はリンクと同じく開く。カーソルのある行でも、画像は編集する文字ではない。
             var link = ImageLinkOf(e.OriginalSource) ?? HitTestLink(e.GetPosition(this));
@@ -3301,6 +3304,13 @@ namespace Tsuzuri.Views
             return false;
         }
 
+        /// <summary>行の下に出した画像の上なら、その画像を指すリンク。</summary>
+        private static LinkSpan ImageLinkOf(object source)
+        {
+            var element = source as FrameworkElement;
+            return element == null ? null : element.Tag as LinkSpan;
+        }
+
         /// <summary>
         /// その座標にリンクがあるか。無ければ null。
         ///
@@ -3309,13 +3319,6 @@ namespace Tsuzuri.Views
         /// 右の空白をクリックしただけで飛んでしまうので、
         /// 先に「本当に文字の上か」を座標で確かめる。
         /// </summary>
-        /// <summary>行の下に出した画像の上なら、その画像を指すリンク。</summary>
-        private static LinkSpan ImageLinkOf(object source)
-        {
-            var element = source as FrameworkElement;
-            return element == null ? null : element.Tag as LinkSpan;
-        }
-
         private LinkSpan HitTestLink(Point point)
         {
             var textView = TextArea.TextView;

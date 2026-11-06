@@ -444,13 +444,6 @@ namespace Tsuzuri
         private void OutlineItem_Click(object sender, MouseButtonEventArgs e)
         {
             // ドラッグで動かしたときのボタン離しは、OutlineTree_PreviewMouseLeftButtonUp で止めるので、ここへは来ない。
-            // 名前を打つ欄の中のクリックは、欄に任せる。親の見出しの項目にも伝えない（伝わると親の見出しへ移ってしまう）。
-            if (IsInsideTextBox(e.OriginalSource as DependencyObject))
-            {
-                e.Handled = true;
-                return;
-            }
-
             if (IsExpanderClick(e.OriginalSource as DependencyObject)) return;
 
             var item = sender as TreeViewItem;
@@ -477,27 +470,12 @@ namespace Tsuzuri
             Active.GoToLine(node.Line);
         }
 
-        private static bool IsInsideTextBox(DependencyObject source)
-        {
-            while (source != null && !(source is TreeViewItem))
-            {
-                if (source is TextBoxBase) return true;
-
-                var visual = source as Visual;
-                if (visual == null) return false;
-                source = VisualTreeHelper.GetParent(visual);
-            }
-
-            return false;
-        }
-
-        /// <summary>開閉の三角などのボタンと、名前を打つ欄を押したときは移動しない。</summary>
+        /// <summary>開閉の三角などのボタンを押したときは移動しない（ドラッグも始めない）。</summary>
         private static bool IsExpanderClick(DependencyObject source)
         {
             while (source != null)
             {
                 if (source is ButtonBase) return true;
-                if (source is TextBoxBase) return true;   // 名前を打つ欄（その中のクリックは、移動もドラッグもしない）
                 if (source is TreeViewItem) return false;
 
                 var visual = source as Visual;
@@ -512,8 +490,8 @@ namespace Tsuzuri
 
         /// <summary>
         /// 見出しの操作の右クリックのメニュー（SPEC 7章）。ファイラー・ランチャーと同じ Windows 標準のメニュー（2026-10-16。前は記号のボタンの列）。
-        /// 先頭に見出しの名前を押せない見出しとして出し、追加・レベル・ブックマーク・名前の変更と削除をまとまりごとに区切る。
-        /// 名前の欄を出す操作は、メニューが閉じてから出す。閉じるときにフォーカスが動き、出したばかりの欄が消えないように。
+        /// 先頭に見出しの名前を押せない見出しとして出し、レベル・並べ替え｜ブックマークの覚え直し（登録している見出しだけ）｜削除 をまとまりごとに区切る。
+        /// 削除の確かめは、メニューが閉じてから出す。
         /// </summary>
         private void ShowOutlineMenu(OutlineNode node)
         {
@@ -617,8 +595,6 @@ namespace Tsuzuri
             panel.Children.Add(text);
 
             node.Mark = mark;
-            node.Label = text;
-            node.Panel = panel;
             UpdateMark(node);
 
             var host = new Grid();
@@ -626,14 +602,15 @@ namespace Tsuzuri
             host.Children.Add(panel);
 
             // 見出しをつかんで運ぶと、その節を好きな位置へ動かせる（SPEC 7章）。
-            // 落とす位置は、この枠の上端（この見出しの手前）か、最後の項目の下端（文書の最後）に青い線で出す。
+            // 落とす位置は、この枠の上端（この見出しの手前）・下端（この見出しの節の後ろ・文書の最後）に青い線で、
+            // この見出しの中へ入れるときは枠を薄い青で塗って出す（OutlineDrag.cs の ShowOutlineDropMark）。
             // 線の分だけ高さが変わらないよう、透明な線をいつも引いておき、色だけ変える。
             var frame = new Border();
             frame.Child = host;
             frame.BorderThickness = new Thickness(0, 2, 0, 2);
             frame.BorderBrush = Brushes.Transparent;
             frame.Background = Brushes.Transparent;
-            frame.ToolTip = display + Environment.NewLine + "ドラッグで好きな位置へ動かす（落とした位置の見出しにレベルを合わせ、配下も同じだけずらす）" +
+            frame.ToolTip = display + Environment.NewLine + "ドラッグで好きな位置へ動かす（落とした位置に合わせてレベルを変え、配下も同じだけずらす）" +
                             Environment.NewLine + "右クリックで、レベル・並べ替え・削除";
             // 右クリックで、左クリックと同じくその見出しへ移って選んでから、メニューを出す。
             // 選んでいる見出し（エディタのカーソルの位置）と、メニューの対象をそろえるため。選んでいる印で、どの見出しのメニューか分かる。
@@ -641,7 +618,6 @@ namespace Tsuzuri
             {
                 e.Handled = true;
                 if (_outlineDragging) return;
-                if (node.Label != null && node.Label.Parent != node.Panel) return;   // 名前を打っている間は出さない
 
                 GoToOutlineNode(node);
                 ShowOutlineMenu(node);

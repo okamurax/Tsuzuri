@@ -69,7 +69,8 @@ namespace Tsuzuri
         public bool SoftwareRendering { get; set; }
 
         /// <summary>
-        /// 打ってから画面に出るまでの時間を、exe の隣の perf.log に書き出すか（2026-11-04。原因を探すためのもの。初めは false）。次の起動から効く。
+        /// 打ってから画面に出るまでの時間と、ページを移る・画面のタブを切り替えるときの時間を、exe の隣の perf.log に書き出すか
+        /// （2026-11-04。原因を探すためのもの。初めは false）。次の起動から効く。
         /// </summary>
         [DataMember(Name = "perfLog")]
         public bool PerfLog { get; set; }

@@ -38,10 +38,6 @@ namespace Tsuzuri
             /// <summary>ブックマークしている印の •（押せない。付け外しは本文の行番号の右ボタンのダブルクリック）。</summary>
             public TextBlock Mark;
 
-            /// <summary>見出しの名前の表示と、それを入れている段。名前を変えている間は、Label の代わりに入力欄を入れる。</summary>
-            public TextBlock Label;
-            public DockPanel Panel;
-
             /// <summary>見出しの段の枠。ドラッグで落とす位置の青い線を、この上端か下端に出す。</summary>
             public Border Frame;
 
@@ -98,12 +94,15 @@ namespace Tsuzuri
         private MarkdownView _focused;
 
         /// <summary>
-        /// ランチャー（SPEC 4章）。本文の右半分に重ねて出す。下のエディタ（スタック）には触らないので、
+        /// ランチャー（SPEC 4章）。本文の上半分に、幅いっぱいで重ねて出す（2026-10-31）。下のエディタ（スタック）には触らないので、
         /// 開け閉めしても、開いているファイルや画面の並びは変わらない。
         /// </summary>
         private LauncherView _launcher;
 
-        /// <summary>右のファイラー（SPEC 9章）。初めて開いたときに作り、終了まで最後のフォルダを覚えている。</summary>
+        /// <summary>
+        /// ランチャーの右のファイラー（SPEC 9章）。画面を作るときに1度だけ作り（CreateFiler）、閉じても持ったまま。
+        /// 最後に見たフォルダは、移るたびに app.json（FilerFolder）にアプリで1つとして覚える（2026-11-05）。
+        /// </summary>
         private FilerView _filer;
 
         private readonly DispatcherTimer _outlineRefresh = new DispatcherTimer();
@@ -124,8 +123,10 @@ namespace Tsuzuri
         /// <summary>見出しのブックマーク欄を最後に組んだときのファイル。開いているファイルの分だけを出すため。</summary>
         private string _headingContext;
 
-        /// <summary>exe と同階層の app.json。今は最近使ったファイルだけ（SPEC 4章）。</summary>
-        /// <summary>起動の入口（App）で読めたものだけを受け取る。</summary>
+        /// <summary>
+        /// exe と同階層の app.json（AppSettings。SPEC 2章）。ランチャーの登録・欄の幅・ウィンドウの位置・画面と AI の会話のタブなど。
+        /// 起動の入口（App）で読めたものだけを受け取る。全部の画面で同じものを使う。
+        /// </summary>
         private readonly AppSettings _settings;
 
         public MainWindow(AppSettings settings) : this(settings, null, null)
@@ -373,7 +374,7 @@ namespace Tsuzuri
             UseDarkTitleBar(this);
         }
 
-        /// <summary>ほかのウィンドウ（ランチャー）のタイトルバーも同じにする。</summary>
+        /// <summary>指定したウィンドウのタイトルバーをダークにする（今はこの画面だけに使う。前は別の窓だったランチャーにも使っていた）。</summary>
         private static void UseDarkTitleBar(Window target)
         {
             try
@@ -479,7 +480,7 @@ namespace Tsuzuri
 
             StoreHeadingBookmarks();
             RememberFileStates();
-            RememberLastScreen();   // StoreLayout が app.json に書く。増やした画面を「終了」で閉じたときは、閉じたあとで覚えごと消す
+            RememberLastScreen();   // StoreLayout が app.json に書く。増やした画面をタブの × で閉じたときは、閉じたあとで覚えごと消す（「終了」・ログオフでは残す。MainWindow.Windows.cs）
             StoreLayout();
             _filer.Stop();
             StopAi();

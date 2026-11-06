@@ -22,14 +22,16 @@ using Tsuzuri.Views;
 
 namespace Tsuzuri
 {
-    // MainWindow の一部: アウトラインの右クリック（見出しの削除・レベル・並べ替え・ブックマークの覚え直し）。
+    // MainWindow の一部: アウトラインの右クリックの「削除…」と、書き換えてよいかの確かめ（CanWriteTo）。
+    // レベルと並べ替えは MainWindow.OutlineDrag.cs、メニューは MainWindow.Outline.cs（ShowOutlineMenu）にある。
     // MainWindow.xaml.cs が大きくなりすぎたので、受け持ちごとにファイルを分けた（2026-10-14。中身は変えていない）。
     public partial class MainWindow
     {
         // ---------------------------------------------------------------
-        // 見出しを足す・消す・名前を変える —— アウトラインの右クリック（SPEC 7章）
+        // 見出しを消す —— アウトラインの右クリック（SPEC 7章）
         //
         // 本文の書き換えは MarkdownView に任せる（1回の置き換え・読み方が変わるなら取りやめ）。
+        // 前はここで見出しを足す・名前を変える欄も出していたが、2026-10-25 にメニューから外し、2026-11-06 に処理も消した。
         // ---------------------------------------------------------------
 
         /// <summary>
@@ -42,18 +44,7 @@ namespace Tsuzuri
             return view != null && !view.IsReadOnly && view.Owner != null && view.Owner.Contains(view.PageId);
         }
 
-        private enum OutlineEdit
-        {
-            /// <summary>その見出しの節のすぐ後ろに、同じレベルで足す。</summary>
-            Sibling,
-
-            /// <summary>その見出しの中の最後に、1つ下のレベルで足す。</summary>
-            Child,
-
-            Rename,
-        }
-
-        /// <summary>右クリックのメニューを出している・名前を打っている見出しの枠。薄く塗って、どれに対する操作か見せる。</summary>
+        /// <summary>削除を確かめている間の見出しの枠。薄く塗って、どれを消すのか見せる。</summary>
         private Border _outlineMenuFrame;
 
         private void MarkOutlineMenuFrame(Border frame)
@@ -62,239 +53,6 @@ namespace Tsuzuri
 
             _outlineMenuFrame = frame;
             if (frame != null) frame.Background = (Brush)FindResource("HoverFill");
-        }
-
-        /// <summary>
-        /// 名前を打つ欄を、アウトラインの中に出す（SPEC 7章）。別の窓（ポップアップ）に出すと、日本語入力の動きがおかしくなるため。
-        /// 追加は、見出しが入る場所に空の段を先に作って、そこに欄を出す（本文はまだ書き換えない）。
-        /// 名前の変更は、その見出しの名前の場所を欄に替える。本文に書いてあるとおりの名前（書式も含む）から始める。
-        /// Enter で決める。Esc か欄の外を押すとやめる（外を押して決めると、思わぬ見出しができる・名前が変わるため）。
-        /// 打っている間にアウトラインが組み直されたら（本文の見出しが変わった）、欄は消え、やめたことになる。
-        /// </summary>
-        private void BeginOutlineName(OutlineNode node, OutlineEdit mode)
-        {
-            var view = Active;
-            if (view == null) return;
-
-            if (!CanWriteTo(view))
-            {
-                Status("このページはファイルから消えているため、書き換えられません。");
-                return;
-            }
-
-            var initial = string.Empty;
-            if (mode == OutlineEdit.Rename)
-            {
-                var entries = view.GetOutline().Entries;
-                var index = NearestHeading(entries, node.Text, node.Line);
-                if (index < 0)
-                {
-                    Status("見出しが見つかりません。");
-                    return;
-                }
-
-                initial = view.HeadingName(entries[index].Line);
-                if (initial == null)
-                {
-                    Status("この見出しは、ここでは名前を変えられません（引用・リストの中や、2行以上の下線式の見出し）。エディタで直してください。");
-                    return;
-                }
-            }
-
-            if (node == null) return;
-            var item = _outlineOrder.FirstOrDefault(each => each.Tag == node);
-            if (item == null) return;   // 組み直しで消えた
-
-            var box = new TextBox();
-            box.Text = initial;
-            box.Padding = new Thickness(1, 0, 1, 0);
-            box.MinWidth = 80;
-            box.VerticalAlignment = VerticalAlignment.Center;
-            box.SetResourceReference(Control.BorderBrushProperty, "AccentBrush");
-
-            switch (mode)
-            {
-                case OutlineEdit.Sibling:
-                    box.ToolTip = "「" + node.Text + "」と同じ階層（" + new string('#', node.Level) + "）に追加する見出しの名前。Enter で決定、Esc でやめる";
-                    break;
-                case OutlineEdit.Child:
-                    box.ToolTip = "「" + node.Text + "」の下の階層（" + new string('#', node.Level + 1) + "）に追加する見出しの名前。Enter で決定、Esc でやめる";
-                    break;
-                default:
-                    box.ToolTip = "見出しの新しい名前。Enter で決定、Esc でやめる";
-                    break;
-            }
-
-            // 欄を置く。追加は、見出しが入る場所に空の段を作る。名前の変更は、名前の表示と差し替える。
-            TreeViewItem slot = null;
-            ItemCollection slotOwner = null;
-
-            if (mode == OutlineEdit.Rename)
-            {
-                node.Panel.Children.Remove(node.Label);
-                node.Panel.Children.Add(box);   // 最後の子なので、残りの幅いっぱいに広がる
-            }
-            else
-            {
-                slot = new TreeViewItem();
-                slot.Padding = new Thickness(2);
-                slot.Header = box;
-                slot.IsExpanded = true;
-
-                if (mode == OutlineEdit.Child)
-                {
-                    // その見出しの中の最後。たたんでいれば開く。
-                    item.IsExpanded = true;
-                    slotOwner = item.Items;
-                    slotOwner.Add(slot);
-                }
-                else
-                {
-                    // その見出しのすぐ後ろ（木の上では、配下を含めた節の後ろ）。
-                    TreeViewItem parent;
-                    slotOwner = _outlineParents.TryGetValue(item, out parent) ? parent.Items : OutlineTree.Items;
-                    slotOwner.Insert(slotOwner.IndexOf(item) + 1, slot);
-                }
-            }
-
-            var done = false;
-            Action<bool> finish = commit =>
-            {
-                if (done) return;
-                done = true;
-
-                var name = box.Text;
-
-                if (slot != null)
-                {
-                    if (slotOwner.Contains(slot)) slotOwner.Remove(slot);
-                }
-                else if (box.Parent == node.Panel)
-                {
-                    node.Panel.Children.Remove(box);
-                    node.Panel.Children.Add(node.Label);
-                }
-
-                MarkOutlineMenuFrame(null);
-
-                // 決めたら、書き換えてからエディタへ移る。やめたら、エディタへ入力を返す。
-                if (commit) ApplyOutlineName(node, mode, name, initial);
-                else if (Active != null) Active.TextArea.Focus();
-            };
-
-            box.PreviewKeyDown += (sender, e) =>
-            {
-                // 日本語入力の変換中の Enter・Esc は、変換を決める・取り消すためのもの。ここでは受け取らない。
-                if (e.Key == Key.ImeProcessed) return;
-
-                if (e.Key == Key.Enter)
-                {
-                    e.Handled = true;
-                    finish(true);
-                }
-                else if (e.Key == Key.Escape)
-                {
-                    e.Handled = true;
-                    finish(false);
-                }
-            };
-            box.LostKeyboardFocus += delegate { finish(false); };
-
-            MarkOutlineMenuFrame(node.Frame);
-
-            Dispatcher.BeginInvoke(new Action(delegate
-            {
-                if (done) return;
-
-                if (slot != null) slot.BringIntoView();
-                box.Focus();
-                Keyboard.Focus(box);
-                box.SelectAll();
-
-                // 欄に入力が入らなかった（その間にアウトラインが組み直された等）なら、やめたことにする。
-                if (!box.IsKeyboardFocusWithin) finish(false);
-            }), DispatcherPriority.Input);
-        }
-
-        private void ApplyOutlineName(OutlineNode node, OutlineEdit mode, string name, string initial)
-        {
-            var view = Active;
-            if (view == null) return;
-
-            name = (name ?? string.Empty).Replace("\r", " ").Replace("\n", " ").Trim();
-            if (mode == OutlineEdit.Rename && name == (initial ?? string.Empty).Trim()) return;   // 変えていない
-
-            if (name.Length == 0)
-            {
-                Status("名前が空なので、何もしませんでした。");
-                return;
-            }
-
-            // 名前を打っている間に本文が変わっているかもしれないので、決めた時点の本文から見出しを探し直す。
-            var headingLine = 0;
-            if (node != null)
-            {
-                var entries = view.GetOutline().Entries;
-                var index = NearestHeading(entries, node.Text, node.Line);
-                if (index < 0)
-                {
-                    Status("見出しが見つからないため、何もしませんでした。");
-                    return;
-                }
-
-                headingLine = entries[index].Line;
-            }
-
-            int result;
-            switch (mode)
-            {
-                case OutlineEdit.Sibling:
-                    result = view.InsertHeading(headingLine, false, name);
-                    break;
-                case OutlineEdit.Child:
-                    result = view.InsertHeading(headingLine, true, name);
-                    break;
-                default:
-                    result = view.RenameHeading(headingLine, name);
-                    break;
-            }
-
-            if (result == MarkdownView.HeadingNameInvalid)
-            {
-                Status("その名前では見出しとして読めない（ほかの見出しが変わる・最後の # が消える・行の頭が # や - だと形が変わる）ため、何もしませんでした。");
-                return;
-            }
-
-            if (result == MarkdownView.HeadingNotEditable)
-            {
-                Status(mode == OutlineEdit.Rename
-                    ? "この見出しは、ここでは名前を変えられません。エディタで直してください。"
-                    : "すぐ後ろが引用・リストの中の見出しなので、ここには足せません（引用やリストが途中で切れるため）。エディタで書いてください。");
-                return;
-            }
-
-            if (result == MarkdownView.LevelOutOfRange)
-            {
-                Status("###### より深い見出しは作れません。");
-                return;
-            }
-
-            if (result <= 0)
-            {
-                Status("見出しが見つからないため、何もしませんでした。");
-                return;
-            }
-
-            if (mode == OutlineEdit.Rename)
-            {
-                Status("見出しの名前を「" + name + "」にしました。");
-                return;
-            }
-
-            Status("見出し「" + name + "」を追加しました。");
-
-            // 足した見出しへ移る。
-            view.GoToLine(result);
         }
 
         /// <summary>見出しを中身（小見出しも含む）ごと消す。消す前に確かめる。</summary>

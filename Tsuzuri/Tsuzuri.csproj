@@ -205,7 +205,6 @@
     <Compile Include="Views\LauncherView.cs" />
     <Compile Include="Views\ShellIcons.cs" />
     <Compile Include="Views\ShellActions.cs" />
-    <Compile Include="Views\ChatView.cs" />
     <Compile Include="Views\PseudoConsole.cs" />
     <Compile Include="Views\TerminalView.cs" />
   </ItemGroup>

@@ -29,7 +29,7 @@ namespace Tsuzuri.Markdown
 
         /// <summary>
         /// 画面に開いていないページの見出し。アウトラインと同じ解釈で数える。
-        /// 見出しのブックマークを探すのに使う。
+        /// 見出しのブックマーク・見出しへのリンクを探すのと、節を動かす・子を並べ替えるときの確かめに使う。
         /// </summary>
         public static List<OutlineHeading> Headings(string text)
         {
@@ -111,7 +111,7 @@ namespace Tsuzuri.Markdown
                 _lineOffsets = lineOffsets;
             }
 
-            /// <summary>空行をまたいで効く書き方（リンクの定義・脚注の定義・閉じていないコードフェンス）があったか（DocumentModel.Fragile）。</summary>
+            /// <summary>空行をまたいで効く書き方（リンクの定義・脚注の定義・閉じていないコードフェンス）か、行の分からない HTML のかたまりがあったか（DocumentModel.Fragile）。</summary>
             public bool Fragile;
 
             /// <summary>空行をまたいで続く HTML のかたまりの行（DocumentModel.HtmlRanges）。</summary>

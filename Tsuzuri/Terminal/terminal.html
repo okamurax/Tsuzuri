@@ -249,7 +249,6 @@
     host.addEventListener('message', (e) => {
       if (typeof e.data === 'string') term.write(e.data);
       else if (e.data && e.data.type === 'focus') term.focus();
-      else if (e.data && e.data.type === 'clear') term.reset();
     });
   }
 

@@ -43,7 +43,7 @@ namespace Tsuzuri.Markdown
         /// <summary>検索欄やファイラーの段などを分ける線。App.xaml の BorderBrushSoft と同じ色。</summary>
         public static readonly Brush Divider     = Freeze("#FF31384A");
 
-        /// <summary>見出し1・2の下に引く線の色（2026-11-03）。水平線より少し明るい、薄いグレー。</summary>
+        /// <summary>見出し1の下に引く線の色（2026-11-03）。水平線より少し明るい、薄いグレー。見出し2は HeadingRuleFaint。</summary>
         public static readonly Brush HeadingRule = Freeze("#FF474C57");
 
         /// <summary>見出し2の下に引く線の色。見出し1の線より目立たない、背景に近い色。</summary>
@@ -67,7 +67,7 @@ namespace Tsuzuri.Markdown
         /// <summary>正規表現として読めないときの文字色。</summary>
         public static readonly Brush InvalidInput = Freeze("#FFD24B4E");
 
-        /// <summary>未保存の編集があるページの左端に出す色。</summary>
+        /// <summary>未保存の印（ツールバーの「● 未保存」。ファイル単位で1つ）の文字の色。</summary>
         public static readonly Brush DirtyMark   = Freeze("#FFF5AB00");
 
         /// <summary>見出しレベル 1-6 の文字サイズ。</summary>

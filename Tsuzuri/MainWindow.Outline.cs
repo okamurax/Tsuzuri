@@ -395,15 +395,30 @@ namespace Tsuzuri
             box.Child = grid;
             box.Height = 18;
             box.Padding = new Thickness(1);
-            box.Margin = new Thickness(4, 0, 0, 0);
+            box.Margin = new Thickness(3, 0, 0, 0);
             box.VerticalAlignment = VerticalAlignment.Center;
             box.BorderThickness = new Thickness(1);
             box.CornerRadius = new CornerRadius(4);
             box.BorderBrush = line;
-            DockPanel.SetDock(box, Dock.Right);
+
+            // ボタンの左に、回す見出しのレベルの数字を出す（どの階層を回すボタンか分かるように。2026-11-06）。
+            var level = new TextBlock();
+            level.Text = node.Level.ToString();
+            level.FontSize = 10;
+            level.Margin = new Thickness(4, 0, 0, 0);
+            level.VerticalAlignment = VerticalAlignment.Center;
+            level.ToolTip = "見出し" + node.Level + "（" + new string('#', node.Level) + "）を回す";
+            level.SetResourceReference(TextBlock.ForegroundProperty, "TextMuted");
+
+            var rotate = new StackPanel();
+            rotate.Orientation = Orientation.Horizontal;
+            rotate.VerticalAlignment = VerticalAlignment.Center;
+            rotate.Children.Add(level);
+            rotate.Children.Add(box);
+            DockPanel.SetDock(rotate, Dock.Right);
 
             // ブックマークの • より右に置く（• の有無で位置が変わらないように）。
-            node.Row.Children.Insert(0, box);
+            node.Row.Children.Insert(0, rotate);
         }
 
         /// <summary>回すボタンの片方。記号は Windows 標準のアイコンの字体（Segoe MDL2 Assets）の山形。乗せた側だけ薄く光る。</summary>

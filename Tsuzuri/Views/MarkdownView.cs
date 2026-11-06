@@ -1736,8 +1736,10 @@ namespace Tsuzuri.Views
         /// ・カーソルより前が隠れた記号だけ（見出しの `## `、行頭のリンクの `[` など）なら行頭へ。見た目どおり、行の前に空の行ができる
         /// 前は記号の手前で切れ、`## [予定` と `](#p3)` に分かれるなど、見出しやリンクが壊れていた。
         /// 置き換えて見せている記号（箇条書きの •、画像の題）は見えている文字なので、寄せる対象にしない。選択があるとき・記号を出している行では何もしない。
+        /// Backspace でも、前が隠れた記号だけなら行頭へ寄せる（2026-11-06。見た目どおり、前の行とつながる。前は `## ` の空白が消えて見出しでなくなった）。
+        /// 行末へは寄せない（行末のリンクの手前で押したら、見えている最後の文字を消すため）。
         /// </summary>
-        private void StepOverHiddenEdge()
+        private void StepOverHiddenEdge(bool toEnd)
         {
             if (!TextArea.Selection.IsEmpty) return;
 
@@ -1751,7 +1753,7 @@ namespace Tsuzuri.Views
             Func<int, bool> hidden = index => ranges.Any(range =>
                 string.IsNullOrEmpty(range.Replacement) && index >= range.Start && index < range.Start + range.Length);
 
-            if (column < line.Length && Enumerable.Range(column, line.Length - column).All(hidden))
+            if (toEnd && column < line.Length && Enumerable.Range(column, line.Length - column).All(hidden))
             {
                 CaretOffset = line.EndOffset;
                 return;
@@ -1792,12 +1794,17 @@ namespace Tsuzuri.Views
 
                 case Key.Enter:
                     // 記号を出す前に、隠れた記号の手前・後ろで改行しないようにカーソルを寄せる（記号を出すと隠れていたかが分からなくなる）。
-                    // 寄せるのは Enter だけ（2026-11-06。前は ← → や Backspace でも寄せていて、見出しの頭の Backspace が前の行とつながった）。
-                    if ((Keyboard.Modifiers & ModifierKeys.Control) == 0) StepOverHiddenEdge();
+                    // 寄せるのは Enter と Backspace だけ（2026-11-06。← → などの移動では寄せない）。
+                    if ((Keyboard.Modifiers & ModifierKeys.Control) == 0) StepOverHiddenEdge(true);
                     FollowCaret();
                     return;
 
                 case Key.Back:
+                    // 前が隠れた記号だけ（見出しの `## ` など）なら行頭へ寄せてから消す。見た目どおり前の行とつながる（2026-11-06）。
+                    if (Keyboard.Modifiers == ModifierKeys.None) StepOverHiddenEdge(false);
+                    FollowCaret();
+                    return;
+
                 case Key.Delete:
                 case Key.Tab:
                 case Key.ImeProcessed:      // 日本語入力の変換中

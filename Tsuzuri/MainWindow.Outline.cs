@@ -371,27 +371,49 @@ namespace Tsuzuri
             var node = first?.Tag as OutlineNode;
             if (node == null || node.Row == null) return;
 
-            var buttons = new StackPanel();
-            buttons.Orientation = Orientation.Horizontal;
-            buttons.VerticalAlignment = VerticalAlignment.Center;
-            buttons.Margin = new Thickness(2, 0, 0, 0);
-            buttons.Children.Add(RotateButton(node, true, "▲", "同じ階層の見出しを回す（みな1つ上がり、先頭は末尾へ）"));
-            buttons.Children.Add(RotateButton(node, false, "▼", "同じ階層の見出しを逆に回す（みな1つ下がり、末尾が先頭へ）"));
-            DockPanel.SetDock(buttons, Dock.Right);
+            // 角の丸い枠1つを細い線で左右に仕切り、上向き・下向きの山形を入れる（2026-11-06）。
+            // 小さな箱を2つ並べると、▲ と ▼ の字の形の違いで上下にずれて見えたため、1つの部品に見える形にした。
+            var muted = ((SolidColorBrush)FindResource("TextMuted")).Color;
+            var line = new SolidColorBrush(Color.FromArgb(0x80, muted.R, muted.G, muted.B));
+
+            var grid = new Grid();
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(18) });
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1) });
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(18) });
+
+            var up = RotateButton(node, true, "\uE70E", "同じ階層の見出しを回す（みな1つ上がり、先頭は末尾へ）");
+            var divider = new Border { Background = line, Margin = new Thickness(0, 3, 0, 3) };
+            var down = RotateButton(node, false, "\uE70D", "同じ階層の見出しを逆に回す（みな1つ下がり、末尾が先頭へ）");
+            Grid.SetColumn(up, 0);
+            Grid.SetColumn(divider, 1);
+            Grid.SetColumn(down, 2);
+            grid.Children.Add(up);
+            grid.Children.Add(divider);
+            grid.Children.Add(down);
+
+            var box = new Border();
+            box.Child = grid;
+            box.Height = 18;
+            box.Padding = new Thickness(1);
+            box.Margin = new Thickness(4, 0, 0, 0);
+            box.VerticalAlignment = VerticalAlignment.Center;
+            box.BorderThickness = new Thickness(1);
+            box.CornerRadius = new CornerRadius(4);
+            box.BorderBrush = line;
+            DockPanel.SetDock(box, Dock.Right);
 
             // ブックマークの • より右に置く（• の有無で位置が変わらないように）。
-            node.Row.Children.Insert(0, buttons);
+            node.Row.Children.Insert(0, box);
         }
 
-        /// <summary>
-        /// 回すボタン1つ。同じ大きさの四角い縁で囲む（縁が無いと、▲ と ▼ の字の形の違いで上下にずれて見えるため。2026-11-06）。
-        /// </summary>
-        private FrameworkElement RotateButton(OutlineNode node, bool up, string symbol, string tip)
+        /// <summary>回すボタンの片方。記号は Windows 標準のアイコンの字体（Segoe MDL2 Assets）の山形。乗せた側だけ薄く光る。</summary>
+        private Button RotateButton(OutlineNode node, bool up, string symbol, string tip)
         {
             var button = new Button();
             button.Content = symbol;
+            button.FontFamily = new FontFamily("Segoe MDL2 Assets");
+            button.FontSize = 9;
             button.Style = (Style)FindResource("ToolButton");
-            button.FontSize = 8;
             button.Padding = new Thickness(0);
             button.Margin = new Thickness(0);
             button.Focusable = false;
@@ -402,17 +424,7 @@ namespace Tsuzuri
                 e.Handled = true;
                 RotateOutlineSiblings(node, up);
             };
-
-            var muted = ((SolidColorBrush)FindResource("TextMuted")).Color;
-            var box = new Border();
-            box.Child = button;
-            box.Width = 16;
-            box.Height = 16;
-            box.Margin = new Thickness(2, 0, 0, 0);
-            box.BorderThickness = new Thickness(1);
-            box.CornerRadius = new CornerRadius(3);
-            box.BorderBrush = new SolidColorBrush(Color.FromArgb(0x80, muted.R, muted.G, muted.B));
-            return box;
+            return button;
         }
 
         // ---------------------------------------------------------------

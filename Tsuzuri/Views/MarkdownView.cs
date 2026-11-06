@@ -1787,13 +1787,17 @@ namespace Tsuzuri.Views
                 case Key.End:
                 case Key.PageUp:
                 case Key.PageDown:
-                case Key.Back:
+                    FollowCaret();
+                    return;
+
                 case Key.Enter:
                     // 記号を出す前に、隠れた記号の手前・後ろで改行しないようにカーソルを寄せる（記号を出すと隠れていたかが分からなくなる）。
+                    // 寄せるのは Enter だけ（2026-11-06。前は ← → や Backspace でも寄せていて、見出しの頭の Backspace が前の行とつながった）。
                     if ((Keyboard.Modifiers & ModifierKeys.Control) == 0) StepOverHiddenEdge();
                     FollowCaret();
                     return;
 
+                case Key.Back:
                 case Key.Delete:
                 case Key.Tab:
                 case Key.ImeProcessed:      // 日本語入力の変換中

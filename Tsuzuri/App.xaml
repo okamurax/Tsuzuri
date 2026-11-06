@@ -238,23 +238,29 @@
                 <Setter.Value>
                     <ControlTemplate TargetType="TreeViewItem">
                         <StackPanel>
-                            <Border x:Name="Row" Background="Transparent"
-                                    BorderBrush="{StaticResource AccentBrush}" BorderThickness="0"
-                                    Padding="{TemplateBinding Padding}">
+                            <!-- 選んだ行の青い帯は、行の左端に重ねて描く。枠の太さや余白を変えると、選んだ行だけ高さと文字の位置が変わるため（2026-11-07） -->
+                            <Border x:Name="Row" Background="Transparent">
                                 <Grid>
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="16" />
-                                        <ColumnDefinition Width="*" />
-                                    </Grid.ColumnDefinitions>
+                                    <Border Padding="{TemplateBinding Padding}">
+                                        <Grid>
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="16" />
+                                                <ColumnDefinition Width="*" />
+                                            </Grid.ColumnDefinitions>
 
-                                    <ToggleButton x:Name="Expander" Grid.Column="0"
-                                                  Style="{StaticResource ExpandToggle}"
-                                                  ClickMode="Press"
-                                                  IsChecked="{Binding IsExpanded, Mode=TwoWay,
-                                                              RelativeSource={RelativeSource TemplatedParent}}" />
+                                            <ToggleButton x:Name="Expander" Grid.Column="0"
+                                                          Style="{StaticResource ExpandToggle}"
+                                                          ClickMode="Press"
+                                                          IsChecked="{Binding IsExpanded, Mode=TwoWay,
+                                                                      RelativeSource={RelativeSource TemplatedParent}}" />
 
-                                    <ContentPresenter Grid.Column="1" ContentSource="Header"
-                                                      VerticalAlignment="Center" />
+                                            <ContentPresenter Grid.Column="1" ContentSource="Header"
+                                                              VerticalAlignment="Center" />
+                                        </Grid>
+                                    </Border>
+                                    <Rectangle x:Name="Bar" Width="4" HorizontalAlignment="Left"
+                                               Fill="{StaticResource AccentBrush}" IsHitTestVisible="False"
+                                               Visibility="Collapsed" />
                                 </Grid>
                             </Border>
 
@@ -279,8 +285,7 @@
                             <Trigger Property="IsSelected" Value="True">
                                 <Setter TargetName="Row" Property="Background"
                                         Value="{StaticResource SelectionFill}" />
-                                <Setter TargetName="Row" Property="BorderThickness" Value="4,0,0,0" />
-                                <Setter TargetName="Row" Property="Padding" Value="0,5,2,5" />
+                                <Setter TargetName="Bar" Property="Visibility" Value="Visible" />
                                 <Setter Property="Foreground" Value="{StaticResource SidebarTextActive}" />
                             </Trigger>
                         </ControlTemplate.Triggers>

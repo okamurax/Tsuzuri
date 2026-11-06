@@ -29,7 +29,7 @@ namespace Tsuzuri.Markdown
 
         /// <summary>
         /// 画面に開いていないページの見出し。アウトラインと同じ解釈で数える。
-        /// 見出しのブックマーク・見出しへのリンクを探すのと、節を動かす・子を並べ替えるときの確かめに使う。
+        /// 見出しのブックマーク・見出しへのリンクを探すのと、節を動かす・同じ階層を回すときの確かめに使う。
         /// </summary>
         public static List<OutlineHeading> Headings(string text)
         {

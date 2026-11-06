@@ -18,7 +18,7 @@ using Tsuzuri.Markdown;
 
 namespace Tsuzuri.Views
 {
-    // MarkdownView の一部: 見出しの節を動かす・レベルを変える・子を並べ替える・消す（アウトラインから呼ぶ）。
+    // MarkdownView の一部: 見出しの節を動かす・レベルを変える・同じ階層を回す・消す（アウトラインから呼ぶ）。
     // MarkdownView.cs が大きくなりすぎたので分けた（2026-10-14。中身は変えていない）。
     public partial class MarkdownView
     {
@@ -193,29 +193,30 @@ namespace Tsuzuri.Views
         // その行の # だけを変える ChangeHeadingLevel は、使われなくなったので外した（2026-11-06）。
 
         // ---------------------------------------------------------------
-        // 見出しの子を並べ替える・見出しを消す（SPEC 7章 アウトラインの右クリック）
+        // 同じ階層の見出しを回す・見出しを消す（SPEC 7章 アウトライン）
         //
         // どれも書き換えたあとの文書を読み直し、見出しの顔ぶれが思ったとおりでなければ取りやめる。
         // 1回の書き換えで済ませるので、元に戻す1回で戻る。
         // 見出しを足す（InsertHeading）・名前を変える（RenameHeading）は、アウトラインの名前の入力と一緒に外した（2026-11-06）。
+        // 子を名前で並べ替える（SortChildren。右クリックの昇順・降順）は、使われなかったので回すボタンに置き換えた（2026-11-06）。
         // ---------------------------------------------------------------
 
         /// <summary>引用・リストの中の見出しが節の切れ目になるので、消せない（DeleteSection）。</summary>
         public const int HeadingNotEditable = -8;
 
-        /// <summary>並べ替える子の見出しが2つ未満。</summary>
-        public const int SortTooFew = -9;
+        /// <summary>回す見出しが2つ未満。</summary>
+        public const int SiblingsTooFew = -9;
 
         /// <summary>
-        /// 見出しの直下の子の見出しを、名前で並べ替える（SPEC 7章。2026-10-27）。孫の見出しと本文は、それぞれの子と一緒に動く。
-        /// 直下の子は、アウトラインの木と同じ決め方（親の節の中で、それより前のどの見出しよりも浅いか同じ見出し）。
-        /// 最初の子より前の本文は、親のものとしてその場に残す。
-        /// 並べる順は NameComparer（数字は数として比べる。ひらがなとカタカナ・全角と半角は区別しない）。同じ名前は元の並びのまま。
-        /// 並べ替えたあとの見出しの並びが思ったとおりでなければ取りやめる（MoveChangesMeaning）。
-        /// 子が2つ未満なら SortTooFew、引用・リストの中の見出しが境目になるなら LevelNotPlain、並びが変わらなければ MoveUnchanged。
-        /// 変わった部分だけを1回で置き換えるので、元に戻すも1回で戻る。成功なら親の見出しの行番号。
+        /// その見出しと同じ階層の見出し（同じ親の直下の子。一番上の階層なら文書の一番上の見出したち）を、1つずつ回す（SPEC 7章。2026-11-06）。
+        /// up なら先頭が末尾へ（みな1つ上がる）、そうでなければ末尾が先頭へ。孫の見出しと本文は、それぞれの見出しと一緒に動く。
+        /// 同じ階層の決め方はアウトラインの木と同じ（親は自分より浅い直前の見出し。その節の中で、それより前のどの見出しよりも浅いか同じ見出し）。
+        /// 最初の見出しより前の本文（親の本文・文書の頭の文章）は、その場に残す。
+        /// 回したあとの見出しの並びが思ったとおりでなければ取りやめる（MoveChangesMeaning）。
+        /// 2つ未満なら SiblingsTooFew、引用・リストの中の見出しが境目になるなら LevelNotPlain。
+        /// 変わった部分だけを1回で置き換えるので、元に戻すも1回で戻る。成功なら、回したあとの先頭の見出しの行番号。
         /// </summary>
-        public int SortChildren(int headingLine, bool descending)
+        public int RotateSiblings(int headingLine, bool up)
         {
             if (IsReadOnly) return -1;
 
@@ -223,18 +224,25 @@ namespace Tsuzuri.Views
             var index = IndexOfHeading(entries, headingLine);
             if (index < 0) return -1;
 
-            var end = SectionEnd(entries, index);
+            var parent = -1;
+            for (var k = index - 1; k >= 0; k--)
+            {
+                if (entries[k].Level < entries[index].Level) { parent = k; break; }
+            }
+
+            var end = parent >= 0 ? SectionEnd(entries, parent) : -1;
             var last = end >= 0 ? end : entries.Count;
 
             var children = new List<int>();
             var shallowest = int.MaxValue;
-            for (var k = index + 1; k < last; k++)
+            for (var k = parent + 1; k < last; k++)
             {
                 if (entries[k].Level <= shallowest) children.Add(k);
                 shallowest = Math.Min(shallowest, entries[k].Level);
             }
 
-            if (children.Count < 2) return SortTooFew;
+            if (!children.Contains(index)) return -1;
+            if (children.Count < 2) return SiblingsTooFew;
 
             // 引用・リストの中の見出しが切れ目になるなら動かさない。引用やリストが途中で切れて、形が変わるため。
             if (children.Any(k => InsideContainer(entries[k].Line)) || (end >= 0 && InsideContainer(entries[end].Line))) return LevelNotPlain;
@@ -243,7 +251,7 @@ namespace Tsuzuri.Views
             var stop = end >= 0 ? Document.GetLineByNumber(entries[end].Line).Offset : text.Length;
             var starts = children.Select(k => Document.GetLineByNumber(entries[k].Line).Offset).ToList();
 
-            // 子ごとの塊（その子の見出しから、次の子の手前まで）。後ろの改行は、塊ではなく場所のものとして分ける。
+            // 見出しごとの塊（その見出しから、次の同じ階層の見出しの手前まで）。後ろの改行は、塊ではなく場所のものとして分ける。
             var count = children.Count;
             var bodies = new string[count];
             var gaps = new string[count];
@@ -253,24 +261,21 @@ namespace Tsuzuri.Views
                 SplitTrailingBreaks(text.Substring(starts[i], to - starts[i]), out bodies[i], out gaps[i]);
             }
 
-            var names = children.Select(k => HeadingText.Display(entries[k].Text)).ToList();
-            var order = descending
-                ? Enumerable.Range(0, count).OrderByDescending(i => names[i], NameComparer.Instance).ToList()
-                : Enumerable.Range(0, count).OrderBy(i => names[i], NameComparer.Instance).ToList();
+            var order = up
+                ? Enumerable.Range(1, count - 1).Concat(new[] { 0 }).ToList()
+                : new[] { count - 1 }.Concat(Enumerable.Range(0, count - 1)).ToList();
 
-            if (order.SequenceEqual(Enumerable.Range(0, count))) return MoveUnchanged;
-
-            var sorted = new StringBuilder();
+            var rotated = new StringBuilder();
             for (var slot = 0; slot < count; slot++)
             {
                 var gap = gaps[slot];
                 if (slot < count - 1 && gap.IndexOf('\n') < 0) gap = "\n";   // 塊のあいだは、少なくとも改行で区切る
-                sorted.Append(bodies[order[slot]]).Append(gap);
+                rotated.Append(bodies[order[slot]]).Append(gap);
             }
 
-            var candidate = text.Substring(0, starts[0]) + sorted + text.Substring(stop);
+            var candidate = text.Substring(0, starts[0]) + rotated + text.Substring(stop);
 
-            // 並べ替えたあとの見出しの並び（順番も）が、子の塊ごと並べ替えた形になっているか確かめる。
+            // 回したあとの見出しの並び（順番も）が、塊ごと回した形になっているか確かめる。
             var expected = new List<OutlineHeading>(entries.Take(children[0]));
             foreach (var i in order)
             {
@@ -298,73 +303,8 @@ namespace Tsuzuri.Views
             Document.Replace(prefix, text.Length - prefix - suffix,
                 candidate.Substring(prefix, candidate.Length - prefix - suffix));
 
-            return headingLine;
-        }
-
-        /// <summary>
-        /// 見出しの名前の比べ方（並べ替え）。数字の続きは数として比べる（「2」が「10」より先）。
-        /// それ以外は日本語の並び（ひらがなとカタカナ・全角と半角・大文字と小文字は区別しない）。漢字は読みでは並ばない（読み仮名が無いため）。
-        /// </summary>
-        private sealed class NameComparer : IComparer<string>
-        {
-            public static readonly NameComparer Instance = new NameComparer();
-
-            private static readonly System.Globalization.CompareInfo Japanese = new System.Globalization.CultureInfo("ja-JP").CompareInfo;
-
-            private const System.Globalization.CompareOptions Options = System.Globalization.CompareOptions.IgnoreCase
-                | System.Globalization.CompareOptions.IgnoreKanaType | System.Globalization.CompareOptions.IgnoreWidth;
-
-            public int Compare(string a, string b)
-            {
-                a = a ?? string.Empty;
-                b = b ?? string.Empty;
-
-                int i = 0, j = 0;
-                while (i < a.Length && j < b.Length)
-                {
-                    var digitA = char.IsDigit(a[i]);
-                    var digitB = char.IsDigit(b[j]);
-
-                    var endA = i;
-                    while (endA < a.Length && char.IsDigit(a[endA]) == digitA) endA++;
-                    var endB = j;
-                    while (endB < b.Length && char.IsDigit(b[endB]) == digitB) endB++;
-
-                    int result;
-                    if (digitA && digitB)
-                    {
-                        result = CompareNumbers(a.Substring(i, endA - i), b.Substring(j, endB - j));
-                    }
-                    else
-                    {
-                        result = Japanese.Compare(a.Substring(i, endA - i), b.Substring(j, endB - j), Options);
-                    }
-
-                    if (result != 0) return result;
-
-                    i = endA;
-                    j = endB;
-                }
-
-                return (a.Length - i).CompareTo(b.Length - j);
-            }
-
-            /// <summary>数字の続きを、数として比べる（全角の数字も）。桁が多いほうが大きい。</summary>
-            private static int CompareNumbers(string a, string b)
-            {
-                var x = Digits(a);
-                var y = Digits(b);
-                if (x.Length != y.Length) return x.Length.CompareTo(y.Length);
-                return string.CompareOrdinal(x, y);
-            }
-
-            private static string Digits(string run)
-            {
-                var digits = new StringBuilder(run.Length);
-                foreach (var c in run) digits.Append((char)('0' + (int)char.GetNumericValue(c)));
-                var text = digits.ToString().TrimStart('0');
-                return text.Length == 0 ? "0" : text;
-            }
+            // 先頭の見出しの手前は書き換えていないので、先頭の行番号は回す前と同じ。
+            return entries[children[0]].Line;
         }
 
         /// <summary>見出しの節（中身と小見出しも含む）を消す。消せたら 0。</summary>

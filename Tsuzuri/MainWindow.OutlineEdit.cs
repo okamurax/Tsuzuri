@@ -23,7 +23,7 @@ using Tsuzuri.Views;
 namespace Tsuzuri
 {
     // MainWindow の一部: アウトラインの右クリックの「削除…」と、書き換えてよいかの確かめ（CanWriteTo）。
-    // レベルと並べ替えは MainWindow.OutlineDrag.cs、メニューは MainWindow.Outline.cs（ShowOutlineMenu）にある。
+    // レベルと同じ階層を回す ▲▼ は MainWindow.OutlineDrag.cs、メニューは MainWindow.Outline.cs（ShowOutlineMenu）にある。
     // MainWindow.xaml.cs が大きくなりすぎたので、受け持ちごとにファイルを分けた（2026-10-14。中身は変えていない）。
     public partial class MainWindow
     {

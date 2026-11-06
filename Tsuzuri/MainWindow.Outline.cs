@@ -353,6 +353,53 @@ namespace Tsuzuri
                 openItems.Add(item);
                 openLevels.Add(entry.Level);
             }
+
+            AddRotateButtons(OutlineTree.Items);
+            foreach (var each in _outlineOrder) AddRotateButtons(each.Items);
+        }
+
+        /// <summary>
+        /// 同じ階層の見出し（items）が2つ以上あれば、その先頭の見出しに ▲▼ を付ける（SPEC 7章。2026-11-06）。
+        /// ▲ でみな1つ上がり（先頭は末尾へ）、▼ でみな1つ下がる（末尾が先頭へ）。回すと木は組み直され、新しい先頭に付く。
+        /// ボタンは同じ位置に残るので、マウスを動かさずに続けて押せる。
+        /// </summary>
+        private void AddRotateButtons(ItemCollection items)
+        {
+            if (items.Count < 2) return;
+
+            var first = items[0] as TreeViewItem;
+            var node = first?.Tag as OutlineNode;
+            if (node == null || node.Row == null) return;
+
+            var buttons = new StackPanel();
+            buttons.Orientation = Orientation.Horizontal;
+            buttons.VerticalAlignment = VerticalAlignment.Center;
+            buttons.Margin = new Thickness(4, 0, 0, 0);
+            buttons.Children.Add(RotateButton(node, true, "▲", "同じ階層の見出しを回す（みな1つ上がり、先頭は末尾へ）"));
+            buttons.Children.Add(RotateButton(node, false, "▼", "同じ階層の見出しを逆に回す（みな1つ下がり、末尾が先頭へ）"));
+            DockPanel.SetDock(buttons, Dock.Right);
+
+            // ブックマークの • より右に置く（• の有無で位置が変わらないように）。
+            node.Row.Children.Insert(0, buttons);
+        }
+
+        private Button RotateButton(OutlineNode node, bool up, string symbol, string tip)
+        {
+            var button = new Button();
+            button.Content = symbol;
+            button.Style = (Style)FindResource("ToolButton");
+            button.FontSize = 9;
+            button.Padding = new Thickness(4, 1, 4, 1);
+            button.Margin = new Thickness(0);
+            button.Focusable = false;
+            button.ToolTip = tip;
+            button.SetResourceReference(ForegroundProperty, "TextMuted");
+            button.Click += (sender, e) =>
+            {
+                e.Handled = true;
+                RotateOutlineSiblings(node, up);
+            };
+            return button;
         }
 
         // ---------------------------------------------------------------
@@ -490,7 +537,7 @@ namespace Tsuzuri
 
         /// <summary>
         /// 見出しの操作の右クリックのメニュー（SPEC 7章）。ファイラー・ランチャーと同じ Windows 標準のメニュー（2026-10-16。前は記号のボタンの列）。
-        /// 先頭に見出しの名前を押せない見出しとして出し、レベル・並べ替え｜ブックマークの覚え直し（登録している見出しだけ）｜削除 をまとまりごとに区切る。
+        /// 先頭に見出しの名前を押せない見出しとして出し、レベル｜ブックマークの覚え直し（登録している見出しだけ）｜削除 をまとまりごとに区切る。
         /// 削除の確かめは、メニューが閉じてから出す。
         /// </summary>
         private void ShowOutlineMenu(OutlineNode node)
@@ -507,7 +554,6 @@ namespace Tsuzuri
             // 見出しの追加と名前の変更は、2026-10-25 にメニューから外した（本文で Ctrl+Enter・Ctrl+Shift+Enter で足し、名前は本文で直す）。
             menu.Items.Add(OutlineMenuItem("レベルを上げる（小見出しも一緒に）", node.Level > 1, () => ChangeHeadingLevel(node, -1)));
             menu.Items.Add(OutlineMenuItem("レベルを下げる（小見出しも一緒に）", node.Level < 6, () => ChangeHeadingLevel(node, 1)));
-            menu.Items.Add(CreateSortMenu(node, menu));
             menu.Items.Add(new Separator());
 
             // ブックマークの付け外しは、2026-11-03 にメニューから外した（本文の行番号を右ボタンでダブルクリック）。
@@ -520,44 +566,6 @@ namespace Tsuzuri
             menu.Items.Add(OutlineMenuItem("削除…（中身と小見出しも）", true, () => later(() => DeleteOutlineHeading(node))));
 
             menu.IsOpen = true;
-        }
-
-        /// <summary>
-        /// 「『本社』の中の見出しを並べ替え（5 件） ▸ 昇順／降順」（2026-10-27）。並べ替えるのは、いつも右クリックした見出しの中（直下の子）。
-        /// 右クリックした見出しそのものは動かない。子が2つ未満なら押せない。
-        /// メニューにマウスを載せている間は、動く子の見出しに色を付けて、範囲を見せる。
-        /// </summary>
-        private MenuItem CreateSortMenu(OutlineNode node, ContextMenu menu)
-        {
-            var item = _outlineOrder.FirstOrDefault(entry => ReferenceEquals(entry.Tag, node));
-            var children = item == null
-                ? new List<OutlineNode>()
-                : item.Items.OfType<TreeViewItem>().Select(child => child.Tag as OutlineNode).Where(child => child != null).ToList();
-
-            var name = HeadingText.Display(node.Text);
-            if (string.IsNullOrEmpty(name)) name = "(無題の見出し)";
-            if (name.Length > 16) name = name.Substring(0, 16) + "…";
-
-            var sort = new MenuItem();
-            sort.Header = "「" + name + "」の中の見出しを並べ替え（" + children.Count + " 件）";
-            sort.IsEnabled = children.Count >= 2;
-            sort.Items.Add(OutlineMenuItem("昇順", true, () => SortOutlineChildren(node, false)));
-            sort.Items.Add(OutlineMenuItem("降順", true, () => SortOutlineChildren(node, true)));
-
-            Action<bool> mark = on =>
-            {
-                foreach (var child in children)
-                {
-                    if (child.Frame != null) child.Frame.Background = on ? (Brush)FindResource("AccentFill") : Brushes.Transparent;
-                }
-            };
-            sort.MouseEnter += delegate { mark(true); };
-            sort.SubmenuOpened += delegate { mark(true); };
-            sort.MouseLeave += delegate { if (!sort.IsSubmenuOpen) mark(false); };
-            sort.SubmenuClosed += delegate { mark(false); };
-            menu.Closed += delegate { mark(false); };
-
-            return sort;
         }
 
         private static MenuItem OutlineMenuItem(string header, bool enabled, Action click)
@@ -595,6 +603,7 @@ namespace Tsuzuri
             panel.Children.Add(text);
 
             node.Mark = mark;
+            node.Row = panel;
             UpdateMark(node);
 
             var host = new Grid();
@@ -611,7 +620,7 @@ namespace Tsuzuri
             frame.BorderBrush = Brushes.Transparent;
             frame.Background = Brushes.Transparent;
             frame.ToolTip = display + Environment.NewLine + "ドラッグで好きな位置へ動かす（落とした位置に合わせてレベルを変え、配下も同じだけずらす）" +
-                            Environment.NewLine + "右クリックで、レベル・並べ替え・削除";
+                            Environment.NewLine + "右クリックで、レベル・削除";
             // 右クリックで、左クリックと同じくその見出しへ移って選んでから、メニューを出す。
             // 選んでいる見出し（エディタのカーソルの位置）と、メニューの対象をそろえるため。選んでいる印で、どの見出しのメニューか分かる。
             frame.MouseRightButtonUp += (sender, e) =>

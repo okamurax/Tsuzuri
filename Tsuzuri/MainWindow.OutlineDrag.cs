@@ -22,7 +22,7 @@ using Tsuzuri.Views;
 
 namespace Tsuzuri
 {
-    // MainWindow の一部: アウトラインのドラッグで節を動かす。右クリックのレベルの上げ下げ・並べ替えも、同じ書き換え（MarkdownView）を使うのでここに置く。
+    // MainWindow の一部: アウトラインのドラッグで節を動かす。右クリックのレベルの上げ下げ・同じ階層を回す ▲▼ も、同じ書き換え（MarkdownView）を使うのでここに置く。
     // MainWindow.xaml.cs が大きくなりすぎたので、受け持ちごとにファイルを分けた（2026-10-14。中身は変えていない）。
     public partial class MainWindow
     {
@@ -546,10 +546,11 @@ namespace Tsuzuri
         }
 
         /// <summary>
-        /// その見出しの直下の子の見出しを、名前で並べ替える（昇順・降順。2026-10-27）。孫と本文は子と一緒に動く。
-        /// 1回の書き換えなので、元に戻すも1回で戻る。
+        /// その見出しと同じ階層の見出しを1つずつ回す（まとまりの先頭の ▲▼。SPEC 7章。2026-11-06）。孫と本文は一緒に動く。
+        /// 押したあとは、回したあとの先頭の見出しへ移る（次に来た塊を見せる）。1回の書き換えなので、元に戻すも1回で戻る。
+        /// 連打でアウトラインの組み直しが追いつかず、古いボタンを押しても、同じまとまりのどれかを指しているので同じまとまりが回る。
         /// </summary>
-        private void SortOutlineChildren(OutlineNode node, bool descending)
+        private void RotateOutlineSiblings(OutlineNode node, bool up)
         {
             var view = Active;
             if (view == null) return;
@@ -565,40 +566,29 @@ namespace Tsuzuri
             var index = NearestHeading(entries, node.Text, node.Line);
             if (index < 0) return;
 
-            var name = HeadingText.Display(node.Text);
-            var result = view.SortChildren(entries[index].Line, descending);
+            var result = view.RotateSiblings(entries[index].Line, up);
 
-            if (result == MarkdownView.SortTooFew)
-            {
-                Status("「" + name + "」の中に、並べ替える見出しが2つ以上ありません。");
-                return;
-            }
-
-            if (result == MarkdownView.MoveUnchanged)
-            {
-                Status("「" + name + "」の中の見出しは、もう" + (descending ? "降順" : "昇順") + "に並んでいます。");
-                return;
-            }
+            if (result == MarkdownView.SiblingsTooFew) return;
 
             if (result == MarkdownView.LevelNotPlain)
             {
-                Status("引用やリストの中の見出しがあるため、並べ替えられません。エディタで直してください。");
+                Status("引用やリストの中の見出しがあるため、回せません。エディタで直してください。");
                 return;
             }
 
             if (result == MarkdownView.MoveChangesMeaning)
             {
-                Status("並べ替えると、ほかの見出しの読み方が変わってしまうため、並べ替えませんでした。");
+                Status("回すと、ほかの見出しの読み方が変わってしまうため、回しませんでした。閉じていないコードブロックなどが無いか確かめてください。");
                 return;
             }
 
             if (result < 0)
             {
-                Status("見出しが見つからなかったため、並べ替えませんでした。もう一度押してください。");
+                Status("見出しが見つからなかったため、回しませんでした。もう一度押してください。");
                 return;
             }
 
-            Status("「" + name + "」の中の見出しを" + (descending ? "降順" : "昇順") + "に並べ替えました。");
+            view.GoToLine(result);
         }
     }
 }

@@ -38,6 +38,9 @@ namespace Tsuzuri
             /// <summary>ブックマークしている印の •（押せない。付け外しは本文の行番号の右ボタンのダブルクリック）。</summary>
             public TextBlock Mark;
 
+            /// <summary>見出しの名前と • を並べた段。同じ階層の先頭なら、ここに回す ▲▼ を足す（AddRotateButtons）。</summary>
+            public DockPanel Row;
+
             /// <summary>見出しの段の枠。ドラッグで落とす位置の青い線を、この上端か下端に出す。</summary>
             public Border Frame;
 

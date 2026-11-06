@@ -583,15 +583,18 @@ namespace Tsuzuri.Views
             get { return _owner != null && _owner.IsDirty; }
         }
 
-        /// <summary>本文先頭の見出し。無ければファイル名（SPEC 6章）。</summary>
+        /// <summary>
+        /// 本文の1行目（空行を除く）の文字。見出し・リストなら記号を除いた文字。本文が空ならファイル名（SPEC 6章）。
+        /// 前は本文の中で最初の見出しだったが、アウトラインの ▲▼ で見出しを回すたびにタイトルが変わって不便なので、
+        /// 1行目にした（2026-11-07）。1行目を見出しでない題の行にしておけば、見出しを回してもタイトルは変わらない
+        /// （回すのは見出しの塊だけで、最初の見出しより前の文章は動かさないため）。
+        /// </summary>
         public string Title
         {
             get
             {
                 foreach (var info in Model.Lines)
                 {
-                    if (info.Kind != LineKind.Heading) continue;
-
                     var text = HeadingText.Display(info.Content.Trim());
                     if (text.Length > 0) return text;
                 }

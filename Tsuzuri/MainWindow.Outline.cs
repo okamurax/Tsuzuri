@@ -374,7 +374,7 @@ namespace Tsuzuri
             var buttons = new StackPanel();
             buttons.Orientation = Orientation.Horizontal;
             buttons.VerticalAlignment = VerticalAlignment.Center;
-            buttons.Margin = new Thickness(4, 0, 0, 0);
+            buttons.Margin = new Thickness(2, 0, 0, 0);
             buttons.Children.Add(RotateButton(node, true, "▲", "同じ階層の見出しを回す（みな1つ上がり、先頭は末尾へ）"));
             buttons.Children.Add(RotateButton(node, false, "▼", "同じ階層の見出しを逆に回す（みな1つ下がり、末尾が先頭へ）"));
             DockPanel.SetDock(buttons, Dock.Right);
@@ -383,13 +383,16 @@ namespace Tsuzuri
             node.Row.Children.Insert(0, buttons);
         }
 
-        private Button RotateButton(OutlineNode node, bool up, string symbol, string tip)
+        /// <summary>
+        /// 回すボタン1つ。同じ大きさの四角い縁で囲む（縁が無いと、▲ と ▼ の字の形の違いで上下にずれて見えるため。2026-11-06）。
+        /// </summary>
+        private FrameworkElement RotateButton(OutlineNode node, bool up, string symbol, string tip)
         {
             var button = new Button();
             button.Content = symbol;
             button.Style = (Style)FindResource("ToolButton");
-            button.FontSize = 9;
-            button.Padding = new Thickness(4, 1, 4, 1);
+            button.FontSize = 8;
+            button.Padding = new Thickness(0);
             button.Margin = new Thickness(0);
             button.Focusable = false;
             button.ToolTip = tip;
@@ -399,7 +402,17 @@ namespace Tsuzuri
                 e.Handled = true;
                 RotateOutlineSiblings(node, up);
             };
-            return button;
+
+            var muted = ((SolidColorBrush)FindResource("TextMuted")).Color;
+            var box = new Border();
+            box.Child = button;
+            box.Width = 16;
+            box.Height = 16;
+            box.Margin = new Thickness(2, 0, 0, 0);
+            box.BorderThickness = new Thickness(1);
+            box.CornerRadius = new CornerRadius(3);
+            box.BorderBrush = new SolidColorBrush(Color.FromArgb(0x80, muted.R, muted.G, muted.B));
+            return box;
         }
 
         // ---------------------------------------------------------------

@@ -40,6 +40,8 @@ namespace DrawingEditor
     ///   つなぐ位置は U・V: 四角・丸なら枠の中の割合（0〜1。左上が 0,0）、直線・寸法線なら始点から終点への道のりの割合（U。V は -1）
     /// ・直線は途中に折れ目を持てる（Points。x, y, x, y… の並び。始点から順に）。線の途中のダブルクリックで足し、折れ目のダブルクリックで消す（2026-10-19）
     /// ・寸法線: Offset は、測る2点から寸法線までの離れ（始点から終点へ向かって左側が正。左から右へ測ると上が正）
+    /// ・直線・四角・丸は点線にできる（Dash）。直線は端に矢印を付けられる（ArrowStart・ArrowEnd）。2026-11-07
+    /// ・文字の Fill は背景の色（null なら透明）。四角・丸の塗りと同じ色から選ぶ。2026-11-07
     /// </summary>
     [DataContract]
     internal sealed class Shape
@@ -65,11 +67,18 @@ namespace DrawingEditor
         /// <summary>線の太さ（mm。文字の大きさと同じく、基準の大きさ。DrawingFile.Unit）。0 なら既定（0.25mm）。2026-10-19。</summary>
         [DataMember(Name = "lineWidth", Order = 16, EmitDefaultValue = false)] public double LineWidth;
 
-        /// <summary>四角・丸の塗り（"#RRGGBB"。Fills の色のどれか）。null なら塗らない。2026-10-20。</summary>
+        /// <summary>四角・丸の塗り・文字の背景（"#RRGGBB"。Fills の色のどれか）。null なら塗らない（文字は透明）。2026-10-20（文字の背景は 2026-11-07）。</summary>
         [DataMember(Name = "fill", Order = 17, EmitDefaultValue = false)] public string Fill;
 
         /// <summary>画像の中身（PNG を Base64 にしたもの）。画像だけが持つ。図のファイルだけで完結させるため、JSON に埋め込む（2026-10-25）。</summary>
         [DataMember(Name = "image", Order = 18, EmitDefaultValue = false)] public string Image;
+
+        /// <summary>点線（直線・四角・丸）。2026-11-07。</summary>
+        [DataMember(Name = "dash", Order = 19, EmitDefaultValue = false)] public bool Dash;
+
+        /// <summary>始点・終点に矢印を付ける（直線だけ）。先が線の端。2026-11-07。</summary>
+        [DataMember(Name = "arrowStart", Order = 20, EmitDefaultValue = false)] public bool ArrowStart;
+        [DataMember(Name = "arrowEnd", Order = 21, EmitDefaultValue = false)] public bool ArrowEnd;
 
         public Shape Clone()
         {
@@ -160,6 +169,9 @@ namespace DrawingEditor
             LineWidth = from.LineWidth;
             Fill = from.Fill;
             Image = from.Image;
+            Dash = from.Dash;
+            ArrowStart = from.ArrowStart;
+            ArrowEnd = from.ArrowEnd;
         }
 
         /// <summary>新しい Id（つなぐ相手を指すため。図の中で重ならなければよい）。</summary>
@@ -181,6 +193,18 @@ namespace DrawingEditor
         public bool IsFrame
         {
             get { return IsBox || Type == Kinds.Image; }
+        }
+
+        /// <summary>点線にできる図形（直線・四角・丸）。</summary>
+        public bool CanDash
+        {
+            get { return Type == Kinds.Line || IsBox; }
+        }
+
+        /// <summary>塗り（四角・丸）か背景（文字）の色を持てる図形。</summary>
+        public bool CanFill
+        {
+            get { return IsBox || Type == Kinds.Text; }
         }
 
         /// <summary>2点で決まる図形（直線・寸法線）。</summary>
@@ -227,8 +251,12 @@ namespace DrawingEditor
         // 名前を Tsuzuri に変えた（2026-10-31）あとも、この印は変えない。描いた図のファイルに書き込まれていて、変えると今までの図が開けなくなる。
         public const string Marker = "markdown-editor-drawing";
 
-        /// <summary>この版が読み書きできる図の版（2026-10-27）。これより新しい版の図は開かない（DrawingEditorHost）。</summary>
-        public const int SupportedVersion = 1;
+        /// <summary>
+        /// この版が読み書きできる図の版（2026-10-27）。これより新しい版の図は開かない（DrawingEditorHost）。
+        /// 2 で点線・矢印を足した（2026-11-07）。書くときは、点線・矢印を使っている図だけ 2 にする（使っていなければ前の版でも開ける。Write）。
+        /// 文字の背景は前からある fill を使うので、版は上げない（前の版でも消えずに残る。描かれないだけ）。
+        /// </summary>
+        public const int SupportedVersion = 2;
 
         [DataMember(Name = "kind", Order = 0)] public string Kind = Marker;
         [DataMember(Name = "version", Order = 1)] public int Version = SupportedVersion;
@@ -304,6 +332,8 @@ namespace DrawingEditor
                     if (shape.Type == Kinds.Text && shape.Size <= 0) shape.Size = Geometry.DefaultTextSize;
                     if (string.IsNullOrEmpty(shape.Id)) shape.Id = Shape.NewId();   // Id の無い図形（前の版）
                     if (shape.Points != null && (shape.Type != Kinds.Line || shape.Points.Count % 2 != 0 || shape.Points.Count == 0)) shape.Points = null;
+                    if (!shape.CanDash) shape.Dash = false;
+                    if (shape.Type != Kinds.Line) shape.ArrowStart = shape.ArrowEnd = false;
                     shapes.Add(shape);
                 }
             }
@@ -333,6 +363,8 @@ namespace DrawingEditor
 
         public string Write()
         {
+            Version = Shapes.Any(shape => shape.Dash || shape.ArrowStart || shape.ArrowEnd) ? 2 : 1;
+
             using (var stream = new MemoryStream())
             {
                 new DataContractJsonSerializer(typeof(DrawingFile)).WriteObject(stream, this);
@@ -836,7 +868,10 @@ namespace DrawingEditor
                 // 打っている途中の図形は、その字だけ描かない（打つ欄が上に重なる）。四角・丸は枠は描く。
                 var editing = ReferenceEquals(shape, skip);
                 if (editing && shape.Type == Kinds.Text) continue;
-                DrawShape(dc, shape, ink, MakePen(ink, Geometry.LineWidthOf(shape) * unit), unit, !editing);
+                var pen = shape.Dash && shape.CanDash
+                    ? MakeDashPen(ink, Geometry.LineWidthOf(shape) * unit, unit)
+                    : MakePen(ink, Geometry.LineWidthOf(shape) * unit);
+                DrawShape(dc, shape, ink, pen, unit, !editing);
             }
         }
 
@@ -851,27 +886,63 @@ namespace DrawingEditor
             return pen;
         }
 
+        /// <summary>
+        /// 点線（2026-11-07）。線の太さによらず、紙の上で 2mm の線と 1.2mm の空きを繰り返す（DashStyle の長さは線の太さの倍数なので割る）。
+        /// 線の切れ目は平らにする（丸くすると、太さの分だけ線が伸びて空きが詰まる）。
+        /// </summary>
+        public static Pen MakeDashPen(Brush ink, double width, double unit)
+        {
+            var w = Math.Max(width, 1e-6);
+            var pen = new Pen(ink, width);
+            pen.StartLineCap = PenLineCap.Flat;
+            pen.EndLineCap = PenLineCap.Flat;
+            pen.DashCap = PenLineCap.Flat;
+            pen.LineJoin = PenLineJoin.Round;
+            pen.DashStyle = new DashStyle(new[] { 2.0 * unit / w, 1.2 * unit / w }, 0);
+            pen.Freeze();
+            return pen;
+        }
+
+        /// <summary>直線の矢印の長さ（図の mm）。線の太さに合わせて少し大きくする。幅は長さの 0.38 倍の両側。</summary>
+        private static double ArrowLengthOf(Shape shape, double unit)
+        {
+            return (2.2 + 2 * Geometry.LineWidthOf(shape)) * unit;
+        }
+
         public static void DrawShape(DrawingContext dc, Shape shape, Brush ink, Pen pen, double unit, bool label = true)
         {
             switch (shape.Type)
             {
                 case Kinds.Line:
-                    if (shape.WaypointCount == 0)
                     {
-                        dc.DrawLine(pen, shape.Start, shape.End);
-                    }
-                    else
-                    {
-                        // 折れ線。折れ目は丸くつなぐ。
-                        var geometry = new StreamGeometry();
-                        using (var context = geometry.Open())
+                        var points = shape.Vertices();
+                        var arrow = ArrowLengthOf(shape, unit);
+
+                        // 矢印を付ける端は、線を矢印の中ほどで止める（線の端が矢印の先から突き出さないように）。
+                        // 端の区間が矢印より短ければ、矢印は付けない。
+                        var start = shape.ArrowStart && TrimForArrow(points, 0, 1, arrow);
+                        var end = shape.ArrowEnd && TrimForArrow(points, points.Count - 1, points.Count - 2, arrow);
+
+                        if (points.Count == 2)
                         {
-                            var points = shape.Vertices();
-                            context.BeginFigure(points[0], false, false);
-                            for (var i = 1; i < points.Count; i++) context.LineTo(points[i], true, true);
+                            dc.DrawLine(pen, points[0], points[1]);
                         }
-                        geometry.Freeze();
-                        dc.DrawGeometry(null, pen, geometry);
+                        else
+                        {
+                            // 折れ線。折れ目は丸くつなぐ。
+                            var geometry = new StreamGeometry();
+                            using (var context = geometry.Open())
+                            {
+                                context.BeginFigure(points[0], false, false);
+                                for (var i = 1; i < points.Count; i++) context.LineTo(points[i], true, true);
+                            }
+                            geometry.Freeze();
+                            dc.DrawGeometry(null, pen, geometry);
+                        }
+
+                        var vertices = shape.Vertices();
+                        if (start) DrawLineArrow(dc, ink, vertices[0], vertices[1], arrow);
+                        if (end) DrawLineArrow(dc, ink, vertices[vertices.Count - 1], vertices[vertices.Count - 2], arrow);
                     }
                     break;
 
@@ -889,7 +960,18 @@ namespace DrawingEditor
                     break;
 
                 case Kinds.Text:
-                    dc.DrawText(Geometry.MakeText(shape.Text, shape.Size, ink, unit), shape.Start);
+                    {
+                        // 背景（2026-11-07）。線の上に文字を載せるときに、下の線を隠す。少し余白を付けて塗る。null なら透明。
+                        var background = Fills.BrushOf(shape.Fill);
+                        if (background != null)
+                        {
+                            var r = Geometry.Bounds(shape, unit);
+                            r.Inflate(TextBackgroundPadding * unit, TextBackgroundPadding * unit * 0.5);
+                            dc.DrawRectangle(background, null, r);
+                        }
+
+                        dc.DrawText(Geometry.MakeText(shape.Text, shape.Size, ink, unit), shape.Start);
+                    }
                     break;
 
                 case Kinds.Dimension:
@@ -947,6 +1029,29 @@ namespace DrawingEditor
             }
 
             return entry;
+        }
+
+        /// <summary>文字の背景の、文字の周りの余白（紙の上の mm。上下はこの半分）。</summary>
+        public const double TextBackgroundPadding = 0.8;
+
+        /// <summary>矢印を付ける端を、矢印の長さの 6 割だけ手前で止める。端の区間が矢印の 1.2 倍より短ければ止めずに偽（矢印を付けない）。</summary>
+        private static bool TrimForArrow(List<Point> points, int tip, int next, double arrow)
+        {
+            var along = points[next] - points[tip];
+            if (along.Length < arrow * 1.2) return false;
+
+            along.Normalize();
+            points[tip] = points[tip] + along * arrow * 0.6;
+            return true;
+        }
+
+        /// <summary>直線の矢印。先が tip、from の向きから来る（塗った三角）。</summary>
+        private static void DrawLineArrow(DrawingContext dc, Brush ink, Point tip, Point from, double length)
+        {
+            var inward = from - tip;
+            if (inward.Length < 1e-9) return;
+            inward.Normalize();
+            DrawArrow(dc, ink, tip, inward, new Vector(-inward.Y, inward.X), length, length * 0.38);
         }
 
         /// <summary>四角・丸の中の文字の余白（紙の上の mm）。</summary>

@@ -44,6 +44,9 @@ namespace DrawingEditor
         // 塗りの色見本（四角・丸を選んでいるときだけ出す）。枠の色で今の色を示す。
         private readonly List<KeyValuePair<string, Border>> _swatches = new List<KeyValuePair<string, Border>>();
 
+        // 実線・点線と矢印の選ぶボタン（2026-11-07）。押した見た目を、選んでいる図形に合わせて付け直す処理。
+        private readonly List<Action> _choiceUpdates = new List<Action>();
+
         private readonly string _opened;
         private bool _saved;
         private DrawingResult _result;
@@ -342,15 +345,98 @@ namespace DrawingEditor
             }
 
             _swatches.Clear();
+            _choiceUpdates.Clear();
+            if (_canvas.CanDash)
+            {
+                _fields.Children.Add(ChoiceRow("線", new[]
+                {
+                    new KeyValuePair<string, bool>("実線", false),
+                    new KeyValuePair<string, bool>("点線", true),
+                }, dash => _canvas.SelectionDash == dash, dash => _canvas.SetDash(dash)));
+            }
+            if (_canvas.CanArrow)
+            {
+                // 0 なし・1 終点・2 始点・3 両方（DrawingCanvas.SelectionArrow）。
+                _fields.Children.Add(ChoiceRow("矢印", new[]
+                {
+                    new KeyValuePair<string, int>("なし", 0),
+                    new KeyValuePair<string, int>("終点", 1),
+                    new KeyValuePair<string, int>("始点", 2),
+                    new KeyValuePair<string, int>("両方", 3),
+                }, arrow => _canvas.SelectionArrow == arrow, arrow => _canvas.SetArrow(arrow)));
+            }
             if (_canvas.CanFill) _fields.Children.Add(FillRow());
             UpdateSwatches();
         }
 
-        /// <summary>塗りの段（2026-10-20）。色見本を押すと、選んでいる四角・丸をその色で塗る。左端の「なし」は塗らない。</summary>
+        /// <summary>
+        /// 文字のボタンから1つ選ぶ段（実線・点線、矢印。2026-11-07）。今の値のボタンは枠を明るくする（塗りの色見本と同じ）。
+        /// 選んでいる図形で値がそろっていなければ、どれも明るくしない。
+        /// </summary>
+        private UIElement ChoiceRow<T>(string name, KeyValuePair<string, T>[] choices, Func<T, bool> isCurrent, Action<T> pick)
+        {
+            var label = new TextBlock();
+            label.Text = name;
+            label.FontSize = 12;
+            label.Foreground = Muted;
+            label.VerticalAlignment = VerticalAlignment.Center;
+            label.Width = 72;
+            DockPanel.SetDock(label, Dock.Left);
+
+            var buttons = new WrapPanel();
+            foreach (var choice in choices)
+            {
+                var value = choice.Value;
+
+                var text = new TextBlock();
+                text.Text = choice.Key;
+                text.FontSize = 11;
+                text.Foreground = Text;
+                text.HorizontalAlignment = HorizontalAlignment.Center;
+                text.VerticalAlignment = VerticalAlignment.Center;
+
+                var button = new Border();
+                button.MinWidth = 26;
+                button.Height = 20;
+                button.Padding = new Thickness(4, 0, 4, 0);
+                button.Margin = new Thickness(0, 0, 4, 4);
+                button.BorderThickness = new Thickness(1);
+                button.CornerRadius = new CornerRadius(2);
+                button.Background = Page;
+                button.Cursor = Cursors.Hand;
+                button.Child = text;
+
+                button.MouseLeftButtonUp += delegate
+                {
+                    pick(value);
+                    UpdateSwatches();
+                    _canvas.Focus();
+                };
+
+                _choiceUpdates.Add(() =>
+                {
+                    var on = isCurrent(value);
+                    button.BorderBrush = on ? Text : InputBorder;
+                    button.Background = on ? Active : Page;
+                });
+                buttons.Children.Add(button);
+            }
+
+            var row = new DockPanel();
+            row.Margin = new Thickness(0, 0, 0, 8);
+            row.Children.Add(label);
+            row.Children.Add(buttons);
+            return row;
+        }
+
+        /// <summary>
+        /// 塗りの段（2026-10-20）。色見本を押すと、選んでいる四角・丸をその色で塗り、文字の背景をその色にする（2026-11-07）。
+        /// 左端の「なし」は塗らない（文字は透明）。選んでいるのが文字だけなら、名前を「背景」にする。
+        /// </summary>
         private UIElement FillRow()
         {
             var label = new TextBlock();
-            label.Text = "塗り";
+            label.Text = _canvas.FillIsBackground ? "背景" : "塗り";
             label.FontSize = 12;
             label.Foreground = Muted;
             label.VerticalAlignment = VerticalAlignment.Center;
@@ -369,7 +455,7 @@ namespace DrawingEditor
                 swatch.BorderThickness = new Thickness(2);
                 swatch.CornerRadius = new CornerRadius(2);
                 swatch.Background = Fills.BrushOf(fill) ?? Page;
-                swatch.ToolTip = choice.Key;
+                swatch.ToolTip = fill == null && _canvas.FillIsBackground ? "なし（透明）" : choice.Key;
                 swatch.Cursor = Cursors.Hand;
 
                 // 「なし」は暗い地に斜めの線。
@@ -400,6 +486,7 @@ namespace DrawingEditor
         /// <summary>今の塗りの色見本だけ、枠を明るくする。色がそろっていなければどれも明るくしない。</summary>
         private void UpdateSwatches()
         {
+            foreach (var update in _choiceUpdates) update();
             if (_swatches.Count == 0) return;
 
             var current = _canvas.SelectionFill;

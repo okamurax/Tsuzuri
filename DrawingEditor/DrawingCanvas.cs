@@ -499,31 +499,98 @@ namespace DrawingEditor
             Changed();
         }
 
-        /// <summary>選んでいる中に四角・丸があるか（右の欄に塗りの色を出すか）。2つ以上選んでいてもよい。</summary>
+        /// <summary>選んでいる中に四角・丸・文字があるか（右の欄に塗り・背景の色を出すか）。2つ以上選んでいてもよい。</summary>
         public bool CanFill
         {
-            get { return _selection.Any(shape => shape.IsBox); }
+            get { return _selection.Any(shape => shape.CanFill); }
         }
 
-        /// <summary>選んでいる四角・丸の塗り。色がそろっていなければ空の文字（どの色見本も押した見た目にしない）。</summary>
+        /// <summary>選んでいる中で色を持てるのが文字だけか（右の欄の名前を「塗り」でなく「背景」にする）。</summary>
+        public bool FillIsBackground
+        {
+            get { return _selection.Where(shape => shape.CanFill).All(shape => shape.Type == Kinds.Text); }
+        }
+
+        /// <summary>選んでいる四角・丸・文字の色。そろっていなければ空の文字（どの色見本も押した見た目にしない）。</summary>
         public string SelectionFill
         {
             get
             {
-                var fills = _selection.Where(shape => shape.IsBox).Select(shape => shape.Fill).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+                var fills = _selection.Where(shape => shape.CanFill).Select(shape => shape.Fill).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
                 return fills.Count == 1 ? fills[0] : string.Empty;
             }
         }
 
-        /// <summary>選んでいる四角・丸を塗る（null で塗らない）。直線・文字・寸法線は選んでいても変えない。</summary>
+        /// <summary>選んでいる四角・丸を塗り、文字の背景をその色にする（null で塗らない・透明）。直線・寸法線は選んでいても変えない。</summary>
         public void SetFill(string fill)
         {
-            var boxes = _selection.Where(shape => shape.IsBox).ToList();
-            if (boxes.All(shape => string.Equals(shape.Fill, fill, StringComparison.OrdinalIgnoreCase))) return;   // 履歴を増やさない
+            var targets = _selection.Where(shape => shape.CanFill).ToList();
+            if (targets.All(shape => string.Equals(shape.Fill, fill, StringComparison.OrdinalIgnoreCase))) return;   // 履歴を増やさない
 
             EndTextEdit();
             PushUndo();
-            foreach (var shape in boxes) shape.Fill = fill;
+            foreach (var shape in targets) shape.Fill = fill;
+            Changed();
+        }
+
+        /// <summary>選んでいる中に直線・四角・丸があるか（右の欄に実線・点線を出すか）。2026-11-07。</summary>
+        public bool CanDash
+        {
+            get { return _selection.Any(shape => shape.CanDash); }
+        }
+
+        /// <summary>選んでいる直線・四角・丸が点線か。そろっていなければ null。</summary>
+        public bool? SelectionDash
+        {
+            get
+            {
+                var dashes = _selection.Where(shape => shape.CanDash).Select(shape => shape.Dash).Distinct().ToList();
+                return dashes.Count == 1 ? dashes[0] : (bool?)null;
+            }
+        }
+
+        public void SetDash(bool dash)
+        {
+            var targets = _selection.Where(shape => shape.CanDash).ToList();
+            if (targets.All(shape => shape.Dash == dash)) return;
+
+            EndTextEdit();
+            PushUndo();
+            foreach (var shape in targets) shape.Dash = dash;
+            Changed();
+        }
+
+        /// <summary>選んでいる中に直線があるか（右の欄に矢印を出すか）。2026-11-07。</summary>
+        public bool CanArrow
+        {
+            get { return _selection.Any(shape => shape.Type == Kinds.Line); }
+        }
+
+        /// <summary>選んでいる直線の矢印（0 なし・1 終点・2 始点・3 両方）。そろっていなければ -1。</summary>
+        public int SelectionArrow
+        {
+            get
+            {
+                var arrows = _selection.Where(shape => shape.Type == Kinds.Line)
+                    .Select(shape => (shape.ArrowEnd ? 1 : 0) + (shape.ArrowStart ? 2 : 0)).Distinct().ToList();
+                return arrows.Count == 1 ? arrows[0] : -1;
+            }
+        }
+
+        public void SetArrow(int arrow)
+        {
+            var targets = _selection.Where(shape => shape.Type == Kinds.Line).ToList();
+            var end = (arrow & 1) != 0;
+            var start = (arrow & 2) != 0;
+            if (targets.All(shape => shape.ArrowEnd == end && shape.ArrowStart == start)) return;
+
+            EndTextEdit();
+            PushUndo();
+            foreach (var shape in targets)
+            {
+                shape.ArrowEnd = end;
+                shape.ArrowStart = start;
+            }
             Changed();
         }
 

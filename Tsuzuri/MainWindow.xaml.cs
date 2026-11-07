@@ -148,22 +148,7 @@ namespace Tsuzuri
             // アウトラインの更新はまとめて行う。見出しの一覧はエディタ側で
             // 使い回されるので、この間隔は短くてよい。
             _outlineRefresh.Interval = TimeSpan.FromMilliseconds(60);
-            _outlineRefresh.Tick += delegate
-            {
-                _outlineRefresh.Stop();
-                if (_rotateTiming) PerfLog.StepMark("アウトライン開始");
-                RefreshOutline();
-                var started = PerfLog.Start();
-                RefreshPageTitles();
-                UpdateChrome();
-                PerfLog.Step("題と表示", started);
-
-                if (_rotateTiming)
-                {
-                    _rotateTiming = false;
-                    FinishStepsLater();
-                }
-            };
+            _outlineRefresh.Tick += delegate { RefreshOutlineNow(); };
 
             // 知らせを出しっぱなしにせず、しばらくしたら元の表示へ戻す。
             _statusReset.Interval = TimeSpan.FromSeconds(6);

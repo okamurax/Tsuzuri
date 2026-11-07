@@ -180,6 +180,10 @@ Mac では、XAML を除いた C# のコンパイルだけを `bash tools/check-
 （名前を付けた例と、文書をでたらめに書き換えては比べるのを繰り返す。既定 3000 回で2〜3分）。
 `Tsuzuri/Markdown/` や、`MarkdownView` の部分解析を変えたら回してください。部分解析の判断は `tools/parse-fuzz/Program.cs` に写してあるので、そちらも合わせます。
 
+`bash tools/struct-fuzz.sh` で、アウトラインの操作（見出しを回す・動かす・消す・レベルを変える）が文書の形を崩さないかを確かめます
+（でたらめな文書に操作をかけ、見出しの並び・親・リストや引用の中か・ほかの段落が変わらないかを見る。既定 30000 文書で十数秒）。
+`MarkdownView.Sections.cs` や `Tsuzuri/Markdown/` を変えたら回してください。`Sections.cs` は `tools/struct-fuzz/Port.cs` に写してあるので、そちらも合わせます。
+
 ## 設定ファイル
 
 どれも exe と同じフォルダに置きます。持ち運べるように、`%AppData%` は使いません。
@@ -207,7 +211,7 @@ Tsuzuri/
 └ ConPty/                AI の欄の端末で使う ConPTY（conpty.dll・OpenConsole.exe）
 TableEditor/             表エディタ（WPF。本体から DLL として読み込む）
 DrawingEditor/           図エディタ（WPF。本体から DLL として読み込む）
-tools/                   Mac でのコンパイル確認、WordPress の変換の確かめ（wp-check）、部分解析の確かめ（parse-fuzz）、コミット前のフック、アイコンの生成
+tools/                   Mac でのコンパイル確認、WordPress の変換の確かめ（wp-check）、部分解析の確かめ（parse-fuzz）、アウトラインの操作の確かめ（struct-fuzz）、コミット前のフック、アイコンの生成
 sample/                  動作確認用の文書
 ```
 

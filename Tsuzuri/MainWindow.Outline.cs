@@ -36,6 +36,27 @@ namespace Tsuzuri
             _outlineRefresh.Start();
         }
 
+        /// <summary>
+        /// アウトライン・ページの題・画面の表示を、今すぐ本文に合わせる。ふだんは本文が変わってから 60ms 後に呼ぶ（_outlineRefresh）。
+        /// 見出しを回したときは、連打で古いボタンを押さないよう、その場で呼ぶ（RotateOutlineSiblings。2026-11-07）。
+        /// </summary>
+        private void RefreshOutlineNow()
+        {
+            _outlineRefresh.Stop();
+            if (_rotateTiming) PerfLog.StepMark("アウトライン開始");
+            RefreshOutline();
+            var started = PerfLog.Start();
+            RefreshPageTitles();
+            UpdateChrome();
+            PerfLog.Step("題と表示", started);
+
+            if (_rotateTiming)
+            {
+                _rotateTiming = false;
+                FinishStepsLater();
+            }
+        }
+
         private void RefreshOutline()
         {
             // 開いているファイルが変わったら、見出しのブックマーク欄をそのファイルの分に入れ替える。

@@ -118,14 +118,14 @@ namespace Tsuzuri
 
             if (result == MarkdownView.MoveChangesMeaning)
             {
-                Status("削除すると Markdown の読み方が変わる（ほかの見出しが消える・増える）ため、取りやめました。" +
+                Status("削除すると Markdown の読み方が変わる（ほかの見出しが消える・増える・リストや引用に入る）ため、取りやめました。" +
                        "閉じていないコードブロックなどが無いか確かめてください。");
                 return;
             }
 
             if (result == MarkdownView.HeadingNotEditable)
             {
-                Status("引用・リストの中の見出しが関わるため、ここでは削除できません（引用やリストが途中で切れるため）。エディタで消してください。");
+                Status("引用・リスト・前付け（文書の頭の --- で囲んだ部分）の中の見出しが関わるため、ここでは削除できません（途中で切れるため）。エディタで消してください。");
                 return;
             }
 
@@ -135,7 +135,9 @@ namespace Tsuzuri
                 return;
             }
 
-            Status("「" + node.Text + "」を削除しました。");
+            Status(result == MarkdownView.DefinitionsKept
+                ? "「" + node.Text + "」を削除しました。中にあったリンクの定義・脚注の定義（[1]: … など）は、ほかから使われているかもしれないので残しました。"
+                : "「" + node.Text + "」を削除しました。");
         }
     }
 }

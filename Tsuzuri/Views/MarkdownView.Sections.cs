@@ -79,9 +79,13 @@ namespace Tsuzuri.Views
 
             if (target > start && target < stop) return -1;           // 自分の配下へは動かさない
 
-            // 引用・リストの中の見出しが切れ目になるなら動かさない。引用やリストが途中で切れて、形が変わるため。
-            if (InsideContainer(entries[index].Line) || (end >= 0 && InsideContainer(entries[end].Line))
-                || (beforeLine > 0 && InsideContainer(beforeLine))) return LevelNotPlain;
+            List<KeyValuePair<int, int>> definitions;
+            var places = PlacesNow(entries, text, out definitions);
+            if (places == null) return -1;
+
+            // 引用・リスト・前付けの中の見出しが切れ目になるなら動かさない。引用やリストが途中で切れて、形が変わるため。
+            if (!Plain(places, entries[index].Line) || (end >= 0 && !Plain(places, entries[end].Line))
+                || (beforeLine > 0 && !Plain(places, beforeLine))) return LevelNotPlain;
 
             // 自分の手前・自分の節のすぐ後ろは、並びが変わらない。レベルも変わらなければ何もしない。
             // レベルだけ変わるなら（すぐ上の見出しの子に入れる等）、その場でレベルだけずらす。
@@ -126,8 +130,8 @@ namespace Tsuzuri.Views
                 candidate = Relocate(text, section.ToString(), start, stop, target, out moved);
             }
 
-            // 動かしたあとの見出しの顔ぶれが、レベルをずらした分だけ変わった形になっているか確かめる。
-            if (!SameHeadings(expected, MarkdownParser.Headings(candidate))) return MoveChangesMeaning;
+            // 動かしたあとの見出しの顔ぶれ（置き場所も）が、レベルをずらした分だけ変わった形になっているか確かめる。
+            if (!SameHeadings(expected, places, candidate)) return MoveChangesMeaning;
 
             // 変わった部分だけを置き換える。
             var prefix = 0;
@@ -259,10 +263,13 @@ namespace Tsuzuri.Views
 
             if (children.Count < 2) return SiblingsTooFew;
 
-            // 引用・リストの中の見出しが切れ目になるなら動かさない。引用やリストが途中で切れて、形が変わるため。
-            if (children.Any(k => InsideContainer(entries[k].Line)) || (end >= 0 && InsideContainer(entries[end].Line))) return LevelNotPlain;
-
             var text = Document.Text;
+            List<KeyValuePair<int, int>> definitions;
+            var places = PlacesNow(entries, text, out definitions);
+            if (places == null) return -1;
+
+            // 引用・リスト・前付けの中の見出しが切れ目になるなら動かさない。引用やリストが途中で切れて、形が変わるため。
+            if (children.Any(k => !Plain(places, entries[k].Line)) || (end >= 0 && !Plain(places, entries[end].Line))) return LevelNotPlain;
             var stop = end >= 0 ? Document.GetLineByNumber(entries[end].Line).Offset : text.Length;
             var starts = children.Select(k => Document.GetLineByNumber(entries[k].Line).Offset).ToList();
 
@@ -299,13 +306,17 @@ namespace Tsuzuri.Views
             }
             expected.AddRange(entries.Skip(last));
 
+            // 置き場所（文書の直下・リストの中・引用の中…）も比べる。並びとレベルが同じでも、見出しがリストに入ったり出たりすることがあるため（2026-11-07）。
             var started = PerfLog.Start();
-            var actual = MarkdownParser.Headings(candidate);
+            Dictionary<int, string> after;
+            List<KeyValuePair<int, int>> unused;
+            var actual = MarkdownParser.Headings(candidate, out after, out unused);
             PerfLog.Step("確かめの解析", started);
             if (actual.Count != expected.Count) return MoveChangesMeaning;
             for (var i = 0; i < actual.Count; i++)
             {
                 if (actual[i].Level != expected[i].Level || actual[i].Text != expected[i].Text) return MoveChangesMeaning;
+                if (PlaceOf(after, actual[i].Line) != PlaceOf(places, expected[i].Line)) return MoveChangesMeaning;
             }
 
             // 変わった部分だけを置き換える。
@@ -328,7 +339,11 @@ namespace Tsuzuri.Views
             return entries[children[0]].Line;
         }
 
-        /// <summary>見出しの節（中身と小見出しも含む）を消す。消せたら 0。</summary>
+        /// <summary>
+        /// 見出しの節（中身と小見出しも含む）を消す。消せたら 0、リンクの定義・脚注の定義を残して消したら DefinitionsKept。
+        /// 節の中のリンクの定義（[1]: …）と脚注の定義（[^1]: …）は、消した跡に残す（2026-11-07）。
+        /// 文書の末尾にまとめて書いた定義は最後の節の中身になり、最後の節を消すと、ほかの節のリンクがただの文字になっていたため。
+        /// </summary>
         public int DeleteSection(int headingLine)
         {
             if (IsReadOnly) return -1;
@@ -342,30 +357,76 @@ namespace Tsuzuri.Views
             var start = Document.GetLineByNumber(entries[index].Line).Offset;
             var stop = end >= 0 ? Document.GetLineByNumber(entries[end].Line).Offset : text.Length;
 
-            // 引用・リストの中の見出しが切れ目になるなら消さない。引用やリストが途中で切れて、形が変わるため。
-            if (InsideContainer(entries[index].Line) || (end >= 0 && InsideContainer(entries[end].Line))) return HeadingNotEditable;
+            List<KeyValuePair<int, int>> definitions;
+            var places = PlacesNow(entries, text, out definitions);
+            if (places == null) return -1;
+
+            // 引用・リスト・前付けの中の見出しが切れ目になるなら消さない。引用やリストが途中で切れて、形が変わるため。
+            if (!Plain(places, entries[index].Line) || (end >= 0 && !Plain(places, entries[end].Line))) return HeadingNotEditable;
+
+            // 節の中のリンクの定義・脚注の定義は残す（書いてあった順に、空行で区切って）。
+            var kept = definitions
+                .Where(each => each.Key >= start && each.Key < stop)
+                .GroupBy(each => each.Key).Select(each => each.First())
+                .OrderBy(each => each.Key)
+                .Select(each => text.Substring(each.Key, Math.Min(each.Value, stop - each.Key)).TrimEnd('\r', '\n'))
+                .ToList();
 
             // 消した跡で、前の文章と後ろの文章がくっつかないよう、あいだに空行を残す
             // （くっつくと、後ろの下線式の見出しが前の段落まで取り込んでしまう）。
-            var gap = start > 0 && stop < text.Length && !PrecededByBlankLine(start) ? "\n" : string.Empty;
+            string gap;
+            if (kept.Count == 0)
+            {
+                gap = start > 0 && stop < text.Length && !PrecededByBlankLine(start) ? "\n" : string.Empty;
+            }
+            else
+            {
+                gap = (start > 0 && !PrecededByBlankLine(start) ? "\n" : string.Empty)
+                      + string.Join("\n\n", kept) + "\n" + (stop < text.Length ? "\n" : string.Empty);
+            }
 
-            // 消したあとに残るはずの見出し（消す範囲の外のもの）と、実際に読み直した見出しが同じか確かめる。
+            // 消したあとに残るはずの見出し（消す範囲の外のもの。置き場所も）と、実際に読み直した見出しが同じか確かめる。
             var last = end >= 0 ? end : entries.Count;
             var expected = entries.Where((entry, k) => k < index || k >= last).ToList();
             var candidate = text.Substring(0, start) + gap + text.Substring(stop);
-            if (!SameHeadings(expected, MarkdownParser.Headings(candidate))) return MoveChangesMeaning;
+            if (!SameHeadings(expected, places, candidate)) return MoveChangesMeaning;
 
             Document.Replace(start, stop - start, gap);
-            return 0;
+            return kept.Count == 0 ? 0 : DefinitionsKept;
         }
 
-        /// <summary>その行が引用・リストの中か（印で始まる・4つ以上字下げしている）。</summary>
-        private bool InsideContainer(int lineNumber)
-        {
-            if (lineNumber < 1 || lineNumber > Document.LineCount) return false;
+        /// <summary>節を消した。中にあったリンクの定義・脚注の定義は残した。</summary>
+        public const int DefinitionsKept = 1;
 
-            var line = Document.GetLineByNumber(lineNumber);
-            return QuoteOrListStart.IsMatch(Document.GetText(line.Offset, line.Length));
+        /// <summary>
+        /// 今の本文の見出しの置き場所（行番号 → 置き場所。MarkdownParser.Headings）。
+        /// 本文を読み直した見出しが、アウトライン（entries）と行番号まで同じでなければ null（2026-11-07）。
+        /// アウトラインは近道の解析で直したものなので、もし食い違っていれば、ずれた行で切り貼りして本文を壊すため。
+        /// </summary>
+        private static Dictionary<int, string> PlacesNow(List<OutlineHeading> entries, string text, out List<KeyValuePair<int, int>> definitions)
+        {
+            Dictionary<int, string> places;
+            var now = MarkdownParser.Headings(text, out places, out definitions);
+            if (now.Count != entries.Count) return null;
+
+            for (var i = 0; i < now.Count; i++)
+            {
+                if (now[i].Level != entries[i].Level || now[i].Text != entries[i].Text || now[i].Line != entries[i].Line) return null;
+            }
+
+            return places;
+        }
+
+        /// <summary>その行の見出しが文書の直下にあるか（リスト・引用・脚注・前付けの中ではない）。</summary>
+        private static bool Plain(Dictionary<int, string> places, int line)
+        {
+            return PlaceOf(places, line).Length == 0;
+        }
+
+        private static string PlaceOf(Dictionary<int, string> places, int line)
+        {
+            string place;
+            return places.TryGetValue(line, out place) ? place : "?";
         }
 
         /// <summary>text の後ろに見出しを置くとき、空行1つ（改行2つ）にするために足りない改行。</summary>
@@ -387,17 +448,24 @@ namespace Tsuzuri.Views
             return line == null || Document.GetText(line.Offset, line.Length).Trim().Length == 0;
         }
 
-        /// <summary>見出しの顔ぶれ（レベルと名前）が、並び順を問わず同じか。</summary>
-        private static bool SameHeadings(List<OutlineHeading> before, List<OutlineHeading> after)
+        /// <summary>
+        /// 書き換えたあと（candidate）の見出しの顔ぶれ（レベル・名前・置き場所）が、並び順を問わず expected と同じか。
+        /// expected の置き場所は、書き換える前の行番号で places から引く。
+        /// 置き場所も比べるのは、字下げした見出しがリストの項目に入ったり出たりしても、レベルと名前は変わらないため（2026-11-07）。
+        /// </summary>
+        private static bool SameHeadings(List<OutlineHeading> expected, Dictionary<int, string> places, string candidate)
         {
-            if (before.Count != after.Count) return false;
+            Dictionary<int, string> after;
+            List<KeyValuePair<int, int>> unused;
+            var actual = MarkdownParser.Headings(candidate, out after, out unused);
+            if (expected.Count != actual.Count) return false;
 
             var names = new List<string>();
-            foreach (var entry in before) names.Add(entry.Level + ":" + entry.Text);
+            foreach (var entry in expected) names.Add(entry.Level + ":" + PlaceOf(places, entry.Line) + ":" + entry.Text);
 
-            foreach (var entry in after)
+            foreach (var entry in actual)
             {
-                if (!names.Remove(entry.Level + ":" + entry.Text)) return false;
+                if (!names.Remove(entry.Level + ":" + PlaceOf(after, entry.Line) + ":" + entry.Text)) return false;
             }
 
             return true;

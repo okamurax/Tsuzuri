@@ -452,13 +452,13 @@ namespace Tsuzuri
 
             if (line == MarkdownView.LevelNotPlain)
             {
-                Status("引用やリストの中の見出しが関わるため、動かしませんでした（引用やリストが途中で切れる・レベルを合わせられないため）。");
+                Status("引用・リスト・前付け（文書の頭の --- で囲んだ部分）の中の見出しが関わるため、動かしませんでした（途中で切れる・レベルを合わせられないため）。");
                 return;
             }
 
             if (line == MarkdownView.MoveChangesMeaning)
             {
-                Status("動かすと Markdown の読み方が変わる（見出しが消える・増える）ため、取りやめました。" +
+                Status("動かすと Markdown の読み方が変わる（見出しが消える・増える・リストや引用に入る）ため、取りやめました。" +
                        "閉じていないコードブロックなどが無いか確かめてください。");
                 return;
             }
@@ -517,7 +517,7 @@ namespace Tsuzuri
 
             if (result == MarkdownView.LevelNotPlain)
             {
-                Status("引用やリストの中の見出しは、ここではレベルを変えられません。エディタで直してください。");
+                Status("引用・リスト・前付けの中の見出しは、ここではレベルを変えられません。エディタで直してください。");
                 return;
             }
 
@@ -548,7 +548,9 @@ namespace Tsuzuri
         /// <summary>
         /// その見出しと同じ階層の見出しを1つずつ回す（まとまりの先頭の ▲▼。SPEC 7章。2026-11-06）。孫と本文は一緒に動く。
         /// 押したあとは、回したあとの先頭の見出しへ移る（次に来た塊を見せる）。1回の書き換えなので、元に戻すも1回で戻る。
-        /// 連打でアウトラインの組み直しが追いつかず、古いボタンを押しても、同じまとまりのどれかを指しているので同じまとまりが回る。
+        /// 回したら、アウトラインをその場で組み直す（2026-11-07）。前は 60ms 後に組み直していて、そのあいだに連打すると古いボタンを押すことになり、
+        /// 同じ名前の見出しが別の階層にあると、名前で探し直したときにそちらを拾って、別のまとまりを回すことがあった。
+        /// 探し直すときも、名前だけでなくレベルも同じ見出しにする。
         /// </summary>
         private void RotateOutlineSiblings(OutlineNode node, bool up)
         {
@@ -566,9 +568,14 @@ namespace Tsuzuri
             PerfLog.BeginSteps(up ? "回す ▲" : "回す ▼");
             var started = PerfLog.Start();
 
-            // アウトラインの行番号は少し遅れて追いつくので、押した時点の本文から、同じ名前で一番近い見出しを探し直す。
+            // 押した時点の本文から、同じ名前・同じレベルで一番近い見出しを探し直す（アウトラインが本文に追いついていないときのため）。
             var entries = view.GetOutline().Entries;
-            var index = NearestHeading(entries, node.Text, node.Line);
+            var index = -1;
+            for (var i = 0; i < entries.Count; i++)
+            {
+                if (entries[i].Level != node.Level || !string.Equals(entries[i].Text, node.Text, StringComparison.Ordinal)) continue;
+                if (index < 0 || Math.Abs(entries[i].Line - node.Line) < Math.Abs(entries[index].Line - node.Line)) index = i;
+            }
             PerfLog.Step("見出しを探す", started);
             PerfLog.StepNote("見出し数", entries.Count);
             if (index < 0) { PerfLog.EndSteps(); return; }
@@ -580,13 +587,13 @@ namespace Tsuzuri
 
             if (result == MarkdownView.LevelNotPlain)
             {
-                Status("引用やリストの中の見出しがあるため、回せません。エディタで直してください。");
+                Status("引用・リスト・前付け（文書の頭の --- で囲んだ部分）の中の見出しがあるため、回せません。エディタで直してください。");
                 return;
             }
 
             if (result == MarkdownView.MoveChangesMeaning)
             {
-                Status("回すと、ほかの見出しの読み方が変わってしまうため、回しませんでした。閉じていないコードブロックなどが無いか確かめてください。");
+                Status("回すと、ほかの見出しの読み方が変わってしまう（見出しが消える・増える・リストや引用に入る）ため、回しませんでした。閉じていないコードブロックなどが無いか確かめてください。");
                 return;
             }
 
@@ -600,6 +607,8 @@ namespace Tsuzuri
             view.GoToLine(result);
             PerfLog.Step("行へ移る", started);
             _rotateTiming = PerfLog.Stepping;
+
+            RefreshOutlineNow();
         }
 
         /// <summary>回すボタンの時間を測っている途中か。アウトラインを組み直したあとで書き出す。</summary>

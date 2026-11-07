@@ -33,7 +33,24 @@ namespace Tsuzuri.Markdown
         /// </summary>
         public static List<OutlineHeading> Headings(string text)
         {
+            Dictionary<int, string> places;
+            List<KeyValuePair<int, int>> definitions;
+            return Headings(text, out places, out definitions);
+        }
+
+        /// <summary>
+        /// 見出しと、それぞれの見出しの置き場所（行番号 → 置き場所。2026-11-07）。
+        /// 置き場所は、文書の直下なら空文字、リストの項目の中なら L、引用の中なら Q、脚注の中なら F を外側から並べたもの。
+        /// 文書の頭の前付け（--- で始まり --- か ... で閉じる YAML）の中は Y。Markdig は前付けを知らず、下線式の見出しと読むため。
+        /// 節を動かす・回す・消すときに、見出しが入れ物に出入りしていないかを確かめるのに使う
+        /// （前は行の頭の字で当てていて、2〜3字下げのリストの中の見出しを見逃していた）。
+        /// definitions は、リンクの定義（[1]: …）と脚注の定義（[^1]: …）の、文字の位置と長さ。節を消すときに残すため。
+        /// </summary>
+        public static List<OutlineHeading> Headings(string text, out Dictionary<int, string> places, out List<KeyValuePair<int, int>> definitions)
+        {
             text = text ?? string.Empty;
+            places = new Dictionary<int, string>();
+            definitions = new List<KeyValuePair<int, int>>();
 
             var texts = new List<string>();
             var offsets = new List<int>();
@@ -51,11 +68,98 @@ namespace Tsuzuri.Markdown
                 start = i + 1;
             }
 
-            return Parse(text, texts, offsets).Headings();
+            MarkdownDocument document;
+            var headings = Parse(text, texts, offsets, out document).Headings();
+            if (document == null) return headings;
+
+            // 前付け: 1行目が --- で、後ろに --- か ... の行があれば、そこまで。
+            var frontEnd = 0;
+            if (texts.Count > 0 && texts[0].TrimEnd() == "---")
+            {
+                for (var j = 1; j < texts.Count; j++)
+                {
+                    var trimmed = texts[j].TrimEnd();
+                    if (trimmed == "---" || trimmed == "...") { frontEnd = j + 1; break; }
+                }
+            }
+
+            var lineOf = new Func<int, int>(offset =>
+            {
+                var low = 0;
+                var high = offsets.Count - 1;
+                while (low < high)
+                {
+                    var middle = (low + high + 1) / 2;
+                    if (offsets[middle] <= offset) low = middle; else high = middle - 1;
+                }
+                return low + 1;
+            });
+
+            foreach (var block in document.Descendants<Block>())
+            {
+                var definition = block as LinkReferenceDefinition;
+                if (definition != null)
+                {
+                    if (definition.Span.Start < 0 || definition.Span.End < definition.Span.Start) continue;
+
+                    var last = Math.Min(definition.Span.End, text.Length - 1);
+
+                    // 脚注の定義は、Markdig では [^1] の印の範囲しか分からない（使われていない脚注は中身ごと木から外される）。
+                    // 中身は、その行から、空行か見出しの手前まで。空行のあとでも、4字以上字下げした行が続けば中身の続き。
+                    if (definition is FootnoteLinkReferenceDefinition)
+                    {
+                        var row = lineOf(definition.Span.Start) - 1;
+                        var end = row;
+                        for (var k = row + 1; k < texts.Count; k++)
+                        {
+                            var source = texts[k];
+                            if (source.Trim().Length == 0)
+                            {
+                                var next = k + 1;
+                                while (next < texts.Count && texts[next].Trim().Length == 0) next++;
+                                if (next < texts.Count && (texts[next].StartsWith("    ") || texts[next].StartsWith("\t"))) { k = next - 1; continue; }
+                                break;
+                            }
+
+                            if (source.TrimStart(' ').StartsWith("#") || source.TrimStart(' ').StartsWith("[")) break;
+                            end = k;
+                        }
+
+                        last = Math.Max(last, offsets[end] + texts[end].Length - 1);
+                    }
+
+                    definitions.Add(new KeyValuePair<int, int>(definition.Span.Start, last - definition.Span.Start + 1));
+                    continue;
+                }
+
+                var heading = block as HeadingBlock;
+                if (heading == null || heading.Span.Start < 0) continue;
+
+                var line = lineOf(heading.Span.Start);
+                var place = string.Empty;
+                for (var parent = heading.Parent; parent != null && !(parent is MarkdownDocument); parent = parent.Parent)
+                {
+                    var mark = parent is ListItemBlock ? "L" : parent is QuoteBlock ? "Q" : parent is Footnote ? "F" : parent is ListBlock ? string.Empty : "C";
+                    place = mark + place;
+                }
+
+                if (line <= frontEnd) place = "Y" + place;
+                places[line] = place;
+            }
+
+            return headings;
         }
 
         public static DocumentModel Parse(string text, IList<string> lineTexts, IList<int> lineOffsets)
         {
+            MarkdownDocument document;
+            return Parse(text, lineTexts, lineOffsets, out document);
+        }
+
+        private static DocumentModel Parse(string text, IList<string> lineTexts, IList<int> lineOffsets, out MarkdownDocument parsed)
+        {
+            parsed = null;
+
             var count = lineTexts.Count;
             if (count == 0) return DocumentModel.Empty();
 
@@ -75,6 +179,7 @@ namespace Tsuzuri.Markdown
             try
             {
                 var document = Markdig.Markdown.Parse(text ?? string.Empty, Pipeline);
+                parsed = document;
                 var walker = new Walker(lines, inlines, lineTexts, lineOffsets);
                 walker.Walk(document);
                 fragile = walker.Fragile;

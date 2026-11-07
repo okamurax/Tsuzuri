@@ -116,7 +116,24 @@ namespace DrawingEditor
             if (owner != null)
             {
                 window.Owner = owner;
-                window.WindowStartupLocation = WindowStartupLocation.CenterOwner;
+
+                // 本体の画面と同じ位置・大きさで開く（2026-11-07）。最大化していれば最大化する（同じモニターに出るよう、位置は元の大きさのものを使う）。
+                var bounds = owner.WindowState == WindowState.Normal
+                    ? new Rect(owner.Left, owner.Top, owner.ActualWidth, owner.ActualHeight)
+                    : owner.RestoreBounds;
+                if (!bounds.IsEmpty && bounds.Width > 0 && bounds.Height > 0)
+                {
+                    window.WindowStartupLocation = WindowStartupLocation.Manual;
+                    window.Left = bounds.Left;
+                    window.Top = bounds.Top;
+                    window.Width = Math.Max(bounds.Width, window.MinWidth);
+                    window.Height = Math.Max(bounds.Height, window.MinHeight);
+                    if (owner.WindowState == WindowState.Maximized) window.WindowState = WindowState.Maximized;
+                }
+                else
+                {
+                    window.WindowStartupLocation = WindowStartupLocation.CenterOwner;
+                }
             }
             else
             {

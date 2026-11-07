@@ -151,9 +151,18 @@ namespace Tsuzuri
             _outlineRefresh.Tick += delegate
             {
                 _outlineRefresh.Stop();
+                if (_rotateTiming) PerfLog.StepMark("アウトライン開始");
                 RefreshOutline();
+                var started = PerfLog.Start();
                 RefreshPageTitles();
                 UpdateChrome();
+                PerfLog.Step("題と表示", started);
+
+                if (_rotateTiming)
+                {
+                    _rotateTiming = false;
+                    FinishStepsLater();
+                }
             };
 
             // 知らせを出しっぱなしにせず、しばらくしたら元の表示へ戻す。

@@ -284,7 +284,9 @@ namespace Tsuzuri.Views
             }
             expected.AddRange(entries.Skip(last));
 
+            var started = PerfLog.Start();
             var actual = MarkdownParser.Headings(candidate);
+            PerfLog.Step("確かめの解析", started);
             if (actual.Count != expected.Count) return MoveChangesMeaning;
             for (var i = 0; i < actual.Count; i++)
             {
@@ -300,8 +302,12 @@ namespace Tsuzuri.Views
             while (suffix < limit - prefix
                    && text[text.Length - 1 - suffix] == candidate[candidate.Length - 1 - suffix]) suffix++;
 
+            PerfLog.StepNote("塊", count);
+            PerfLog.StepNote("書き換える文字", text.Length - prefix - suffix);
+            started = PerfLog.Start();
             Document.Replace(prefix, text.Length - prefix - suffix,
                 candidate.Substring(prefix, candidate.Length - prefix - suffix));
+            PerfLog.Step("書き換え", started);   // 書き換えの後始末（OnTextChanged）も含む
 
             // 先頭の見出しの手前は書き換えていないので、先頭の行番号は回す前と同じ。
             return entries[children[0]].Line;

@@ -561,12 +561,20 @@ namespace Tsuzuri
                 return;
             }
 
+            // 押してから落ち着くまでの時間を perf.log に書く（2026-11-07。app.json の perfLog が true のときだけ）。
+            // アウトラインは少し遅れて組み直すので、書き出すのはその後（_outlineRefresh の Tick から FinishStepsLater）。
+            PerfLog.BeginSteps(up ? "回す ▲" : "回す ▼");
+            var started = PerfLog.Start();
+
             // アウトラインの行番号は少し遅れて追いつくので、押した時点の本文から、同じ名前で一番近い見出しを探し直す。
             var entries = view.GetOutline().Entries;
             var index = NearestHeading(entries, node.Text, node.Line);
-            if (index < 0) return;
+            PerfLog.Step("見出しを探す", started);
+            PerfLog.StepNote("見出し数", entries.Count);
+            if (index < 0) { PerfLog.EndSteps(); return; }
 
             var result = view.RotateSiblings(entries[index].Line, up);
+            if (result < 0) PerfLog.EndSteps();
 
             if (result == MarkdownView.SiblingsTooFew) return;
 
@@ -588,7 +596,13 @@ namespace Tsuzuri
                 return;
             }
 
+            started = PerfLog.Start();
             view.GoToLine(result);
+            PerfLog.Step("行へ移る", started);
+            _rotateTiming = PerfLog.Stepping;
         }
+
+        /// <summary>回すボタンの時間を測っている途中か。アウトラインを組み直したあとで書き出す。</summary>
+        private bool _rotateTiming;
     }
 }

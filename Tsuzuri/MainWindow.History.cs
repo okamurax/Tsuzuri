@@ -175,8 +175,6 @@ namespace Tsuzuri
                 }
             }
 
-            HeadingHistoryEmpty.Visibility = HeadingHistoryList.Children.Count > 0 ? Visibility.Collapsed : Visibility.Visible;
-            LinkHistoryEmpty.Visibility = LinkHistoryList.Children.Count > 0 ? Visibility.Collapsed : Visibility.Visible;
             HeadingHistoryScroll.ScrollToTop();
             LinkHistoryScroll.ScrollToTop();
         }
@@ -198,7 +196,7 @@ namespace Tsuzuri
             var tip = string.IsNullOrEmpty(mark.Page) ? shown : (label != null ? label + " > " + shown : shown) + "（" + mark.Page + "）";
             var icon = !string.IsNullOrEmpty(mark.Page) && label == null ? CreatePageMark() : null;
 
-            return CreateRemovableRow(name, mark, tip, "履歴から消す", OpenHeadingHistory_Click, RemoveHeadingHistory_Click, icon);
+            return WrapHistoryRow(CreateRemovableRow(name, mark, tip, "履歴から消す", OpenHeadingHistory_Click, RemoveHeadingHistory_Click, icon), name, icon);
         }
 
         /// <summary>
@@ -226,7 +224,7 @@ namespace Tsuzuri
             };
 
             var tip = "リンク元へ戻る: " + origin.File + "（" + origin.Line + " 行目のリンク「" + (origin.Label.Length > 0 ? origin.Label : origin.Target) + "」）";
-            return CreateRemovableRow(name, mark, tip, "履歴から消す", OpenHeadingHistory_Click, RemoveHeadingHistory_Click, icon);
+            return WrapHistoryRow(CreateRemovableRow(name, mark, tip, "履歴から消す", OpenHeadingHistory_Click, RemoveHeadingHistory_Click, icon), name, icon);
         }
 
         /// <summary>
@@ -265,6 +263,35 @@ namespace Tsuzuri
                 origin.Line = view.TextArea.Caret.Line;
                 origin.Column = view.TextArea.Caret.Column - 1;
             }), DispatcherPriority.Loaded);
+        }
+
+        /// <summary>
+        /// 履歴の行は、長い名前を切らずに折り返す（2026-11-08。欄を左右に分けて幅が半分になったため）。
+        /// 行の高さは中身に合わせ（1行なら今までと同じ 32）、印と ✕ は1行目に揃える。
+        /// </summary>
+        private static Border WrapHistoryRow(Border container, TextBlock name, FrameworkElement icon)
+        {
+            name.TextTrimming = TextTrimming.None;
+            name.TextWrapping = TextWrapping.Wrap;
+            name.Margin = new Thickness(name.Margin.Left, 8, name.Margin.Right, 8);
+
+            container.Height = double.NaN;
+            container.MinHeight = 32;
+
+            if (icon != null)
+            {
+                icon.VerticalAlignment = VerticalAlignment.Top;
+                icon.Margin = new Thickness(16, 10, 0, 0);
+            }
+
+            var row = container.Child as DockPanel;
+            if (row != null)
+            {
+                foreach (var child in row.Children.OfType<Button>())
+                    child.VerticalAlignment = VerticalAlignment.Top;
+            }
+
+            return container;
         }
 
         /// <summary>リンクの見つからないサブページの見出しの頭に付ける紙の印（2026-10-30）。</summary>

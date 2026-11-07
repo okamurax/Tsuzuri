@@ -199,7 +199,7 @@ namespace Tsuzuri
         }
 
         /// <summary>
-        /// リンク元の行（2026-11-07）。「↩ ファイル名 > リンクのあった見出し」。同じファイルの中のリンクなら、ファイル名は出さない。
+        /// リンク元の行（2026-11-07）。「（戻る矢印）ファイル名 > リンクのあった見出し」。同じファイルの中のリンクなら、ファイル名は出さない。
         /// 見出しより前のリンクなら、見出しの代わりにリンクの名前を出す。
         /// </summary>
         private Border CreateLinkOriginRow(HeadingBookmark mark)
@@ -210,10 +210,20 @@ namespace Tsuzuri
             var file = SamePath(origin.File, mark.File) ? null : System.IO.Path.GetFileName(origin.File);
 
             var name = new TextBlock();
-            name.Text = "↩ " + (file != null ? file + " > " + place : place);
+            name.Text = file != null ? file + " > " + place : place;
+
+            // 頭の印は、アイコンの字体の「元に戻す」の矢印（2026-11-07）。文字の ↩ は本文の字体では小さく潰れて見えたため。
+            var icon = new TextBlock
+            {
+                Text = "\uE7A7",
+                FontFamily = IconFont,
+                FontSize = 12,
+                VerticalAlignment = VerticalAlignment.Center,
+                Foreground = (System.Windows.Media.Brush)FindResource("SidebarHeaderText"),
+            };
 
             var tip = "リンク元へ戻る: " + origin.File + "（" + origin.Line + " 行目のリンク「" + (origin.Label.Length > 0 ? origin.Label : origin.Target) + "」）";
-            return CreateRemovableRow(name, mark, tip, "履歴から消す", OpenHeadingHistory_Click, RemoveHeadingHistory_Click, null);
+            return CreateRemovableRow(name, mark, tip, "履歴から消す", OpenHeadingHistory_Click, RemoveHeadingHistory_Click, icon);
         }
 
         /// <summary>

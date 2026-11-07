@@ -24,7 +24,7 @@ namespace Tsuzuri
         // 出すのは開いているファイルの分だけ（ブックマークと同じ）。ほかのファイルの分も、開き直せばまた出る。
         //
         // リンクで移ったら、移った先のファイルの履歴に、リンク元（↩）も積む（2026-11-07）。押すとリンクを押した所へ戻る。
-        // 頭の記号で見分ける。見出しは「#」、リンク元は「↩」。
+        // 履歴の欄は左右に分け、左に見出し、右にリンク元を出す（2026-11-08）。積む場所（_headingHistory）は1つのまま。
         // ---------------------------------------------------------------
 
         private const int HeadingHistoryLimit = 100;
@@ -159,27 +159,30 @@ namespace Tsuzuri
                 && string.Equals(a.Label, b.Label, StringComparison.Ordinal);
         }
 
-        /// <summary>開いているファイルの分だけを並べ直す。</summary>
+        /// <summary>開いているファイルの分だけを並べ直す。見出しは左、リンク元は右の列（2026-11-08）。</summary>
         private void RefreshHeadingHistory()
         {
             HeadingHistoryList.Children.Clear();
+            LinkHistoryList.Children.Clear();
 
             if (HasDocument)
             {
                 foreach (var mark in _headingHistory)
                 {
-                    if (SamePath(mark.File, Active.FilePath)) HeadingHistoryList.Children.Add(CreateHeadingHistoryRow(mark));
+                    if (!SamePath(mark.File, Active.FilePath)) continue;
+                    if (mark.From != null) LinkHistoryList.Children.Add(CreateLinkOriginRow(mark));
+                    else HeadingHistoryList.Children.Add(CreateHeadingHistoryRow(mark));
                 }
             }
 
             HeadingHistoryEmpty.Visibility = HeadingHistoryList.Children.Count > 0 ? Visibility.Collapsed : Visibility.Visible;
+            LinkHistoryEmpty.Visibility = LinkHistoryList.Children.Count > 0 ? Visibility.Collapsed : Visibility.Visible;
             HeadingHistoryScroll.ScrollToTop();
+            LinkHistoryScroll.ScrollToTop();
         }
 
         private Border CreateHeadingHistoryRow(HeadingBookmark mark)
         {
-            if (mark.From != null) return CreateLinkOriginRow(mark);
-
             var shown = mark.Text.Length > 0 ? HeadingText.Display(mark.Text) : "(無題の見出し)";
 
             // サブページの見出しは「ページへのリンクの文字 > 見出し」と出す（2026-10-30）。
@@ -190,7 +193,7 @@ namespace Tsuzuri
                 label = Active.Owner.LinkTextTo(mark.Page);
 
             var name = new TextBlock();
-            name.Text = "# " + (label != null ? label + " > " + shown : shown);   // 頭の # で、リンク元（↩）と見分ける（2026-11-07）
+            name.Text = label != null ? label + " > " + shown : shown;   // 列が分かれたので、頭の # は外した（2026-11-08）
 
             var tip = string.IsNullOrEmpty(mark.Page) ? shown : (label != null ? label + " > " + shown : shown) + "（" + mark.Page + "）";
             var icon = !string.IsNullOrEmpty(mark.Page) && label == null ? CreatePageMark() : null;

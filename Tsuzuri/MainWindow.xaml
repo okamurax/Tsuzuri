@@ -167,21 +167,47 @@
                                       DragCompleted="HistorySplitter_DragCompleted"
                                       MouseDoubleClick="HistorySplitter_MouseDoubleClick" />
 
-                        <!-- 見出しの履歴。カーソルが入った見出しを、新しいものから上に積む。押すとその見出しへ移る -->
-                        <DockPanel Grid.Row="2">
-                            <TextBlock DockPanel.Dock="Top" Text="履歴" FontSize="12" Foreground="{StaticResource TextMuted}"
-                                       Margin="16,6,0,4" />
-                            <Grid>
-                                <ScrollViewer x:Name="HeadingHistoryScroll"
-                                              VerticalScrollBarVisibility="Auto"
-                                              HorizontalScrollBarVisibility="Disabled">
-                                    <StackPanel x:Name="HeadingHistoryList" Margin="0,0,0,12" />
-                                </ScrollViewer>
-                                <TextBlock x:Name="HeadingHistoryEmpty" Text="見出しにカーソルを入れると、ここに積みます"
-                                           FontSize="12" Foreground="{StaticResource TextMuted}" TextWrapping="Wrap"
-                                           Margin="16,2,12,0" IsHitTestVisible="False" />
-                            </Grid>
-                        </DockPanel>
+                        <!-- 履歴。左に本文で踏んだ見出し、右にリンクで移ってきたときのリンク元（2026-11-08）。
+                             新しいものから上に積み、押すとそこへ移る -->
+                        <Grid Grid.Row="2">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="1" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+
+                            <DockPanel Grid.Column="0">
+                                <TextBlock DockPanel.Dock="Top" Text="見出しの履歴" FontSize="12" Foreground="{StaticResource TextMuted}"
+                                           Margin="16,6,0,4" />
+                                <Grid>
+                                    <ScrollViewer x:Name="HeadingHistoryScroll"
+                                                  VerticalScrollBarVisibility="Auto"
+                                                  HorizontalScrollBarVisibility="Disabled">
+                                        <StackPanel x:Name="HeadingHistoryList" Margin="0,0,0,12" />
+                                    </ScrollViewer>
+                                    <TextBlock x:Name="HeadingHistoryEmpty" Text="見出しを2度クリックするかキーを押すと、ここに積みます"
+                                               FontSize="12" Foreground="{StaticResource TextMuted}" TextWrapping="Wrap"
+                                               Margin="16,2,8,0" IsHitTestVisible="False" />
+                                </Grid>
+                            </DockPanel>
+
+                            <Border Grid.Column="1" Background="{StaticResource BorderBrushSoft}" Margin="0,6,0,6" />
+
+                            <DockPanel Grid.Column="2">
+                                <TextBlock DockPanel.Dock="Top" Text="リンク元" FontSize="12" Foreground="{StaticResource TextMuted}"
+                                           Margin="10,6,0,4" />
+                                <Grid>
+                                    <ScrollViewer x:Name="LinkHistoryScroll"
+                                                  VerticalScrollBarVisibility="Auto"
+                                                  HorizontalScrollBarVisibility="Disabled">
+                                        <StackPanel x:Name="LinkHistoryList" Margin="0,0,0,12" />
+                                    </ScrollViewer>
+                                    <TextBlock x:Name="LinkHistoryEmpty" Text="リンクで移ってくると、リンク元をここに積みます"
+                                               FontSize="12" Foreground="{StaticResource TextMuted}" TextWrapping="Wrap"
+                                               Margin="10,2,8,0" IsHitTestVisible="False" />
+                                </Grid>
+                            </DockPanel>
+                        </Grid>
                     </Grid>
                 </DockPanel>
             </Border>

@@ -301,18 +301,23 @@ namespace Tsuzuri
             if (style != null) close.Style = style;
             close.Click += delegate { CloseAiTab(tab); };
 
-            var panel = new StackPanel { Orientation = Orientation.Horizontal };
-            panel.Children.Add(tab.Title);
+            // 名前は「#1」のように短く、押せる所が狭かったので、タブに最小の幅を持たせ、× を右端に寄せて、残りを全部押せる所にする（2026-11-07）。
+            var panel = new DockPanel { LastChildFill = true };
+            DockPanel.SetDock(close, Dock.Right);
             panel.Children.Add(close);
+            tab.Title.VerticalAlignment = VerticalAlignment.Center;
+            panel.Children.Add(tab.Title);
 
             // 高さは検索欄の段のボタン（「AI」「ランチャー」。26px）にそろえる。
             var header = new Border
             {
                 Child = panel,
                 Height = 26,
+                MinWidth = 96,
                 MaxWidth = 220,
+                Background = Brushes.Transparent,   // 文字の無い所も押せるように
                 CornerRadius = new CornerRadius(4),
-                Padding = new Thickness(10, 0, 3, 0),
+                Padding = new Thickness(12, 0, 3, 0),
                 Margin = new Thickness(0, 0, 4, 0),
                 Cursor = Cursors.Hand,
                 VerticalAlignment = VerticalAlignment.Center,

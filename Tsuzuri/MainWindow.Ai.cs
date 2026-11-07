@@ -275,6 +275,11 @@ namespace Tsuzuri
             tab.Title = new TextBlock { Text = tab.Name, VerticalAlignment = VerticalAlignment.Center, FontSize = 12 };
             tab.Header = CreateAiTabHeader(tab);
             tab.View.TitleChanged += title => SetAiTabTitle(tab, title);
+            tab.View.FocusRequested += delegate
+            {
+                // 押したタブが今のタブで、欄が出ていれば渡し直す（タブを選んだときと同じ手順。日本語の変換の位置がずれないように）。
+                if (ReferenceEquals(_aiTab, tab) && AiPane.Visibility == Visibility.Visible) FocusAiTerminal(tab);
+            };
             _aiTabs.Add(tab);
             RebuildAiTabStrip();
             SelectAiTab(tab);

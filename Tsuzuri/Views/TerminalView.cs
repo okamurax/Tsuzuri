@@ -85,6 +85,9 @@ namespace Tsuzuri.Views
         /// <summary>端末のタイトルが変わった（中のプログラムが付けたもの。PowerShell・Claude Code など）。AI の欄のタブのツールチップに出す。</summary>
         public event Action<string> TitleChanged;
 
+        /// <summary>端末を押したのにキーボードが来ていない（2026-11-08）。エディタが端末にキーボードを渡し直す。</summary>
+        public event Action FocusRequested;
+
 
         public bool IsRunning
         {
@@ -336,6 +339,12 @@ namespace Tsuzuri.Views
                     message.TryGetValue("title", out title);
                     var changed = TitleChanged;
                     if (changed != null && title is string) changed((string)title);
+                    break;
+
+                case "refocus":
+                    // 端末を押したのにキーボードが来ていない（2026-11-08。terminal.html）。エディタに渡し直してもらう。
+                    var refocus = FocusRequested;
+                    if (refocus != null) refocus();
                     break;
 
                 case "link":

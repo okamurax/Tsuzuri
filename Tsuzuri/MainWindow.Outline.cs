@@ -359,17 +359,27 @@ namespace Tsuzuri
         }
 
         /// <summary>
-        /// 同じ階層の見出し（items）が2つ以上あれば、その先頭の見出しに ▲▼ を付ける（SPEC 7章。2026-11-06）。
+        /// 同じ段の見出し（items）を、同じレベルが続く所ごとに分け、2つ以上あればその先頭の見出しに ▲▼ を付ける（SPEC 7章。2026-11-06）。
+        /// 同じ段でもレベルの違う見出しは一緒に回さない（2026-11-07。「## IPv6」のあとに「#」が並ぶ一番上の段など。RotateSiblings）。
         /// ▲ でみな1つ上がり（先頭は末尾へ）、▼ でみな1つ下がる（末尾が先頭へ）。回すと木は組み直され、新しい先頭に付く。
         /// ボタンは同じ位置に残るので、マウスを動かさずに続けて押せる。
         /// </summary>
         private void AddRotateButtons(ItemCollection items)
         {
-            if (items.Count < 2) return;
+            var nodes = items.OfType<TreeViewItem>().Select(item => item.Tag as OutlineNode).Where(node => node != null).ToList();
 
-            var first = items[0] as TreeViewItem;
-            var node = first?.Tag as OutlineNode;
-            if (node == null || node.Row == null) return;
+            for (var i = 0; i < nodes.Count;)
+            {
+                var j = i + 1;
+                while (j < nodes.Count && nodes[j].Level == nodes[i].Level) j++;
+                if (j - i >= 2) AddRotateButton(nodes[i]);
+                i = j;
+            }
+        }
+
+        private void AddRotateButton(OutlineNode node)
+        {
+            if (node.Row == null) return;
 
             // 角の丸い枠1つを細い線で左右に仕切り、上向き・下向きの山形を入れる（2026-11-06）。
             // 小さな箱を2つ並べると、▲ と ▼ の字の形の違いで上下にずれて見えたため、1つの部品に見える形にした。

@@ -211,6 +211,10 @@ namespace Tsuzuri.Views
         /// その見出しと同じ階層の見出し（同じ親の直下の子。一番上の階層なら文書の一番上の見出したち）を、1つずつ回す（SPEC 7章。2026-11-06）。
         /// up なら先頭が末尾へ（みな1つ上がる）、そうでなければ末尾が先頭へ。孫の見出しと本文は、それぞれの見出しと一緒に動く。
         /// 同じ階層の決め方はアウトラインの木と同じ（親は自分より浅い直前の見出し。その節の中で、それより前のどの見出しよりも浅いか同じ見出し）。
+        /// 木の上で同じ段に並んでいても、レベルの違う見出しは一緒に回さない（2026-11-07）。
+        /// 「## IPv6」のあとに「# 次にやること」「# プライベート」…と続くと、木ではどれも一番上の段に並ぶ。
+        /// これを一緒に回すと、IPv6 が末尾の「#」の見出しの後ろへ行って、その子になってしまう（並びは確かめで通ってしまう）。
+        /// 同じ段の見出しは、後ろほど浅いか同じなので、同じレベルが続く所だけを回す。後ろの浅い見出しからは動かさない。
         /// 最初の見出しより前の本文（親の本文・文書の頭の文章）は、その場に残す。
         /// 回したあとの見出しの並びが思ったとおりでなければ取りやめる（MoveChangesMeaning）。
         /// 2つ未満なら SiblingsTooFew、引用・リストの中の見出しが境目になるなら LevelNotPlain。
@@ -242,6 +246,17 @@ namespace Tsuzuri.Views
             }
 
             if (!children.Contains(index)) return -1;
+
+            // 同じレベルの見出しだけにする。その後ろに浅い見出しがあれば、そこを終わりにする（そこから後ろは動かさない）。
+            var level = entries[index].Level;
+            var shallower = children.Where(k => entries[k].Level < level).ToList();
+            children = children.Where(k => entries[k].Level == level).ToList();
+            if (shallower.Count > 0)
+            {
+                end = shallower[0];
+                last = end;
+            }
+
             if (children.Count < 2) return SiblingsTooFew;
 
             // 引用・リストの中の見出しが切れ目になるなら動かさない。引用やリストが途中で切れて、形が変わるため。

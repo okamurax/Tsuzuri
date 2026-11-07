@@ -69,6 +69,32 @@ namespace Tsuzuri
             /// null なら覚えていない（前の版で登録したもの）。見出しのページをそのまま開く。
             /// </summary>
             public ScreenState Screen;
+
+            /// <summary>
+            /// 見出しの履歴の、リンク元の項目（↩。2026-11-07）。null なら見出しの項目。
+            /// リンク元の項目では、File はリンクで移った先のファイル（その履歴に出す）。戻る場所は From に持つ。
+            /// </summary>
+            public LinkOrigin From;
+        }
+
+        /// <summary>リンクを押した場所（見出しの履歴の ↩ で戻る先。SPEC 7章。2026-11-07）。</summary>
+        private sealed class LinkOrigin
+        {
+            public string File;
+
+            /// <summary>ファイルの中のページ。空ならルート。</summary>
+            public string Page;
+
+            /// <summary>リンクのあった行（1 始まり）と、行の中の位置（リンクの頭）。</summary>
+            public int Line;
+            public int Column;
+
+            /// <summary>リンク先と名前。戻るとき、覚えた行の近くでこのリンクを探す（行がずれても戻れるように）。</summary>
+            public string Target;
+            public string Label;
+
+            /// <summary>リンクのあった見出し（履歴に出す名前）。見出しより前なら null。</summary>
+            public string Heading;
         }
 
         /// <summary>

@@ -122,7 +122,11 @@ namespace Tsuzuri
 
             foreach (var window in OpenWindows)
             {
-                foreach (var mark in window._headingHistory) mark.File = remap(mark.File);
+                foreach (var mark in window._headingHistory)
+                {
+                    mark.File = remap(mark.File);
+                    if (mark.From != null) mark.From.File = remap(mark.From.File);
+                }
                 foreach (var mark in window._headingBookmarks) mark.File = remap(mark.File);
                 var keys = RemapKeys(window._collapsedPaths.ToList(), from, to, isFolder);
                 window._collapsedPaths.Clear();

@@ -22,6 +22,9 @@ namespace Tsuzuri
         // 同じ見出しは1つにまとめ、入り直したら一番上へ上げる（すぐ前に見ていた見出しが、いつも上から2つめにある）。
         // 覚えるのは 100 件まで。古いものから捨てる。エディタを閉じたら消える（ファイルには書かない）。
         // 出すのは開いているファイルの分だけ（ブックマークと同じ）。ほかのファイルの分も、開き直せばまた出る。
+        //
+        // リンクで移ったら、移った先のファイルの履歴に、リンク元（↩）も積む（2026-11-07）。押すとリンクを押した所へ戻る。
+        // 頭の記号で見分ける。見出しは「#」、リンク元は「↩」。
         // ---------------------------------------------------------------
 
         private const int HeadingHistoryLimit = 100;
@@ -96,7 +99,7 @@ namespace Tsuzuri
             var page = view.PageId ?? string.Empty;
 
             var top = _headingHistory.Count > 0 ? _headingHistory[0] : null;
-            if (top != null && SamePath(top.File, view.FilePath) && string.Equals(top.Page, page, StringComparison.Ordinal))
+            if (top != null && top.From == null && SamePath(top.File, view.FilePath) && string.Equals(top.Page, page, StringComparison.Ordinal))
             {
                 if (string.Equals(top.Text, heading.Text, StringComparison.Ordinal))
                 {
@@ -125,9 +128,35 @@ namespace Tsuzuri
 
         private static bool SameHistoryHeading(HeadingBookmark mark, string file, string page, string text)
         {
-            return SamePath(mark.File, file)
+            return mark.From == null
+                && SamePath(mark.File, file)
                 && string.Equals(mark.Page, page, StringComparison.Ordinal)
                 && string.Equals(mark.Text, text, StringComparison.Ordinal);
+        }
+
+        /// <summary>
+        /// リンクで移った先（file の文書）の履歴に、リンク元を積む（2026-11-07）。origin が null（保存していない文書から）なら積まない。
+        /// 同じリンク元（同じファイル・ページの、同じ先・名前のリンク）は1つにまとめ、押し直したら一番上へ上げる。
+        /// </summary>
+        private void RecordLinkOrigin(LinkOrigin origin, string file)
+        {
+            if (origin == null || string.IsNullOrEmpty(file)) return;
+
+            _headingHistory.RemoveAll(mark => mark.From != null && SamePath(mark.File, file) && SameLinkOrigin(mark.From, origin));
+            _headingHistory.Insert(0, new HeadingBookmark { File = file, Page = string.Empty, Text = string.Empty, From = origin });
+            if (_headingHistory.Count > HeadingHistoryLimit) _headingHistory.RemoveRange(HeadingHistoryLimit, _headingHistory.Count - HeadingHistoryLimit);
+
+            // 見出しの1度目のクリックは忘れる（戻ってきたときの1クリックで積まないように）。
+            _headingClicked = null;
+            RefreshHeadingHistory();
+        }
+
+        private static bool SameLinkOrigin(LinkOrigin a, LinkOrigin b)
+        {
+            return SamePath(a.File, b.File)
+                && string.Equals(a.Page, b.Page, StringComparison.Ordinal)
+                && string.Equals(a.Target, b.Target, StringComparison.Ordinal)
+                && string.Equals(a.Label, b.Label, StringComparison.Ordinal);
         }
 
         /// <summary>開いているファイルの分だけを並べ直す。</summary>
@@ -149,6 +178,8 @@ namespace Tsuzuri
 
         private Border CreateHeadingHistoryRow(HeadingBookmark mark)
         {
+            if (mark.From != null) return CreateLinkOriginRow(mark);
+
             var shown = mark.Text.Length > 0 ? HeadingText.Display(mark.Text) : "(無題の見出し)";
 
             // サブページの見出しは「ページへのリンクの文字 > 見出し」と出す（2026-10-30）。
@@ -159,12 +190,68 @@ namespace Tsuzuri
                 label = Active.Owner.LinkTextTo(mark.Page);
 
             var name = new TextBlock();
-            name.Text = label != null ? label + " > " + shown : shown;
+            name.Text = "# " + (label != null ? label + " > " + shown : shown);   // 頭の # で、リンク元（↩）と見分ける（2026-11-07）
 
-            var tip = string.IsNullOrEmpty(mark.Page) ? shown : name.Text + "（" + mark.Page + "）";
+            var tip = string.IsNullOrEmpty(mark.Page) ? shown : (label != null ? label + " > " + shown : shown) + "（" + mark.Page + "）";
             var icon = !string.IsNullOrEmpty(mark.Page) && label == null ? CreatePageMark() : null;
 
             return CreateRemovableRow(name, mark, tip, "履歴から消す", OpenHeadingHistory_Click, RemoveHeadingHistory_Click, icon);
+        }
+
+        /// <summary>
+        /// リンク元の行（2026-11-07）。「↩ ファイル名 > リンクのあった見出し」。同じファイルの中のリンクなら、ファイル名は出さない。
+        /// 見出しより前のリンクなら、見出しの代わりにリンクの名前を出す。
+        /// </summary>
+        private Border CreateLinkOriginRow(HeadingBookmark mark)
+        {
+            var origin = mark.From;
+            var place = !string.IsNullOrEmpty(origin.Heading) ? HeadingText.Display(origin.Heading)
+                : origin.Label.Length > 0 ? origin.Label : origin.Target;
+            var file = SamePath(origin.File, mark.File) ? null : System.IO.Path.GetFileName(origin.File);
+
+            var name = new TextBlock();
+            name.Text = "↩ " + (file != null ? file + " > " + place : place);
+
+            var tip = "リンク元へ戻る: " + origin.File + "（" + origin.Line + " 行目のリンク「" + (origin.Label.Length > 0 ? origin.Label : origin.Target) + "」）";
+            return CreateRemovableRow(name, mark, tip, "履歴から消す", OpenHeadingHistory_Click, RemoveHeadingHistory_Click, null);
+        }
+
+        /// <summary>
+        /// リンク元へ戻る（2026-11-07）。リンク元のファイルを出し（ほかの画面で開いていればその画面を前に出す。閉じていれば開く）、
+        /// 覚えた行の近くで同じリンクを探して、その頭にカーソルを置く。ページが無くなっていればルートで探す。
+        /// </summary>
+        private void OpenLinkOrigin(LinkOrigin origin)
+        {
+            if (!System.IO.File.Exists(origin.File))
+            {
+                Status("リンク元のファイルが見つかりません: " + origin.File);
+                return;
+            }
+
+            OpenFileThen(origin.File, (window, document) => window.RevealLinkOrigin(document, origin));
+        }
+
+        private void RevealLinkOrigin(PageDocument document, LinkOrigin origin)
+        {
+            var page = !string.IsNullOrEmpty(origin.Page) && document.Contains(origin.Page) ? origin.Page : PageDocument.RootId;
+            var view = FindView(document, page);
+            if (view == null || !_visible.Contains(view)) view = ShowPage(document, page);
+            if (view == null) return;
+
+            // 開いたばかりのページはまだ並べ終わっていないので、並んでから移る。
+            Dispatcher.BeginInvoke(new Action(delegate
+            {
+                if (!view.RevealLink(origin.Line, origin.Column, origin.Target, origin.Label))
+                {
+                    Status("リンクが見つからないので、覚えていた行へ移りました: " + origin.Line + " 行目");
+                    return;
+                }
+
+                // 見つけた場所を覚え直す（上で行が増減していても、次は近くから探せるように）。
+                origin.Page = view.PageId ?? string.Empty;
+                origin.Line = view.TextArea.Caret.Line;
+                origin.Column = view.TextArea.Caret.Column - 1;
+            }), DispatcherPriority.Loaded);
         }
 
         /// <summary>リンクの見つからないサブページの見出しの頭に付ける紙の印（2026-10-30）。</summary>
@@ -186,7 +273,10 @@ namespace Tsuzuri
 
             var container = sender as Border;
             var mark = container == null ? null : container.Tag as HeadingBookmark;
-            if (mark != null) OpenHeadingBookmark(mark);   // 画面の状態は覚えていないので、見出しのページを出して移るだけ
+            if (mark == null) return;
+
+            if (mark.From != null) OpenLinkOrigin(mark.From);
+            else OpenHeadingBookmark(mark);   // 画面の状態は覚えていないので、見出しのページを出して移るだけ
         }
 
         private void RemoveHeadingHistory_Click(object sender, RoutedEventArgs e)

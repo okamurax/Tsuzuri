@@ -3214,6 +3214,51 @@ namespace Tsuzuri.Views
             Focus();
         }
 
+        /// <summary>
+        /// リンク元へ戻る（見出しの履歴の ↩。SPEC 7章。2026-11-07）。line の近くで、target を指すリンクを探し、その頭にカーソルを置く。
+        /// 名前（label）も同じものを先に選び、同じ行に複数あれば column に近いもの。上下に近い行から順に、ページ全体まで探す。
+        /// 見つかれば true。見つからなければ line へ移って false（リンクを消した・書き換えた）。
+        /// </summary>
+        public bool RevealLink(int line, int column, string target, string label)
+        {
+            var count = Document.LineCount;
+            if (count == 0) return false;
+            line = Math.Max(1, Math.Min(line, count));
+
+            for (var pass = 0; pass < 2; pass++)
+            {
+                for (var distance = 0; distance < count; distance++)
+                {
+                    foreach (var number in distance == 0 ? new[] { line } : new[] { line - distance, line + distance })
+                    {
+                        if (number < 1 || number > count) continue;
+
+                        var scan = GetInline(number);
+                        if (scan == null) continue;
+
+                        LinkSpan best = null;
+                        foreach (var link in scan.Links)
+                        {
+                            if (!string.Equals(link.Target, target, StringComparison.Ordinal)) continue;
+                            if (pass == 0 && !string.Equals(link.Label, label, StringComparison.Ordinal)) continue;
+                            if (best == null || Math.Abs(link.Start - column) < Math.Abs(best.Start - column)) best = link;
+                        }
+
+                        if (best == null) continue;
+
+                        var at = Document.GetLineByNumber(number);
+                        CaretOffset = at.Offset + Math.Min(best.Start, at.Length);
+                        ScrollToLine(number);
+                        Focus();
+                        return true;
+                    }
+                }
+            }
+
+            GoToLine(line);
+            return false;
+        }
+
         // =====================================================================
         // リンクのクリック（SPEC 5章）
         // =====================================================================

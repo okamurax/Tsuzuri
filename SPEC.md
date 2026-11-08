@@ -2110,12 +2110,14 @@ WPF 標準のコントロールはそのままだと明るい前提の見た目�
     - `MEMORY.md`（そのフォルダの自動の記憶。`projects\フォルダの名前\memory\MEMORY.md`。名前はフォルダの場所の英数字以外を - にしたもの。
       Windows で確かめた: `\\Mac\Home\…\MyNote` → `--Mac-Home-…-MyNote`）
     - 前は、上のフォルダの CLAUDE.md・rules・settings.json・管理者の設定・`@` の取り込みまで全部出していたが、使っていないのでこの3つにした（2026-11-08）
+    - **CLAUDE.md は無くても出す**（薄い色で「（無し）」を付ける）。押すと空のファイルを作って開く。手で書き足す場所なので、無いと書く所が分からないため。
+      Windows の `%USERPROFILE%\.claude\CLAUDE.md` は、Mac の `~/.claude/CLAUDE.md` とは別のもの（VM の中なので同期しない）
   - **「Tsuzuri」の段**: Tsuzuri が独自に渡すもの
     - 指示（`%LOCALAPPDATA%\Tsuzuri\ai\instructions.md`。起動のたびにエディタが書き、`--append-system-prompt-file` で渡す）
     - 今の状態（同じフォルダの `context-*.md`。話しかけるたびに書く）
     - 図の書き方（exe の隣の `Ai\drawing-format.md`。図を頼まれたときに読む）
     - 設定（フック）（同じフォルダの `settings-*.json`。`--settings` で渡す。今の状態を渡すフック）
-  - 出し直すのは、話しかけたとき（状態を書いたとき）とタブを選んだとき。ファイルがあるかは裏で見る（`\\Mac\` の上で上へたどると数十回になるため）
+  - 出し直すのは、話しかけたとき（状態を書いたとき）・タブを選んだとき・claude を起動して今の状態とフックの設定を書いたとき（2026-11-08。前はタブを選んだ時点ではまだ書いておらず、出なかった）。ファイルがあるかは裏で見る（`\\Mac\` の上で上へたどると数十回になるため）
 - **欄の中は端末で、Claude Code の画面がそのまま動く。** `/model`・差分の表示・許可の確認など、Claude Code のものを全部そのまま使える
   - 描くのは WebView2 の中の xterm.js（`Terminal/terminal.html`。VS Code の端末と同じもの）。xterm.js（5.5.0）と部品（fit・unicode11・webgl 0.18.0）は
     `Terminal` フォルダに同梱して exe の隣にコピーし、`https://tsuzuri.local/` として見せる（ネットにはつながない）

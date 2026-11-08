@@ -662,6 +662,7 @@ namespace Tsuzuri
                     .Replace("{ssh-askpass}", askpass));
                 File.WriteAllText(settings, AiSettings(_aiContextPath, AiPipeName), new UTF8Encoding(false));
                 WriteAiContext(null);
+                Dispatcher.BeginInvoke(new Action(RefreshAiFileLinks));   // 今の状態・フックの設定を書いたので、下端のボタンに出す（2026-11-08）
             }
             catch (Exception ex)
             {
@@ -1387,7 +1388,8 @@ namespace Tsuzuri
             System.Threading.Tasks.Task.Run(() =>
             {
                 var claude = ClaudeCodeFiles(folder);
-                var exists = tsuzuri.Where(file => !string.IsNullOrEmpty(file.Value) && File.Exists(file.Value)).ToList();
+                var exists = tsuzuri.Where(file => !string.IsNullOrEmpty(file.Value) && File.Exists(file.Value))
+                    .Select(file => new AiFile { Label = file.Key, Path = file.Value, Exists = true }).ToList();
                 Dispatcher.BeginInvoke(new Action(delegate
                 {
                     if (generation != _aiFileLinksGeneration) return;   // 後から頼んだ分がある
@@ -1401,43 +1403,54 @@ namespace Tsuzuri
         private int _aiFileLinksGeneration;
 
         /// <summary>
-        /// Claude Code が自分で読むファイルのうち、利用者が見て直すもの（2026-11-08）。あるものだけ。
+        /// Claude Code が自分で読むファイルのうち、利用者が見て直すもの（2026-11-08）。CLAUDE.md は無くても、MEMORY.md はあるときだけ。
         /// ・全体の CLAUDE.md（%USERPROFILE%\.claude。CLAUDE_CONFIG_DIR があればそこ）
         /// ・会話のフォルダ（分からなければ開いている文書のフォルダ）の CLAUDE.md
         /// ・そのフォルダの自動の記憶（projects\フォルダの名前\memory\MEMORY.md。名前はフォルダの場所の英数字以外を - にしたもの）
         /// 上のフォルダの CLAUDE.md・rules・settings・取り込み（@）なども読まれるが、使っていないので出さない（全部出すとボタンが多すぎた）。
         /// </summary>
-        private static List<KeyValuePair<string, string>> ClaudeCodeFiles(string folder)
+        private static List<AiFile> ClaudeCodeFiles(string folder)
         {
             var home = Environment.GetEnvironmentVariable("CLAUDE_CONFIG_DIR");
             if (string.IsNullOrEmpty(home)) home = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".claude");
 
-            var files = new List<KeyValuePair<string, string>>
-            {
-                new KeyValuePair<string, string>("CLAUDE.md（全体）", Path.Combine(home, "CLAUDE.md")),
-            };
+            // CLAUDE.md は無くても出す（押すと空のファイルを作って開く）。手で書き足す場所なので、無いと書く所が分からない（2026-11-08）。
+            var files = new List<AiFile> { new AiFile { Label = "CLAUDE.md（全体）", Path = Path.Combine(home, "CLAUDE.md"), Creatable = true } };
 
             if (!string.IsNullOrEmpty(folder))
             {
-                files.Add(new KeyValuePair<string, string>("CLAUDE.md（" + Path.GetFileName(folder.TrimEnd('\\')) + "）", Path.Combine(folder, "CLAUDE.md")));
-                files.Add(new KeyValuePair<string, string>("MEMORY.md", Path.Combine(home, "projects", Regex.Replace(folder, "[^A-Za-z0-9]", "-"), "memory", "MEMORY.md")));
+                files.Add(new AiFile { Label = "CLAUDE.md（" + Path.GetFileName(folder.TrimEnd('\\')) + "）", Path = Path.Combine(folder, "CLAUDE.md"), Creatable = true });
+                files.Add(new AiFile { Label = "MEMORY.md", Path = Path.Combine(home, "projects", Regex.Replace(folder, "[^A-Za-z0-9]", "-"), "memory", "MEMORY.md") });
             }
 
-            return files.Where(file =>
+            foreach (var file in files)
             {
                 try
                 {
-                    return File.Exists(file.Value);
+                    file.Exists = File.Exists(file.Path);
                 }
                 catch (Exception)
                 {
-                    return false;   // 読めない場所（\\Mac\ が切れたなど）
+                    // 読めない場所（\\Mac\ が切れたなど）。無いものとする
                 }
-            }).ToList();
+            }
+
+            return files.Where(file => file.Exists || file.Creatable).ToList();
+        }
+
+        /// <summary>AI の欄の下端に出すファイル1つ（2026-11-08）。</summary>
+        private sealed class AiFile
+        {
+            public string Label;
+            public string Path;
+            public bool Exists;
+
+            /// <summary>無くても出し、押すと空のファイルを作って開く（CLAUDE.md）。</summary>
+            public bool Creatable;
         }
 
         /// <summary>見出し（Claude Code・Tsuzuri）とファイルのボタンの1段。ファイルが1つも無ければ出さない。</summary>
-        private void AddAiFileRow(string title, List<KeyValuePair<string, string>> files)
+        private void AddAiFileRow(string title, List<AiFile> files)
         {
             var row = new WrapPanel();
             row.Children.Add(new TextBlock
@@ -1451,19 +1464,26 @@ namespace Tsuzuri
 
             foreach (var file in files)
             {
-                var path = file.Value;
+                var path = file.Path;
+                var missing = !file.Exists;
                 var button = new Button
                 {
-                    Content = file.Key,
+                    Content = missing ? file.Label + "（無し）" : file.Label,
                     FontSize = 12,
                     Padding = new Thickness(6, 1, 6, 1),
-                    Foreground = (Brush)FindResource("AccentText"),
-                    ToolTip = path + (IsMarkdown(path) ? "（Tsuzuri で開く。添付フォルダは作らない）" : "（メモ帳で開く）"),
+                    Foreground = (Brush)FindResource(missing ? "TextMuted" : "AccentText"),
+                    ToolTip = path + (missing ? "（まだ無い。押すと空のファイルを作って開く）"
+                        : IsMarkdown(path) ? "（Tsuzuri で開く。添付フォルダは作らない）" : "（メモ帳で開く）"),
                     Focusable = false,
                 };
                 var style = FindResource("ToolButton") as Style;
                 if (style != null) button.Style = style;
-                button.Click += delegate { OpenAiFile(path); };
+                button.Click += delegate
+                {
+                    if (missing && !CreateEmptyFile(path)) return;
+                    OpenAiFile(path);
+                    if (missing) RefreshAiFileLinks();
+                };
                 row.Children.Add(button);
             }
 
@@ -1484,6 +1504,22 @@ namespace Tsuzuri
 
             if (!Directory.Exists(Attachments.FolderOf(path))) Attachments.MarkBare(path);
             OpenFileThen(path, (window, document) => window.GoToAnchor(document, null));
+        }
+
+        /// <summary>空のファイルを作る（無い CLAUDE.md を押したとき）。作れなければ知らせて false。</summary>
+        private bool CreateEmptyFile(string path)
+        {
+            try
+            {
+                Directory.CreateDirectory(Path.GetDirectoryName(path));
+                if (!File.Exists(path)) File.WriteAllText(path, string.Empty, new UTF8Encoding(false));
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Status("作れませんでした: " + path + "（" + ex.Message + "）");
+                return false;
+            }
         }
 
         private void OpenInNotepad(string path)

@@ -67,14 +67,16 @@ namespace Tsuzuri
         {
             if (_aiShellButton != null) return _aiShellButton;
 
-            // 文字のボタンにする（2026-11-08。アイコンのフォントのコマンドプロンプトの記号は、この大きさでは潰れて読めなかった）。
+            // 印は「＋＋」（2026-11-08）。会話を足す「＋」と同じアイコンのフォントの記号を2つ並べる。
+            // 前はコマンドプロンプトの記号（潰れて読めなかった）、次は「共通ターミナル」の文字（幅を取りすぎた）。名前はツールチップに出す。
             _aiShellButton = new Button
             {
-                Content = "共通ターミナル",
+                Content = "\uE710\uE710",
                 ToolTip = "共通ターミナルを、この欄の下に出す・隠す（利用者と Claude が一緒に使う。Claude が文字を置き、Enter は自分で押す）",
-                FontSize = 12,
+                FontFamily = IconFont,
+                FontSize = 11,
                 Height = 26,
-                Padding = new Thickness(8, 0, 8, 0),
+                Padding = new Thickness(6, 0, 6, 0),
                 Margin = new Thickness(4, 0, 0, 0),
                 Focusable = false,
                 VerticalAlignment = VerticalAlignment.Center,
@@ -265,7 +267,7 @@ namespace Tsuzuri
         private string TypeIntoAiShell(string text, bool bracketed)
         {
             if (_aiShell == null || !_aiShell.IsRunning)
-                return "error\t共通ターミナルが開いていない。利用者に、AI の欄の上端の「共通ターミナル」のボタンで出してもらう。";
+                return "error\t共通ターミナルが開いていない。利用者に、AI の欄の上端の「＋＋」のボタン（会話を足す「＋」の隣）で出してもらう。";
             if (_aiShellQueue.Count > 0)
                 return "error\t前に置いた行の残りがまだある（" + _aiShellQueue.Count + " 行）。利用者が Enter で進めるか、Esc でやめるまで待つ。";
             if (_aiShellPending)

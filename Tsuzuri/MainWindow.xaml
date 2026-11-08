@@ -263,9 +263,36 @@
                             <StackPanel x:Name="AiFileLinks" Margin="6,0,6,4" />
                         </StackPanel>
                     </Border>
-                    <!-- タブごとの端末を重ねて置き、選んでいるものだけを出す（外すと WebView2 が作り直しになるため、隠すだけにする）。
-                         上下2段に出す機能は 2026-11-01 にやめた -->
-                    <Grid x:Name="AiTerminals" />
+                    <!-- 上の段: タブごとの端末を重ねて置き、選んでいるものだけを出す（外すと WebView2 が作り直しになるため、隠すだけにする）。
+                         下の段: 利用者と Claude が一緒に使うターミナル（2026-11-08。MainWindow.AiShell.cs）。出すまでは高さ 0 -->
+                    <Grid>
+                        <Grid.RowDefinitions>
+                            <RowDefinition x:Name="AiUpperRow" Height="*" />
+                            <RowDefinition x:Name="AiShellSplitterRow" Height="0" />
+                            <RowDefinition x:Name="AiShellRow" Height="0" />
+                        </Grid.RowDefinitions>
+                        <Grid x:Name="AiTerminals" />
+                        <GridSplitter x:Name="AiShellSplitter" Grid.Row="1" Height="4" Visibility="Collapsed"
+                                      Style="{StaticResource RowSplitter}" ResizeDirection="Rows"
+                                      HorizontalAlignment="Stretch" VerticalAlignment="Stretch"
+                                      DragCompleted="AiShellSplitter_DragCompleted" />
+                        <DockPanel x:Name="AiShellPane" Grid.Row="2" Visibility="Collapsed">
+                            <Border DockPanel.Dock="Top" Height="26" BorderBrush="{StaticResource BorderBrushSoft}" BorderThickness="0,1,0,1">
+                                <DockPanel Margin="12,0,4,0">
+                                    <Button x:Name="AiShellClose" DockPanel.Dock="Right" Style="{StaticResource ToolButton}"
+                                            Content="&#xE711;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" FontSize="9"
+                                            Width="20" Height="20" Padding="0" Focusable="False" VerticalAlignment="Center"
+                                            ToolTip="このターミナルを閉じる（中の PowerShell も終わる）" Click="AiShellClose_Click" />
+                                    <TextBlock x:Name="AiShellStatus" DockPanel.Dock="Right" Margin="8,0,8,0" VerticalAlignment="Center"
+                                               FontSize="12" Foreground="{StaticResource AccentText}" />
+                                    <TextBlock VerticalAlignment="Center" FontSize="12" Foreground="{StaticResource TextMuted}"
+                                               TextTrimming="CharacterEllipsis"
+                                               Text="ターミナル（Claude も文字を置く。Enter は自分で押す）" />
+                                </DockPanel>
+                            </Border>
+                            <Grid x:Name="AiShellHost" />
+                        </DockPanel>
+                    </Grid>
                 </DockPanel>
             </Border>
 

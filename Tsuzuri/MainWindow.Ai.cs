@@ -154,6 +154,18 @@ namespace Tsuzuri
     ファイルの末尾に足すのは、新しいサブページを作るときだけ。書いたら、印の行を探し直し、ページの範囲の中に入ったかを読み直して確かめる。
   - 同じ行がほかのページにもあることがある。Edit が一つに決まらないときは、前後の行を足して一つに決める。
     replace_all は、利用者がファイル全体を頼んだときだけ使う。
+- AI の欄の下に、利用者と一緒に使うターミナル（PowerShell。利用者がそこから ssh で機器やサーバーにつないでいることもある）を出していることがある。
+  出していれば、話しかけるたびに今の状態に「下のターミナル」として、画面の最後の 20 行と選んでいる文字が付いてくる。
+  - 画面は話しかけたときのもの。足りないとき・そのあとの出力を見たいときは、覚えている全部（1 万行まで）をファイルに書き出させて読む:
+      powershell -NoProfile -ExecutionPolicy Bypass -File ""{terminal}"" -Read
+    書き出したファイルのパスが返る。長いので、Grep か Read の offset・limit で要るところだけ読む。
+  - 下のターミナルに文字を置ける。Enter は押さない（押すのは利用者）:
+      powershell -NoProfile -ExecutionPolicy Bypass -File ""{terminal}"" -Type ""<1行>""
+    複数行は、ファイルに書いて -TypeFile ""<ファイル>"" で渡す。中のプログラムが貼り付けの印を受け付けるなら（bash・vim など）まとめて置き、
+    受け付けないなら（RTX・PowerShell など。改行がそのまま実行になる）1行目だけを置き、残りは利用者が Enter を押すたびに1行ずつ置く。
+    置いたら、何を置いたか・Enter で何が起きるかを返事で一言伝える。入力欄に文字が残っていると断られるので、利用者に空にしてもらう。
+  - 利用者が下のターミナルでつないでいる機器・サーバーへの操作は、Bash で別につながず、下に置いて利用者に Enter を任せる。
+  - 画面の中のパスワードなどの値は *** に伏せて渡している。伏せた値を推し量ったり、利用者に尋ねたりしない。
 - SSH でサーバーにつなぐときの接続先と鍵は「{ssh-dir}」にまとめて置いてある。
   利用者が置く元は「{ssh-source}」で、エディタが会話を始めるたびに、本人だけが読める権限にしてここへ写している
   （元は Mac の共有フォルダのことがあり、そこの鍵は Windows の ssh に断られるため）。使うのはここのもの。元のフォルダは使わず、どちらも書き換えない。
@@ -183,9 +195,9 @@ namespace Tsuzuri
     最初に console lines infinity を送る（ページごとに止めない）。結果のパスワード・事前共有鍵などの行は *** に伏せて出す。
     文字の符号は既定で Shift_JIS（RTX の既定）。化けるなら -Encoding utf-8 を試す。応えが遅い機器は -Timeout 秒 を延ばす。
     - 機器がパスワードや (Y/N) を尋ねると、台本は答えずに止まる（administrator に入る・設定を保存して抜けるなど）。そうなったら利用者に伝える。
-    - **送ってよいのは読むだけのもの（show で始まるもの）だけ。** 設定を変えるコマンド（ip・nat・ipsec・tunnel・pp・save・restart・administrator など）は、
-      利用者に頼まれても確かめても送らない。案として返事か文書に書き、入れるのは利用者に任せる
-      （ルーターの設定を誤ると利用者の接続ごと切れ、現地に行かないと戻せないことがあるため）。
+    - **自分で送ってよいのは読むだけのもの（show で始まるもの）だけ。** 設定を変えるコマンド（ip・nat・ipsec・tunnel・pp・save・restart・administrator など）は、
+      利用者に頼まれても確かめても、台本でも Bash でも送らない。案として返事か文書に書くか、下のターミナルに置いて（-Type）、Enter を押すかは利用者に任せる
+      （ルーターの設定を誤ると利用者の接続ごと切れ、現地に行かないと戻せないことがあるため）。置くときは、何をするコマンドかを先に返事に書く。
     - 伏せる前の結果を別のやり方で取ったときは、パスワード・事前共有鍵（pre-shared-key）・login password の行を、返事・文書には伏せて書く。
       結果をファイルに残したときは、要らなくなったら消す（残すなら、その場所と秘密の行が入っていることを利用者に伝える）。
 - 返事は日本語で、欄は狭いので短めに書く。";
@@ -217,7 +229,7 @@ namespace Tsuzuri
             "@powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File \"%~dp0ssh-askpass.ps1\"\r\n";
 
         /// <summary>exe の隣の Ai から AI のフォルダへ写す台本（2026-11-08。SPEC 19章）。askpass と、ネットワーク機器への入り方（ssh-session.ps1）。</summary>
-        private static readonly string[] AiScripts = { "ssh-askpass.ps1", "ssh-session.ps1" };
+        private static readonly string[] AiScripts = { "ssh-askpass.ps1", "ssh-session.ps1", "terminal.ps1" };
 
         /// <summary>ツールバーの「AI」。AI の欄を出し入れする。タブが1つも無ければ、claude を起動したタブを1つ開く。</summary>
         private void ToggleAi()
@@ -443,6 +455,7 @@ namespace Tsuzuri
             AiTabs.Children.Clear();
             foreach (var tab in _aiTabs) AiTabs.Children.Add(tab.Header);
             AiTabs.Children.Add(_aiAddButton);
+            AiTabs.Children.Add(AiShellButton());   // 下のターミナル（2026-11-08）
         }
 
         /// <summary>タブを選ぶ。そのタブの端末を出し、ほかは隠す（隠しても動き続ける）。</summary>
@@ -466,6 +479,16 @@ namespace Tsuzuri
         /// </summary>
         private void FocusAiTerminal(AiTab tab)
         {
+            Keyboard.Focus(AiFocusSink());
+            Dispatcher.BeginInvoke(new Action(delegate
+            {
+                if (ReferenceEquals(_aiTab, tab) && AiPane.Visibility == Visibility.Visible) tab.View.FocusTerminal();
+            }), DispatcherPriority.Background);
+        }
+
+        /// <summary>受け皿の文字の欄。初めて使うときに作る（下のターミナルも使う。2026-11-08）。</summary>
+        private TextBox AiFocusSink()
+        {
             if (_aiFocusSink == null)
             {
                 _aiFocusSink = new TextBox
@@ -483,11 +506,7 @@ namespace Tsuzuri
                 _aiFocusSink.LostKeyboardFocus += delegate { _aiFocusSink.Clear(); };
             }
 
-            Keyboard.Focus(_aiFocusSink);
-            Dispatcher.BeginInvoke(new Action(delegate
-            {
-                if (ReferenceEquals(_aiTab, tab) && AiPane.Visibility == Visibility.Visible) tab.View.FocusTerminal();
-            }), DispatcherPriority.Background);
+            return _aiFocusSink;
         }
 
         /// <summary>タブを閉じる。中の PowerShell と claude も終わらせる。最後の1つを閉じたら欄を畳む。</summary>
@@ -683,7 +702,8 @@ namespace Tsuzuri
                     .Replace("{ssh-source}", AiSshFolder)
                     .Replace("{ssh-exe}", AiSshExe)
                     .Replace("{ssh-askpass}", askpass)
-                    .Replace("{ssh-session}", Path.Combine(AiFolder, "ssh-session.ps1")));
+                    .Replace("{ssh-session}", Path.Combine(AiFolder, "ssh-session.ps1"))
+                    .Replace("{terminal}", Path.Combine(AiFolder, "terminal.ps1")));
                 File.WriteAllText(settings, AiSettings(_aiContextPath, AiPipeName), new UTF8Encoding(false));
                 WriteAiContext(null);
                 Dispatcher.BeginInvoke(new Action(RefreshAiFileLinks));   // 今の状態・フックの設定を書いたので、下端のボタンに出す（2026-11-08）
@@ -698,7 +718,8 @@ namespace Tsuzuri
 
             // 引数は -EncodedCommand にまとめる（引用符や $ を気にしなくて済む）。
             // 起動したときに出していた claude の使い方の1行は外した（2026-10-30。タブが戻るので「続き」の案内は要らず、履歴は claude --resume）。
-            var command = "$env:MDEDITOR_AI_TAB=" + Quote(tabId) + ";"
+            // TSUZURI_AI_PIPE は、Claude が下のターミナルに文字を置く・画面を読む台本（terminal.ps1）が使う（2026-11-08）。
+            var command = "$env:MDEDITOR_AI_TAB=" + Quote(tabId) + ";$env:TSUZURI_AI_PIPE=" + Quote(AiPipeName) + ";"
                          + "function claude { & " + Quote(claude) + " --settings " + Quote(settings)
                          + " --append-system-prompt-file " + Quote(instructions)
                          + (string.IsNullOrEmpty(name) ? string.Empty : " --name " + Quote(name)) + " @args }";
@@ -788,8 +809,9 @@ namespace Tsuzuri
             }
 
             foreach (var tab in _aiTabs) tab.View.Dispose();
+            CloseAiShell();
 
-            foreach (var path in new[] { _aiSettingsPath, _aiContextPath })
+            foreach (var path in new[] { _aiSettingsPath, _aiContextPath, AiShellDumpPath })
             {
                 if (path == null) continue;
 
@@ -818,7 +840,7 @@ namespace Tsuzuri
             {
                 var self = Process.GetCurrentProcess();
 
-                foreach (var pattern in new[] { "settings-*.json", "context-*.md" })
+                foreach (var pattern in new[] { "settings-*.json", "context-*.md", "terminal-*.txt" })
                 {
                     foreach (var path in Directory.GetFiles(AiFolder, pattern))
                     {
@@ -994,6 +1016,9 @@ namespace Tsuzuri
 
                     if (request == "prompt")
                     {
+                        // 下のターミナルの画面を先に読む（2026-11-08）。読むのはページの中の式で、画面のスレッドが空いていないと返らないので、ここで待つ。
+                        _aiShellScreen = ReadAiShellScreen(AiShellTailLines, 2000);
+
                         // 未保存の編集があれば、保存してから渡す（2026-10-25。話しかけたら保存してよいと決めた）。
                         // 外で書き換わっていて上書きするか尋ねている間はフックが待つ。止まったままにはしないよう、
                         // 4分半で諦めて前の状態を渡させる（フックの持ち時間は5分）。
@@ -1001,6 +1026,36 @@ namespace Tsuzuri
 
                         var writer = new StreamWriter(server, new UTF8Encoding(false), 256, true);
                         writer.WriteLine("ok");
+                        writer.Flush();
+                        server.WaitForPipeDrain();
+                    }
+                    else if (request != null && (request == "shell-dump" || request.StartsWith("shell-type\t", StringComparison.Ordinal)))
+                    {
+                        // 下のターミナル（2026-11-08。terminal.ps1）。全部を書き出す・文字を置く。
+                        string answer;
+                        if (request == "shell-dump")
+                        {
+                            answer = DumpAiShell();
+                        }
+                        else
+                        {
+                            string text = null;
+                            try
+                            {
+                                text = Encoding.UTF8.GetString(Convert.FromBase64String(request.Substring("shell-type\t".Length)));
+                            }
+                            catch (FormatException)
+                            {
+                            }
+
+                            var screen = ReadAiShellScreen(1, 2000);
+                            answer = text == null
+                                ? "error\t置く文字を読めなかった。"
+                                : Dispatcher.Invoke(new Func<string>(() => TypeIntoAiShell(text, screen != null && screen.Bracketed)));
+                        }
+
+                        var writer = new StreamWriter(server, new UTF8Encoding(false), 256, true);
+                        writer.WriteLine(answer.Replace("\r", " ").Replace("\n", " "));
                         writer.Flush();
                         server.WaitForPipeDrain();
                     }
@@ -1568,6 +1623,7 @@ namespace Tsuzuri
             if (view == null || view.Owner == null)
             {
                 text.Append("ファイルは開いていない。\n");
+                AppendAiShellContext(text);
                 return text.ToString();
             }
 
@@ -1612,6 +1668,8 @@ namespace Tsuzuri
 
             if (_stack.Any(page => page.IsDirty))
                 text.Append("エディタに保存できていない編集がある。ファイルの中身はエディタの画面より古く、行番号もファイルと合わない。この文書は書き換えず、先に保存してもらう。\n");
+
+            AppendAiShellContext(text);   // 下のターミナルの画面（2026-11-08）
 
             // 図の頼みは、最初の指示に書くだけでは罫線で描かれた（2026-11-01）。話しかけるたびに1行だけ念を押す（書き方そのものは渡さない）。
             // 形は決め打ちせず、指定が無ければ利用者に尋ねさせる（2026-11-01）。

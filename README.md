@@ -113,6 +113,7 @@ B のリンクを踏む     [A帯][B帯][C]
 - 話しかけたとき、未保存の編集があれば先に保存する（Claude が最新の内容を読めるように）
 - 欄の下端に、最後に渡した状態と、Claude が読むファイルのボタンを出す。Claude Code が自分で読むもの（全体とフォルダの CLAUDE.md・記憶の MEMORY.md）と、Tsuzuri が渡すもの（指示・今の状態・図の書き方・フックの設定）を段で分ける。押すと .md は Tsuzuri で（添付フォルダを作らずに）、.json はメモ帳で開く
 - 会話はタブで複数持てる。次に起動したときは、前の会話のタブを戻す
+- タブの段の右のボタンで、欄の下に「一緒に使うターミナル」（PowerShell）を出せる。画面の最後の 20 行と選んでいる文字が Claude に渡り、全部が要れば Claude が自分でファイルに書き出して読む。Claude はここにコマンドを置けるが Enter は押さない（押すのは自分）。複数行は、中のプログラムが貼り付けの印を受け付ければまとめて、受け付けなければ（RTX など）Enter を押すたびに1行ずつ置く。画面の中のパスワードなどの行は伏せて渡す
 - 「ここに構成図を描いて」と頼むと、図エディタ・罫線・Mermaid のどれで描くかを尋ねてくる。図エディタなら、Claude が図の JSON を書き、Tsuzuri が画像にする。出来た図は押せば図エディタで手直しできる
 - SSH でサーバーにつながせるときは、exe の隣の `ssh` フォルダに、接続先の一覧 `config.txt` と鍵をまとめて置く。`config.txt` は1行1つで、鍵なら `名称 | ホスト:ポート | auth=publickey | user=ユーザー名 | keyfile=キーファイル名`、パスワードなら `名称 | ホスト:ポート | auth=password | user=ユーザー名 | passwd=パスワード`。Windows の ssh が使えるように、会話を始めるたびにエディタが `%LOCALAPPDATA%\Tsuzuri\ssh` へ写して本人だけが読める権限にする（exe が Mac の共有フォルダにあっても使える）。最初の指示でその場所と形を伝えてあり、「名称につないで」で通じる。パスワードは Tsuzuri の askpass が `config.txt` から読んで ssh に渡すので、Claude はパスワードの値を扱わない。ヤマハ RTX などのネットワーク機器には、Tsuzuri が置く台本（プロンプトを待って1行ずつ送り、結果の秘密の行を伏せる）でつながせる。サーバーの中を変える前には確かめてくる。このフォルダはリポジトリには入れない（パスワードを平文で置くので、置き場所の扱いに注意）
 - タブの名前（#1・#2…）は claude のセッションの名前。「#2 にこの会話の要約を渡して」のように、ほかのタブの会話に頼める（Claude Code のセッション間のメッセージ。Windows では 2.1.234 以上）
@@ -202,12 +203,12 @@ Mac では、XAML を除いた C# のコンパイルだけを `bash tools/check-
 ```
 Tsuzuri/
 ├ MainWindow.xaml(.cs)   画面の骨格。受け持ちごとに MainWindow.*.cs に分けている
-│                        （Stack: ページの並び／Outline: アウトライン／Overlays: ランチャー／Ai: AI の欄／WordPress など）
+│                        （Stack: ページの並び／Outline: アウトライン／Overlays: ランチャー／Ai: AI の欄／AiShell: AI の欄の下のターミナル／WordPress など）
 ├ Markdown/              ページの読み書き（PageDocument）、Markdig による解析、変更の記録（DocumentHistory）
 ├ Views/                 編集面（AvalonEdit の拡張）、ランチャー、ファイラー、端末
 ├ Export/                Word への書き出し
 ├ WordPress/             WordPress の REST API、HTML → Markdown の変換、送る HTML（WordPressHtml）
-├ Ai/                    AI に図を頼まれたときに読ませる、図の書き方（drawing-format.md）
+├ Ai/                    AI に読ませる図の書き方（drawing-format.md）と、AI が使う台本（SSH の askpass・ネットワーク機器への入り方・下のターミナル）
 ├ Terminal/              AI の欄の端末の画面（xterm.js）
 └ ConPty/                AI の欄の端末で使う ConPTY（conpty.dll・OpenConsole.exe）
 TableEditor/             表エディタ（WPF。本体から DLL として読み込む）

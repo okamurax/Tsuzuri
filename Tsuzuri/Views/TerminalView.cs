@@ -88,6 +88,37 @@ namespace Tsuzuri.Views
         /// <summary>端末を押したのにキーボードが来ていない（2026-11-08）。エディタが端末にキーボードを渡し直す。</summary>
         public event Action FocusRequested;
 
+        /// <summary>利用者が打った（貼り付けた）文字を中のプログラムに送った（2026-11-08。AI の欄の下のターミナルで、Enter を見る）。</summary>
+        public event Action<string> UserInput;
+
+        /// <summary>中のプログラムの出力を画面に書いた（2026-11-08。下のターミナルで、出力が落ち着いたかを見る）。</summary>
+        public event Action OutputWritten;
+
+        /// <summary>
+        /// 打ったのと同じに、中のプログラムへ文字を送る（2026-11-08。AI の欄の下のターミナルに Claude の文字を置く）。
+        /// UserInput は起こさない。動いていなければ false。
+        /// </summary>
+        public bool WriteInput(string text)
+        {
+            if (_disposed || string.IsNullOrEmpty(text) || !IsRunning) return false;
+            _console.Write(text);
+            return true;
+        }
+
+        /// <summary>ページの中で式を動かし、その値（JSON）を返す（2026-11-08。terminal.html の tsuzuriScreen）。用意できていなければ null。</summary>
+        public System.Threading.Tasks.Task<string> RunScriptAsync(string script)
+        {
+            if (_core == null || !_ready || _webReleased) return null;
+            try
+            {
+                return _core.ExecuteScriptAsync(script);
+            }
+            catch (Exception)
+            {
+                return null;   // 表示のプロセスが落ちた直後など
+            }
+        }
+
 
         public bool IsRunning
         {
@@ -131,6 +162,8 @@ namespace Tsuzuri.Views
 
             Stop();
             TitleChanged = null;
+            UserInput = null;
+            OutputWritten = null;
             ReleaseWeb();
             Child = null;
         }
@@ -363,7 +396,12 @@ namespace Tsuzuri.Views
                     object data;
                     message.TryGetValue("data", out data);
                     var text = data as string;
-                    if (text != null) SendKeys(text);
+                    if (text != null)
+                    {
+                        SendKeys(text);
+                        var input = UserInput;
+                        if (input != null && IsRunning) input(text);
+                    }
                     break;
             }
         }
@@ -462,7 +500,10 @@ namespace Tsuzuri.Views
                 _output.Clear();
             }
 
-            if (ReferenceEquals(console, _console)) Post(text);
+            if (!ReferenceEquals(console, _console)) return;
+            Post(text);
+            var written = OutputWritten;
+            if (written != null) written();
         }
 
         private void OnExited(PseudoConsole console)

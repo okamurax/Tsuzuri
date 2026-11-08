@@ -1401,118 +1401,39 @@ namespace Tsuzuri
         private int _aiFileLinksGeneration;
 
         /// <summary>
-        /// Claude Code が自分で読むファイル（2026-11-08）。会話のフォルダ（分からなければ開いている文書のフォルダ）を起点にする。
-        /// ・管理者の CLAUDE.md・managed-settings.json（C:\Program Files\ClaudeCode）
-        /// ・利用者全体の CLAUDE.md・rules\*.md・settings.json（%USERPROFILE%\.claude。CLAUDE_CONFIG_DIR があればそこ）
-        /// ・フォルダから上へたどった各フォルダの CLAUDE.md・.claude\CLAUDE.md・CLAUDE.local.md・.claude\rules\*.md
-        /// ・会話のフォルダの .claude\settings.json・settings.local.json
-        /// ・自動の記憶（projects\フォルダの名前\memory\MEMORY.md）
-        /// ・CLAUDE.md から @ で取り込んだファイル（5段まで）
+        /// Claude Code が自分で読むファイルのうち、利用者が見て直すもの（2026-11-08）。あるものだけ。
+        /// ・全体の CLAUDE.md（%USERPROFILE%\.claude。CLAUDE_CONFIG_DIR があればそこ）
+        /// ・会話のフォルダ（分からなければ開いている文書のフォルダ）の CLAUDE.md
+        /// ・そのフォルダの自動の記憶（projects\フォルダの名前\memory\MEMORY.md。名前はフォルダの場所の英数字以外を - にしたもの）
+        /// 上のフォルダの CLAUDE.md・rules・settings・取り込み（@）なども読まれるが、使っていないので出さない（全部出すとボタンが多すぎた）。
         /// </summary>
         private static List<KeyValuePair<string, string>> ClaudeCodeFiles(string folder)
         {
-            var files = new List<KeyValuePair<string, string>>();
-            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            Action<string, string> add = (label, path) =>
-            {
-                try
-                {
-                    if (string.IsNullOrEmpty(path) || !File.Exists(path) || !seen.Add(Path.GetFullPath(path))) return;
-                }
-                catch (Exception)
-                {
-                    return;
-                }
-
-                files.Add(new KeyValuePair<string, string>(label, path));
-                if (path.EndsWith(".md", StringComparison.OrdinalIgnoreCase)) AddClaudeImports(path, files, seen, 1);
-            };
-            Action<string, string> addRules = (label, rules) =>
-            {
-                try
-                {
-                    if (!Directory.Exists(rules)) return;
-                    foreach (var rule in Directory.GetFiles(rules, "*.md", SearchOption.AllDirectories).OrderBy(name => name, StringComparer.OrdinalIgnoreCase))
-                        add("rules\\" + Path.GetFileName(rule) + "（" + label + "）", rule);
-                }
-                catch (Exception)
-                {
-                }
-            };
-
-            var managed = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "ClaudeCode");
-            add("CLAUDE.md（管理者）", Path.Combine(managed, "CLAUDE.md"));
-            add("managed-settings.json", Path.Combine(managed, "managed-settings.json"));
-
             var home = Environment.GetEnvironmentVariable("CLAUDE_CONFIG_DIR");
             if (string.IsNullOrEmpty(home)) home = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".claude");
-            add("CLAUDE.md（全体）", Path.Combine(home, "CLAUDE.md"));
-            addRules("全体", Path.Combine(home, "rules"));
-            add("settings.json（全体）", Path.Combine(home, "settings.json"));
 
-            if (string.IsNullOrEmpty(folder)) return files;
+            var files = new List<KeyValuePair<string, string>>
+            {
+                new KeyValuePair<string, string>("CLAUDE.md（全体）", Path.Combine(home, "CLAUDE.md")),
+            };
 
-            try
+            if (!string.IsNullOrEmpty(folder))
             {
-                for (var directory = new DirectoryInfo(folder); directory != null; directory = directory.Parent)
-                {
-                    var name = directory.Name.TrimEnd('\\');
-                    add("CLAUDE.md（" + name + "）", Path.Combine(directory.FullName, "CLAUDE.md"));
-                    add(".claude\\CLAUDE.md（" + name + "）", Path.Combine(directory.FullName, ".claude", "CLAUDE.md"));
-                    add("CLAUDE.local.md（" + name + "）", Path.Combine(directory.FullName, "CLAUDE.local.md"));
-                    addRules(name, Path.Combine(directory.FullName, ".claude", "rules"));
-                }
-            }
-            catch (Exception)
-            {
-                // 読めないフォルダ（\\Mac\ が切れたなど）。分かった所までで足りる。
+                files.Add(new KeyValuePair<string, string>("CLAUDE.md（" + Path.GetFileName(folder.TrimEnd('\\')) + "）", Path.Combine(folder, "CLAUDE.md")));
+                files.Add(new KeyValuePair<string, string>("MEMORY.md", Path.Combine(home, "projects", Regex.Replace(folder, "[^A-Za-z0-9]", "-"), "memory", "MEMORY.md")));
             }
 
-            add("settings.json（フォルダ）", Path.Combine(folder, ".claude", "settings.json"));
-            add("settings.local.json（フォルダ）", Path.Combine(folder, ".claude", "settings.local.json"));
-
-            // 自動の記憶。Claude Code はフォルダの場所の英数字以外を - にした名前のフォルダに置く。
-            add("記憶 MEMORY.md", Path.Combine(home, "projects", Regex.Replace(folder, "[^A-Za-z0-9]", "-"), "memory", "MEMORY.md"));
-
-            return files;
-        }
-
-        /// <summary>CLAUDE.md の中の @ファイル（取り込み）。コードの中は見分けず、行の頭か空白の後ろの @ で、そのファイルがあるものだけ。5段まで。</summary>
-        private static void AddClaudeImports(string path, List<KeyValuePair<string, string>> files, HashSet<string> seen, int depth)
-        {
-            if (depth > 5) return;
-
-            string text;
-            try
+            return files.Where(file =>
             {
-                text = File.ReadAllText(path);
-            }
-            catch (Exception)
-            {
-                return;
-            }
-
-            var folder = Path.GetDirectoryName(path);
-            foreach (Match match in Regex.Matches(text, @"(?<=^|\s)@([^\s`]+)", RegexOptions.Multiline))
-            {
-                var target = match.Groups[1].Value;
                 try
                 {
-                    if (target.StartsWith("~/", StringComparison.Ordinal) || target.StartsWith("~\\", StringComparison.Ordinal))
-                        target = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), target.Substring(2));
-                    else if (!Path.IsPathRooted(target))
-                        target = Path.Combine(folder, target);
-
-                    if (!File.Exists(target) || !seen.Add(Path.GetFullPath(target))) continue;
+                    return File.Exists(file.Value);
                 }
                 catch (Exception)
                 {
-                    continue;   // パスとして読めない（メールアドレスなど）
+                    return false;   // 読めない場所（\\Mac\ が切れたなど）
                 }
-
-                files.Add(new KeyValuePair<string, string>("@" + Path.GetFileName(target), target));
-                AddClaudeImports(target, files, seen, depth + 1);
-            }
+            }).ToList();
         }
 
         /// <summary>見出し（Claude Code・Tsuzuri）とファイルのボタンの1段。ファイルが1つも無ければ出さない。</summary>

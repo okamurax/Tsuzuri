@@ -2104,13 +2104,12 @@ WPF 標準のコントロールはそのままだと明るい前提の見た目�
   押すと、.md は Tsuzuri で添付フォルダを作らずに開き（9章の「添付フォルダ無しで開く文書」）、.json はメモ帳で開く。
   指示・今の状態はエディタが書き直すので、手で直しても次の起動や話しかけたときに戻る。図の書き方は exe の隣の写しなので、直すならリポジトリの元を直す
   2段に分け、頭に段の名前を出して見分ける。
-  - **「Claude Code」の段**: Claude Code が自分で（どこで動かしても）読むもの。会話のフォルダ（分からなければ開いている文書のフォルダ）を起点にする
-    - 管理者の `CLAUDE.md`・`managed-settings.json`（`C:\Program Files\ClaudeCode`）
-    - 利用者全体の `CLAUDE.md`・`rules\*.md`・`settings.json`（`%USERPROFILE%\.claude`。`CLAUDE_CONFIG_DIR` があればそこ）
-    - フォルダから上へたどった各フォルダの `CLAUDE.md`・`.claude\CLAUDE.md`・`CLAUDE.local.md`・`.claude\rules\*.md`
-    - 会話のフォルダの `.claude\settings.json`・`settings.local.json`
-    - 自動の記憶（`projects\フォルダの名前\memory\MEMORY.md`。名前はフォルダの場所の英数字以外を - にしたもの）
-    - これらの .md から `@ファイル` で取り込んだファイル（5段まで。ボタンは `@名前`）
+  - **「Claude Code」の段**: Claude Code が自分で（どこで動かしても）読むもののうち、利用者が見て直すもの
+    - `CLAUDE.md（全体）`（`%USERPROFILE%\.claude\CLAUDE.md`。`CLAUDE_CONFIG_DIR` があればそこ）
+    - `CLAUDE.md（フォルダ名）`（会話のフォルダ。分からなければ開いている文書のフォルダ）
+    - `MEMORY.md`（そのフォルダの自動の記憶。`projects\フォルダの名前\memory\MEMORY.md`。名前はフォルダの場所の英数字以外を - にしたもの。
+      Windows で確かめた: `\\Mac\Home\…\MyNote` → `--Mac-Home-…-MyNote`）
+    - 前は、上のフォルダの CLAUDE.md・rules・settings.json・管理者の設定・`@` の取り込みまで全部出していたが、使っていないのでこの3つにした（2026-11-08）
   - **「Tsuzuri」の段**: Tsuzuri が独自に渡すもの
     - 指示（`%LOCALAPPDATA%\Tsuzuri\ai\instructions.md`。起動のたびにエディタが書き、`--append-system-prompt-file` で渡す）
     - 今の状態（同じフォルダの `context-*.md`。話しかけるたびに書く）

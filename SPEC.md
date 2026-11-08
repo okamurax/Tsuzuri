@@ -2224,6 +2224,10 @@ WPF 標準のコントロールはそのままだと明るい前提の見た目�
       `-o PubkeyAuthentication=no -o PreferredAuthentications=password,keyboard-interactive -o NumberOfPasswordPrompts=1` を足す。
       パスワードを引数に書かない（ほかのプロセスから見える）。入れなければ何度も試さずに知らせる（`SSH_ASKPASS_REQUIRE` は OpenSSH 8.4 以上。古い Windows 10 の 8.1 では効かない）
     - 鍵・パスワード・`config.txt` の中身を文書・コミット・返事に書き写さない。サーバーの中を変える操作は、する前に確かめる
+    - **ヤマハの RTX などのネットワーク機器への入り方も指示に書く**（2026-11-08）。RTX はコマンドを付けた ssh を断り（exec request failed）、
+      プロンプトが出る前に送った文字を捨て、入力を閉じると結果の途中で接続を切るため、ふつうのサーバーの書き方では取れなかった。
+      -tt で画面を開き、プロンプトを待って1行ずつ送る・最初に `console lines infinity`（日本語が化けたら `console character en.ascii`）・
+      最後は `exit`・show 以外の設定のコマンドは送る前に確かめる・結果の秘密の行（パスワード・事前共有鍵）は伏せ、残したファイルは要らなくなったら消す
     - 指示のファイルは claude を起動するときに読まれるので、変えたあとは新しく開いた（戻した）会話から効く
   - **図エディタの図を選んだら、図の書き方を読ませてから書かせる。** 書き方（形・図形の種類・手順・こつ）は exe の隣の `Ai\drawing-format.md` に置き、
     指示にはその場所だけを書く（書き方そのものは毎回渡さない）。

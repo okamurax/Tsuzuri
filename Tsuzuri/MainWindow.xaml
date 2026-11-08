@@ -277,7 +277,8 @@
                                       HorizontalAlignment="Stretch" VerticalAlignment="Stretch"
                                       DragCompleted="AiShellSplitter_DragCompleted" />
                         <DockPanel x:Name="AiShellPane" Grid.Row="2" Visibility="Collapsed">
-                            <Border DockPanel.Dock="Top" Height="26" BorderBrush="{StaticResource BorderBrushSoft}" BorderThickness="0,1,0,1">
+                            <!-- 上の線は引かない（すぐ上の仕切りの線と2重になったため。2026-11-08）。下の線で端末と分ける -->
+                            <Border DockPanel.Dock="Top" Height="26" BorderBrush="{StaticResource BorderBrushSoft}" BorderThickness="0,0,0,1">
                                 <DockPanel Margin="12,0,4,0">
                                     <Button x:Name="AiShellClose" DockPanel.Dock="Right" Style="{StaticResource ToolButton}"
                                             Content="&#xE711;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" FontSize="9"

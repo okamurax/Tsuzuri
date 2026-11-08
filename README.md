@@ -8,7 +8,7 @@ Notion のようにサブページを掘っていけます。ただし、サブ�
 
 Windows 用のデスクトップアプリ（WPF / .NET Framework 4.8）です。
 
-> 開発中です。細かい仕様は [SPEC.md](SPEC.md)、動作確認の状況と積み残しは [TODO.md](TODO.md) にあります。
+> 開発中です。細かい仕様は [SPEC.md](SPEC.md)、残っている問題と積み残しは [TODO.md](TODO.md) にあります。
 > 画面の文字と文書は日本語だけです。
 
 ---

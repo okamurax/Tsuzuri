@@ -67,15 +67,14 @@ namespace Tsuzuri
         {
             if (_aiShellButton != null) return _aiShellButton;
 
+            // 文字のボタンにする（2026-11-08。アイコンのフォントのコマンドプロンプトの記号は、この大きさでは潰れて読めなかった）。
             _aiShellButton = new Button
             {
-                Content = "",
+                Content = "ターミナル",
                 ToolTip = "下にターミナルを出す・隠す（Claude と一緒に使う。Claude が文字を置き、Enter は自分で押す）",
-                FontFamily = IconFont,
                 FontSize = 12,
-                Width = 26,
                 Height = 26,
-                Padding = new Thickness(0),
+                Padding = new Thickness(8, 0, 8, 0),
                 Margin = new Thickness(4, 0, 0, 0),
                 Focusable = false,
                 VerticalAlignment = VerticalAlignment.Center,

@@ -259,8 +259,8 @@
                             <TextBlock x:Name="AiContextText" Margin="12,4,12,5" VerticalAlignment="Center"
                                        FontSize="13" Foreground="{StaticResource TextMuted}" TextTrimming="CharacterEllipsis"
                                        Text="Claude に話しかけると、渡したファイルとカーソルの位置をここに出します" />
-                            <!-- Claude が前提として読むファイル（指示・今の状態・図の書き方・CLAUDE.md）。押すとメモ帳で開く（2026-11-08） -->
-                            <WrapPanel x:Name="AiFileLinks" Margin="6,0,6,4" />
+                            <!-- Claude が読むファイル。上の段は Claude Code が自分で読むもの、下の段は Tsuzuri が渡すもの。押すとメモ帳で開く（2026-11-08） -->
+                            <StackPanel x:Name="AiFileLinks" Margin="6,0,6,4" />
                         </StackPanel>
                     </Border>
                     <!-- タブごとの端末を重ねて置き、選んでいるものだけを出す（外すと WebView2 が作り直しになるため、隠すだけにする）。

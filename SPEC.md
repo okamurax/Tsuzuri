@@ -2093,13 +2093,22 @@ WPF 標準のコントロールはそのままだと明るい前提の見た目�
 - **欄の下端の細い行に、Claude に最後に渡した状態**（ファイル名 › ページ・カーソルの行・選択の有無・時刻）を出す（2026-10-24。2026-10-26 に上端から移した）。
   字は 13（2026-10-28。11 では小さすぎた）。
   ファイルの場所はツールチップ
-- **その下に、Claude が前提として読むファイルを押せるボタンで並べる**（2026-11-08）。あるものだけ出し、押すとメモ帳で開く（場所はツールチップ）。
-  - 指示（`%LOCALAPPDATA%\Tsuzuri\ai\instructions.md`。起動のたびにエディタが書き、`--append-system-prompt-file` で渡す）
-  - 今の状態（同じフォルダの `context-*.md`。話しかけるたびに書く）
-  - 図の書き方（exe の隣の `Ai\drawing-format.md`。図を頼まれたときに読む）
-  - CLAUDE.md（全体）（`%USERPROFILE%\.claude\CLAUDE.md`）と、会話のフォルダ（分からなければ開いている文書のフォルダ）から上へたどった各フォルダの `CLAUDE.md`。Claude Code が自分で読むもの
+- **その下に、Claude が読むファイルを押せるボタンで並べる**（2026-11-08）。あるものだけ出し、押すとメモ帳で開く（場所はツールチップ）。
+  2段に分け、頭に段の名前を出して見分ける。
+  - **「Claude Code」の段**: Claude Code が自分で（どこで動かしても）読むもの。会話のフォルダ（分からなければ開いている文書のフォルダ）を起点にする
+    - 管理者の `CLAUDE.md`・`managed-settings.json`（`C:\Program Files\ClaudeCode`）
+    - 利用者全体の `CLAUDE.md`・`rules\*.md`・`settings.json`（`%USERPROFILE%\.claude`。`CLAUDE_CONFIG_DIR` があればそこ）
+    - フォルダから上へたどった各フォルダの `CLAUDE.md`・`.claude\CLAUDE.md`・`CLAUDE.local.md`・`.claude\rules\*.md`
+    - 会話のフォルダの `.claude\settings.json`・`settings.local.json`
+    - 自動の記憶（`projects\フォルダの名前\memory\MEMORY.md`。名前はフォルダの場所の英数字以外を - にしたもの）
+    - これらの .md から `@ファイル` で取り込んだファイル（5段まで。ボタンは `@名前`）
+  - **「Tsuzuri」の段**: Tsuzuri が独自に渡すもの
+    - 指示（`%LOCALAPPDATA%\Tsuzuri\ai\instructions.md`。起動のたびにエディタが書き、`--append-system-prompt-file` で渡す）
+    - 今の状態（同じフォルダの `context-*.md`。話しかけるたびに書く）
+    - 図の書き方（exe の隣の `Ai\drawing-format.md`。図を頼まれたときに読む）
+    - 設定（フック）（同じフォルダの `settings-*.json`。`--settings` で渡す。今の状態を渡すフック）
   - メモ帳で開くのは、Tsuzuri で開くと添付フォルダを作るかを尋ねられ、指示と状態はエディタが書き直すので、読むだけのため
-  - 出し直すのは、話しかけたとき（状態を書いたとき）とタブを選んだとき
+  - 出し直すのは、話しかけたとき（状態を書いたとき）とタブを選んだとき。ファイルがあるかは裏で見る（`\\Mac\` の上で上へたどると数十回になるため）
 - **欄の中は端末で、Claude Code の画面がそのまま動く。** `/model`・差分の表示・許可の確認など、Claude Code のものを全部そのまま使える
   - 描くのは WebView2 の中の xterm.js（`Terminal/terminal.html`。VS Code の端末と同じもの）。xterm.js（5.5.0）と部品（fit・unicode11・webgl 0.18.0）は
     `Terminal` フォルダに同梱して exe の隣にコピーし、`https://tsuzuri.local/` として見せる（ネットにはつながない）

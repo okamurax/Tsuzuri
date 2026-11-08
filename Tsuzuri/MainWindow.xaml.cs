@@ -99,12 +99,12 @@ namespace Tsuzuri
 
         /// <summary>
         /// 見出しのブックマーク。新しいものが先頭。
-        /// 手元に持つのはスタックにあるファイルの分だけ。閉じたファイルの分は .文書名/state.json にある。
+        /// 手元に持つのはスタックにあるファイルの分だけ。閉じたファイルの分は .ファイル名/state.json にある。
         /// </summary>
         private readonly List<HeadingBookmark> _headingBookmarks = new List<HeadingBookmark>();
 
         /// <summary>
-        /// スタックにあるファイルの状態（.文書名/state.json）。開くとき（OpenFile）に読み、ファイルが外れたら手放す。
+        /// スタックにあるファイルの状態（.ファイル名/state.json）。開くとき（OpenFile）に読み、ファイルが外れたら手放す。
         /// 鍵は開く入口で揃えた本当のパス。スタックにあるファイルの分は必ずある。
         /// </summary>
         private readonly Dictionary<string, DocumentState> _states =

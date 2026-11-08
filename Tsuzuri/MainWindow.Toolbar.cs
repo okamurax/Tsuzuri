@@ -48,7 +48,7 @@ namespace Tsuzuri
 
             if (!TryCreatePage(path, Path.GetFileNameWithoutExtension(path))) return false;
 
-            // ファイラーで作ったときだけ、.文書名/ も黙って作る（SPEC 4章）。作れなければ開くときに尋ねる。
+            // ファイラーで作ったときだけ、.ファイル名/ も黙って作る（SPEC 4章）。作れなければ開くときに尋ねる。
             try
             {
                 Directory.CreateDirectory(Attachments.FolderOf(path));
@@ -283,7 +283,7 @@ namespace Tsuzuri
 
         /// <summary>
         /// Windows のファイルを作る画面で .md の場所と名前を決めてもらい、作る（2026-11-01）。作ったファイルのパスを返す。やめたら null。
-        /// 作り方はファイラーの「新しいファイルを作成…」と同じ（見出し「# 名前」を書き、.文書名/ も黙って作る）。
+        /// 作り方はファイラーの「新しいファイルを作成…」と同じ（見出し「# 名前」を書き、.ファイル名/ も黙って作る）。
         /// 今あるファイルを選んだら、書き換えずにそのパスを返す（呼び出し側はそれを開く）。
         /// ツールバーの「新規作成」と、何も開いていない画面で AI を始めるとき（CanStartAi）に使う。
         /// </summary>
@@ -671,7 +671,7 @@ namespace Tsuzuri
 
         /// <summary>
         /// ツールバーの「エクスポート」。ボタンの下に、範囲・用紙・向き・余白・サブページの扱いを選ぶ小さな画面を出す（SPEC 13章。2026-10-14）。
-        /// 「書き出す」で保存先を尋ねて書き出す。その文書を前回書き出したときの選び方から始める（.文書名/state.json に覚える）。
+        /// 「書き出す」で保存先を尋ねて書き出す。その文書を前回書き出したときの選び方から始める（.ファイル名/state.json に覚える）。
         /// 範囲の「現在のページ」はサブページを見ているときだけ選べるので、ルートを見ているときは前回が「現在のページ」でも「全体」から（2026-10-19）。
         /// </summary>
         private void Export_Click(object sender, RoutedEventArgs e)
@@ -693,7 +693,7 @@ namespace Tsuzuri
             var margin = ExportChoice(new[] { "10mm", "15mm", "20mm", "25mm", "30mm" }, new object[] { 10, 15, 20, 25, 30 });
             var subpages = ExportChoice(new[] { "本文に戻す", "除外する" }, new object[] { true, false });
 
-            // その文書を前回エクスポートしたときの選び方から（.文書名/state.json。初めては 全体・A4・縦・20mm・本文に戻す）。
+            // その文書を前回エクスポートしたときの選び方から（.ファイル名/state.json。初めては 全体・A4・縦・20mm・本文に戻す）。
             var state = StateOf(view.FilePath) ?? new DocumentState();   // 無ければ初めの選び方（2026-10-27。前は落ちた）
             scope.SelectedIndex = state.ExportCurrentPage && !string.IsNullOrEmpty(view.PageId) ? 1 : 0;
             var marginIndex = new[] { 10, 15, 20, 25, 30 }.ToList().IndexOf(state.ExportMarginMm);

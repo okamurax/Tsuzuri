@@ -109,7 +109,7 @@ namespace Tsuzuri
         [DataMember(Name = "windows", EmitDefaultValue = false)]
         public List<WindowSession> Windows { get; set; }
 
-        // 前回のエクスポートの選び方は、文書ごとに .文書名/state.json に覚える（2026-10-16。前はここ）。
+        // 前回のエクスポートの選び方は、文書ごとに .ファイル名/state.json に覚える（2026-10-16。前はここ）。
 
         public AppSettings()
         {

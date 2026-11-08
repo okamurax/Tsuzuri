@@ -6,7 +6,7 @@ namespace Tsuzuri.Markdown
     /// <summary>
     /// 添付の置き場所とリンク先の解決（SPEC 9章）。
     ///
-    /// 添付は文書の隣の、文書と同じ名前に「.」を付けたフォルダに置く（提案書.md なら .提案書/。2026-10-12）。
+    /// 添付は文書の隣の、文書のファイル名（拡張子も）に「.」を付けたフォルダに置く（提案書.md なら .提案書.md/。2026-10-12。拡張子を含めたのは 2026-11-08）。
     /// 「.」で始めて、文書の並びに添付のフォルダが混ざらないようにする（Mac の Finder では隠れる）。
     /// 本文のリンクにはフォルダ名を書かず ![図](図.png) とだけ書き、ここで添付フォルダから探す。
     /// ファイラーで文書の名前を変えると、添付フォルダの名前も一緒に変わる（2026-11-03。前は利用者が手で揃えていた）。リンクは書き換えなくても切れない。
@@ -19,20 +19,11 @@ namespace Tsuzuri.Markdown
         {
             if (string.IsNullOrEmpty(documentPath)) return null;
 
-            var name = "." + Path.GetFileNameWithoutExtension(documentPath);
-
-            // ほかのソフトが使う名前とぶつかるときだけ、後ろに -files を付ける（git.md の添付が .git に入らないように）。
-            if (Reserved.Contains(name)) name += "-files";
-
-            return Path.Combine(Path.GetDirectoryName(documentPath), name);
+            // 拡張子まで含めたファイル名に「.」を付ける（2026-11-08。前は拡張子を外していた）。
+            // 拡張子を外すと、git.md → .git・CLAUDE.md → .claude のように、ほかのソフトのフォルダとぶつかり（ぶつかる名前の一覧で -files を付けて避けていた）、
+            // notes.md と notes.markdown が同じフォルダになった。拡張子が付いていれば、どれもぶつからない。
+            return Path.Combine(Path.GetDirectoryName(documentPath), "." + Path.GetFileName(documentPath));
         }
-
-        private static readonly System.Collections.Generic.HashSet<string> Reserved =
-            new System.Collections.Generic.HashSet<string>(StringComparer.OrdinalIgnoreCase)
-            {
-                ".git", ".github", ".gitlab", ".svn", ".hg", ".vs", ".vscode", ".idea", ".dropbox", ".Trash", ".Trashes",
-                ".claude",   // CLAUDE.md の添付が Claude Code の設定フォルダ（.claude）に入らないように（2026-11-08。Windows は大文字小文字を区別しない）
-            };
 
         // ---------------------------------------------------------------
         // 添付フォルダ無しで開いた文書（2026-11-08。SPEC 19章）

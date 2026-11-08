@@ -165,24 +165,27 @@ namespace Tsuzuri
   - ssh は Windows のもの（""{ssh-exe}""）を使う（Git の ssh ではない）。共通に付ける: -p <ポート> -o UserKnownHostsFile=""<そのフォルダ>\known_hosts""
     -o StrictHostKeyChecking=accept-new <ユーザー名>@<ホスト> ""コマンド""
   - publickey の行: -i ""<そのフォルダ>\<キーファイル名>"" を足す。
-  - password の行: パスワードを打つ画面には答えられないので、パスワードは環境変数で渡す。そのコマンドだけに
-    TSUZURI_SSH_PASS=<パスワード>、SSH_ASKPASS=""{ssh-askpass}""、SSH_ASKPASS_REQUIRE=force を付け、
+  - password の行: パスワードを打つ画面には答えられないので、askpass に答えさせる。Bash で1行に、そのコマンドだけに
+    TSUZURI_SSH_HOST=""<名称>"" SSH_ASKPASS=""{ssh-askpass}"" SSH_ASKPASS_REQUIRE=force を前に付け、
     -o PubkeyAuthentication=no -o PreferredAuthentications=password,keyboard-interactive -o NumberOfPasswordPrompts=1 を足す
-    （askpass は TSUZURI_SSH_PASS をそのまま返すだけのもの。エディタが置いている）。
-    パスワードをコマンドの引数に書かない。それでも入れなければ（Windows の ssh が古く、askpass が効かないなど）、何度も試さずに利用者に伝える。
+    （askpass は、その名称の行の passwd を config.txt から読んで ssh に返す。エディタが置いている）。
+    パスワードの値は、コマンド・環境変数・引数のどこにも書かない（書くと欄の画面と会話の記録に残る）。
+    それでも入れなければ（Windows の ssh が古く、askpass が効かないなど）、何度も試さずに利用者に伝える。
   - 鍵・パスワード・config.txt の中身を、文書・コミット・返事に書き写さない。鍵をほかの場所へ写さない。
   - それでも鍵の権限で断られたら（UNPROTECTED PRIVATE KEY FILE）、権限を変えたり鍵を写したりせず、利用者に伝える。
   - サーバーの中を変える操作（書き換え・削除・再起動・設定の変更）は、する前に何をするかを利用者に伝えて確かめる。
-  - ヤマハの RTX（ルーター）や、そのほかのネットワーク機器は、ふつうのサーバーと同じには動かない:
-    - ssh の後ろにコマンドを付ける形は断られる（exec request failed）。コマンドは付けず、-tt で画面を開いてから打つ。
-    - ログインの直後に出る起動の文字（機種・著作権・MAC アドレス）を出し終えて、プロンプト（RTX1210:名前> など）が出るまでに送った文字は捨てられる。
-      時間を決め打ちで待たず、出力を読みながら、プロンプトが出てから1行ずつ送る。次の行も、前のコマンドの結果が終わってプロンプトが戻ってから送る。
-    - 入力を全部まとめて流して入力を閉じると、結果を出し切る前に接続が切られる。最後の結果を読み終えるまで入力を閉じず、終わりは exit で抜ける。
-    - 最初に console lines infinity を送り、ページごとに止まる表示（--- つづく ---）を切る。
-      日本語が化けるときは、続けて console character en.ascii（英語の表示にする）を送る（RTX の既定は Shift_JIS）。
-    - 読むだけのもの（show で始まるもの）はそのまま送ってよい。administrator・設定のコマンド（ip・nat・ipsec・tunnel・save・restart など）は、
+  - ヤマハの RTX（ルーター）や、そのほかのネットワーク機器は、ふつうのサーバーと同じには動かない（ssh の後ろにコマンドを付ける形を断る
+    （exec request failed）・プロンプトが出る前に送った文字を捨てる・入力が終わると結果の途中で切る）。Bash では動いている ssh に1行ずつ打てないので、
+    ssh を直接使わず、エディタが置いた台本を使う（sleep を挟んでまとめて流す形は、取りこぼすので使わない）:
+      powershell -NoProfile -ExecutionPolicy Bypass -File ""{ssh-session}"" -Name ""<名称>"" -Command ""show status""
+    複数のコマンドは、1行に1つ書いたファイルを -CommandFile ""<ファイル>"" で渡す（-Command に改行で並べてもよい）。
+    台本は config.txt の行から接続先・鍵・パスワードを読み、プロンプトを待って1行ずつ送り、最後に exit で抜ける。
+    最初に console lines infinity を送る（ページごとに止めない）。結果のパスワード・事前共有鍵などの行は *** に伏せて出す。
+    文字の符号は既定で Shift_JIS（RTX の既定）。化けるなら -Encoding utf-8 を試す。応えが遅い機器は -Timeout 秒 を延ばす。
+    - 機器がパスワードや (Y/N) を尋ねると、台本は答えずに止まる（administrator に入る・設定を保存して抜けるなど）。そうなったら利用者に伝える。
+    - 読むだけのもの（show で始まるもの）はそのまま送ってよい。設定のコマンド（ip・nat・ipsec・tunnel・save・restart など）は、
       送る前に何を送るかを利用者に伝えて確かめる。
-    - show config などの結果には、パスワード・事前共有鍵（pre-shared-key）・login password の行が入る。返事・文書には伏せて書き、
+    - 伏せる前の結果を別のやり方で取ったときは、パスワード・事前共有鍵（pre-shared-key）・login password の行を、返事・文書には伏せて書く。
       結果をファイルに残したときは、要らなくなったら消す（残すなら、その場所と秘密の行が入っていることを利用者に伝える）。
 - 返事は日本語で、欄は狭いので短めに書く。";
 
@@ -205,11 +208,15 @@ namespace Tsuzuri
 
         /// <summary>
         /// パスワードでつなぐ接続先のとき、ssh にパスワードを返す askpass（2026-11-04。SPEC 19章）。
-        /// Claude のコマンドは画面で答えられないので、環境変数 TSUZURI_SSH_PASS をそのまま返す。パスワードそのものはこのファイルに書かない。
-        /// echo だと &amp; や % を含むパスワードが崩れるので、PowerShell で書き出す。
+        /// Claude のコマンドは画面で答えられないので、ssh が代わりにこれを動かす。中身は隣の ssh-askpass.ps1 で、
+        /// 環境変数 TSUZURI_SSH_HOST の名称の行を config.txt（写した先）から探し、その passwd を返す（2026-11-08。前は Claude が
+        /// パスワードの値を環境変数 TSUZURI_SSH_PASS に入れて渡していたので、値がコマンドとして欄の画面と会話の記録に残った）。
         /// </summary>
         private const string AiSshAskpass =
-            "@powershell -NoProfile -NonInteractive -Command \"[Console]::Out.WriteLine($env:TSUZURI_SSH_PASS)\"\r\n";
+            "@powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File \"%~dp0ssh-askpass.ps1\"\r\n";
+
+        /// <summary>exe の隣の Ai から AI のフォルダへ写す台本（2026-11-08。SPEC 19章）。askpass と、ネットワーク機器への入り方（ssh-session.ps1）。</summary>
+        private static readonly string[] AiScripts = { "ssh-askpass.ps1", "ssh-session.ps1" };
 
         /// <summary>ツールバーの「AI」。AI の欄を出し入れする。タブが1つも無ければ、claude を起動したタブを1つ開く。</summary>
         private void ToggleAi()
@@ -663,13 +670,19 @@ namespace Tsuzuri
 
                 var askpass = Path.Combine(AiFolder, "ssh-askpass.cmd");
                 WriteIfChanged(askpass, AiSshAskpass);
+                foreach (var script in AiScripts)
+                {
+                    var source = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Ai", script);
+                    if (File.Exists(source)) WriteIfChanged(Path.Combine(AiFolder, script), File.ReadAllText(source, Encoding.UTF8));
+                }
                 CopySshFolder();
                 WriteIfChanged(instructions, AiInstructions
                     .Replace("{drawing-format}", AiDrawingFormat)
                     .Replace("{ssh-dir}", AiSshLocal)
                     .Replace("{ssh-source}", AiSshFolder)
                     .Replace("{ssh-exe}", AiSshExe)
-                    .Replace("{ssh-askpass}", askpass));
+                    .Replace("{ssh-askpass}", askpass)
+                    .Replace("{ssh-session}", Path.Combine(AiFolder, "ssh-session.ps1")));
                 File.WriteAllText(settings, AiSettings(_aiContextPath, AiPipeName), new UTF8Encoding(false));
                 WriteAiContext(null);
                 Dispatcher.BeginInvoke(new Action(RefreshAiFileLinks));   // 今の状態・フックの設定を書いたので、下端のボタンに出す（2026-11-08）

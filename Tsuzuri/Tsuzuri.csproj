@@ -71,6 +71,8 @@
   </ItemGroup>
   <ItemGroup>
     <Content Include="Ai\drawing-format.md"><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory></Content>
+    <Content Include="Ai\ssh-askpass.ps1"><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory></Content>
+    <Content Include="Ai\ssh-session.ps1"><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory></Content>
     <Content Include="Terminal\terminal.html"><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory></Content>
     <Content Include="Terminal\xterm.js"><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory></Content>
     <Content Include="Terminal\xterm.css"><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory></Content>

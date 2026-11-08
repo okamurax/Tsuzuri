@@ -2237,15 +2237,24 @@ WPF 標準のコントロールはそのままだと明るい前提の見た目�
       Claude のコマンドは画面で答えられないので、初めてのサーバーの「信頼するか」は accept-new で受け入れる（覚えた鍵と違えば断る）
     - publickey: `-i <写した先>\<鍵>` を足す
     - password: パスワードを打つ画面に答えられないので、askpass で渡す。エディタが AI のフォルダ（`%LOCALAPPDATA%\Tsuzuri\ai`）に `ssh-askpass.cmd` を置く。
-      中身は環境変数 `TSUZURI_SSH_PASS` を PowerShell で書き出すだけで、パスワードそのものは書かない（`echo` だと `&` や `%` を含むパスワードが崩れる）。
-      Claude はそのコマンドだけに `TSUZURI_SSH_PASS`・`SSH_ASKPASS`・`SSH_ASKPASS_REQUIRE=force` を付け、
+      中身は隣の `ssh-askpass.ps1` を動かすだけ。台本は環境変数 `TSUZURI_SSH_HOST` の名称の行を `config.txt`（写した先）から探し、その `passwd` を書き出す。
+      Claude はそのコマンドだけに `TSUZURI_SSH_HOST=名称`・`SSH_ASKPASS`・`SSH_ASKPASS_REQUIRE=force` を付け、
       `-o PubkeyAuthentication=no -o PreferredAuthentications=password,keyboard-interactive -o NumberOfPasswordPrompts=1` を足す。
-      パスワードを引数に書かない（ほかのプロセスから見える）。入れなければ何度も試さずに知らせる（`SSH_ASKPASS_REQUIRE` は OpenSSH 8.4 以上。古い Windows 10 の 8.1 では効かない）
+      パスワードの値は Claude に扱わせない（2026-11-08。前は Claude が値を `TSUZURI_SSH_PASS` に入れて渡していたので、引数には出ないが、
+      コマンドとして欄の画面と会話の記録に残った）。台本（`.ps1`）は exe の隣の `Ai\` に置き、起動のたびに AI のフォルダへ写す。
+      PowerShell 5.1 は BOM の無い台本を ANSI で読むので、台本は ASCII だけで書く。入れなければ何度も試さずに知らせる（`SSH_ASKPASS_REQUIRE` は OpenSSH 8.4 以上。古い Windows 10 の 8.1 では効かない）
     - 鍵・パスワード・`config.txt` の中身を文書・コミット・返事に書き写さない。サーバーの中を変える操作は、する前に確かめる
     - **ヤマハの RTX などのネットワーク機器への入り方も指示に書く**（2026-11-08）。RTX はコマンドを付けた ssh を断り（exec request failed）、
       プロンプトが出る前に送った文字を捨て、入力を閉じると結果の途中で接続を切るため、ふつうのサーバーの書き方では取れなかった。
-      -tt で画面を開き、プロンプトを待って1行ずつ送る・最初に `console lines infinity`（日本語が化けたら `console character en.ascii`）・
-      最後は `exit`・show 以外の設定のコマンドは送る前に確かめる・結果の秘密の行（パスワード・事前共有鍵）は伏せ、残したファイルは要らなくなったら消す
+      初めは指示に「-tt で画面を開き、プロンプトを待って1行ずつ送る」と書いたが、Claude の Bash は1回ごとに終わるコマンドで、動いている ssh に
+      1行ずつ打つ手立てが無く、sleep を挟んでまとめて流す形にしかならなかった（別のエージェントのレビューで指摘。2026-11-08）。
+      そこで台本 `ssh-session.ps1` を置き、Claude には `-Name 名称 -Command "…"`（複数なら `-CommandFile`）で呼ばせる。台本は:
+      - `config.txt` の行から接続先・ポート・ユーザー・鍵かパスワード（askpass）を組み立て、Windows の ssh を `-tt` で動かす
+      - 出力を読み、末尾がプロンプト（`>`・`#`）で 0.4 秒止まったら次の1行を送る（CR で送る）。最初に `console lines infinity`、最後に `exit`
+      - 機器がパスワードや `(Y/N)` を尋ねたら答えずに止まり、そう出す（administrator に入る・保存して抜けるなどは利用者に任せる）
+      - 結果のパスワード・事前共有鍵・community などの行は `***` に伏せて出す（Claude に秘密を見せない）
+      - 文字の符号は既定で Shift_JIS（RTX の既定）、`-Encoding` で変えられる。待つのは1行ごとに既定 60 秒（`-Timeout`）
+      show 以外の設定のコマンドは送る前に確かめる、は指示に残した
     - 指示のファイルは claude を起動するときに読まれるので、変えたあとは新しく開いた（戻した）会話から効く
   - **図エディタの図を選んだら、図の書き方を読ませてから書かせる。** 書き方（形・図形の種類・手順・こつ）は exe の隣の `Ai\drawing-format.md` に置き、
     指示にはその場所だけを書く（書き方そのものは毎回渡さない）。

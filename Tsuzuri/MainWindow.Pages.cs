@@ -331,6 +331,8 @@ namespace Tsuzuri
                 return;
             }
 
+            if (!HasAttachmentFolder(view, "未参照の添付はありません")) return;
+
             var document = view.Owner;
             var folder = Attachments.FolderOf(document.FilePath);
 

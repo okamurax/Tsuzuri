@@ -560,6 +560,17 @@ namespace Tsuzuri
             }
         }
 
+        /// <summary>
+        /// 添付フォルダのある文書か（2026-11-08）。AI の欄から添付フォルダ無しで開いた文書なら、what（「画像を貼れません」など）を知らせて false。
+        /// </summary>
+        private bool HasAttachmentFolder(MarkdownView view, string what)
+        {
+            if (view == null || !Attachments.IsBare(view.FilePath)) return true;
+
+            Status("AI の欄から開いた文書には添付フォルダが無いので、" + what + "。");
+            return false;
+        }
+
         private bool CanInsertInto(MarkdownView view)
         {
             if (view != null && view.IsReadOnly)
@@ -723,7 +734,7 @@ namespace Tsuzuri
         /// <summary>貼り付けた画像を添付フォルダに保存し、カーソル位置にリンクを入れる。</summary>
         private void InsertPastedImage(byte[] png, MarkdownView view)
         {
-            if (!CanInsertInto(view)) return;
+            if (!CanInsertInto(view) || !HasAttachmentFolder(view, "画像を貼れません")) return;
 
             string folder, name;
 
@@ -776,6 +787,10 @@ namespace Tsuzuri
 
             // Markdown は文書なので取り込まない。複製すると本体が二つに分かれる。
             if (IsMarkdown(source)) return ToRelativePath(baseDirectory, source);
+
+            // 添付フォルダ無しで開いた文書（AI の欄から。2026-11-08）には取り込めない。InsertFiles が知らせて止める。
+            if (Attachments.IsBare(documentPath))
+                throw new InvalidOperationException("AI の欄から開いた文書には添付フォルダが無いので、ファイルを取り込めません");
 
             var folder = Attachments.FolderOf(documentPath);
 

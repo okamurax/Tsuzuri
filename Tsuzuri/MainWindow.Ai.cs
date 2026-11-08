@@ -1366,10 +1366,9 @@ namespace Tsuzuri
         }
 
         /// <summary>
-        /// AI の欄の下端に、Claude が読むファイルを押せるボタンで並べる（2026-11-08。SPEC 19章）。あるものだけ出し、押すとメモ帳で開く。
+        /// AI の欄の下端に、Claude が読むファイルを押せるボタンで並べる（2026-11-08。SPEC 19章）。あるものだけ出す。押すと .md は Tsuzuri で添付フォルダを作らずに、.json はメモ帳で開く（OpenAiFile）。
         /// 2段に分ける。上の段「Claude Code」は Claude Code が自分で（どこで動かしても）読むもの、
         /// 下の段「Tsuzuri」は Tsuzuri が独自に渡しているもの。
-        /// メモ帳で開くのは、Tsuzuri で開くと添付フォルダを作るかを尋ねられ、指示と状態はエディタが書き直すので、読むだけにするため。
         /// </summary>
         private void RefreshAiFileLinks()
         {
@@ -1538,16 +1537,32 @@ namespace Tsuzuri
                     FontSize = 12,
                     Padding = new Thickness(6, 1, 6, 1),
                     Foreground = (Brush)FindResource("AccentText"),
-                    ToolTip = path + "（メモ帳で開く）",
+                    ToolTip = path + (IsMarkdown(path) ? "（Tsuzuri で開く。添付フォルダは作らない）" : "（メモ帳で開く）"),
                     Focusable = false,
                 };
                 var style = FindResource("ToolButton") as Style;
                 if (style != null) button.Style = style;
-                button.Click += delegate { OpenInNotepad(path); };
+                button.Click += delegate { OpenAiFile(path); };
                 row.Children.Add(button);
             }
 
             if (row.Children.Count > 1) AiFileLinks.Children.Add(row);
+        }
+
+        /// <summary>
+        /// Claude が読むファイルを開く（2026-11-08）。.md は Tsuzuri で、添付フォルダを作らずに開く（Attachments.MarkBare）。
+        /// .json などはメモ帳で開く。すでに添付フォルダのある文書は、ふつうに開く。
+        /// </summary>
+        private void OpenAiFile(string path)
+        {
+            if (!IsMarkdown(path))
+            {
+                OpenInNotepad(path);
+                return;
+            }
+
+            if (!Directory.Exists(Attachments.FolderOf(path))) Attachments.MarkBare(path);
+            OpenFileThen(path, (window, document) => window.GoToAnchor(document, null));
         }
 
         private void OpenInNotepad(string path)
@@ -1580,7 +1595,10 @@ namespace Tsuzuri
             var line = view.TextArea.Caret.Line;
 
             text.Append("ファイル: ").Append(document.FilePath).Append('\n');
-            text.Append("添付フォルダ（画像・図を置く）: ").Append(Attachments.FolderOf(document.FilePath)).Append('\n');
+            if (Attachments.IsBare(document.FilePath))
+                text.Append("添付フォルダ: なし（AI の欄から開いた文書。画像・図は置けない）\n");
+            else
+                text.Append("添付フォルダ（画像・図を置く）: ").Append(Attachments.FolderOf(document.FilePath)).Append('\n');
 
             var history = DocumentHistory.GitDirOf(document.FilePath);
             if (Directory.Exists(history))

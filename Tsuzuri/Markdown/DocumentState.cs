@@ -59,6 +59,8 @@ namespace Tsuzuri.Markdown
         /// </summary>
         public static DocumentState Load(string documentPath)
         {
+            if (Attachments.IsBare(documentPath)) return new DocumentState();   // 添付フォルダ無しの文書（2026-11-08）。覚えない
+
             var path = PathOf(documentPath);
             if (!File.Exists(path)) return new DocumentState();
 
@@ -75,6 +77,8 @@ namespace Tsuzuri.Markdown
         /// <summary>その文書の状態を書く。書けなければ例外。添付フォルダは開くときに必ず作ってある（MainWindow.OpenFile）。</summary>
         public void Save(string documentPath)
         {
+            if (Attachments.IsBare(documentPath)) return;   // 添付フォルダ無しの文書（2026-11-08）。書く所が無い
+
             byte[] data;
             using (var buffer = new MemoryStream())
             {

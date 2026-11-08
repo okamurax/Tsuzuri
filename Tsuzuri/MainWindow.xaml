@@ -259,7 +259,7 @@
                             <TextBlock x:Name="AiContextText" Margin="12,4,12,5" VerticalAlignment="Center"
                                        FontSize="13" Foreground="{StaticResource TextMuted}" TextTrimming="CharacterEllipsis"
                                        Text="Claude に話しかけると、渡したファイルとカーソルの位置をここに出します" />
-                            <!-- Claude が読むファイル。上の段は Claude Code が自分で読むもの、下の段は Tsuzuri が渡すもの。押すとメモ帳で開く（2026-11-08） -->
+                            <!-- Claude が読むファイル。上の段は Claude Code が自分で読むもの、下の段は Tsuzuri が渡すもの。.md は Tsuzuri で添付フォルダを作らずに開く（2026-11-08） -->
                             <StackPanel x:Name="AiFileLinks" Margin="6,0,6,4" />
                         </StackPanel>
                     </Border>

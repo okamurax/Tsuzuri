@@ -129,7 +129,7 @@ namespace Tsuzuri
             _focused = _stack[0];
 
             // 次の起動で開き直すファイル（SPEC 4章）。終了のときだけでなく、開いたときにも書く（落ちた・VM ごと止めたときも残る）。
-            if (IsPrimary)
+            if (IsPrimary && !Attachments.IsBare(path))   // 添付フォルダ無しの文書は、次の起動で開き直さない（開くとフォルダを作るか尋ねてしまう）
             {
                 _settings.LastFile = path;
                 _settings.Save();
@@ -188,7 +188,7 @@ namespace Tsuzuri
             }
 
             var folder = Attachments.FolderOf(path);
-            if (!Directory.Exists(folder))
+            if (!Directory.Exists(folder) && !Attachments.IsBare(path))   // AI の欄から開いた文書は作らない（2026-11-08）
             {
                 var answer = MessageBox.Show(this,
                     "このファイルの " + Path.GetFileName(folder) + " フォルダがありません。" + Environment.NewLine +
@@ -667,7 +667,7 @@ namespace Tsuzuri
                 StoreWindowBounds();   // ファイラーのフォルダは、移ったときにすぐ覚えている（2026-11-05）
             }
 
-            if (IsPrimary) _settings.LastFile = _stack.Count > 0 ? _stack[0].FilePath : null;   // 前回のファイルは最初の画面の分だけ
+            if (IsPrimary) _settings.LastFile = RememberableFile();   // 前回のファイルは最初の画面の分だけ
             _settings.Save();
         }
 

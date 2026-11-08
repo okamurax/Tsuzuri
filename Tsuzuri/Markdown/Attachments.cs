@@ -31,7 +31,48 @@ namespace Tsuzuri.Markdown
             new System.Collections.Generic.HashSet<string>(StringComparer.OrdinalIgnoreCase)
             {
                 ".git", ".github", ".gitlab", ".svn", ".hg", ".vs", ".vscode", ".idea", ".dropbox", ".Trash", ".Trashes",
+                ".claude",   // CLAUDE.md の添付が Claude Code の設定フォルダ（.claude）に入らないように（2026-11-08。Windows は大文字小文字を区別しない）
             };
+
+        // ---------------------------------------------------------------
+        // 添付フォルダ無しで開いた文書（2026-11-08。SPEC 19章）
+        //
+        // AI の欄の下端のボタン（CLAUDE.md・MEMORY.md・指示など、Claude が読むファイル）から開いた文書は、添付フォルダを作らない。
+        // .claude の中やリポジトリに .名前 のフォルダを増やさないため。この文書では、状態（state.json）を書かず、変更の記録（git）も残さず、
+        // 添付を使うこと（画像の貼り付け・ファイルの取り込み・図の追加・未参照の添付）は断る。覚えるのはアプリを閉じるまで。
+        // ---------------------------------------------------------------
+
+        private static readonly System.Collections.Generic.HashSet<string> BareDocuments =
+            new System.Collections.Generic.HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        /// <summary>この文書を、添付フォルダ無しで開くものにする（すでに添付フォルダがあれば、ふつうに開く）。</summary>
+        public static void MarkBare(string documentPath)
+        {
+            var key = KeyOf(documentPath);
+            if (key == null) return;
+            lock (BareDocuments) BareDocuments.Add(key);
+        }
+
+        /// <summary>添付フォルダ無しで開いた文書か。</summary>
+        public static bool IsBare(string documentPath)
+        {
+            var key = KeyOf(documentPath);
+            if (key == null) return false;
+            lock (BareDocuments) return BareDocuments.Contains(key);
+        }
+
+        private static string KeyOf(string documentPath)
+        {
+            if (string.IsNullOrEmpty(documentPath)) return null;
+            try
+            {
+                return Path.GetFullPath(documentPath);
+            }
+            catch (Exception)
+            {
+                return documentPath;
+            }
+        }
 
         /// <summary>
         /// リンク先の相対パスを、まず添付フォルダから、無ければ文書のある場所から解決する。

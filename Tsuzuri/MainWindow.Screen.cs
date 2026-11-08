@@ -33,6 +33,13 @@ namespace Tsuzuri
         private const int ScreenOpenFailed = -2;
 
         /// <summary>今の画面の状態。</summary>
+        /// <summary>次の起動で開き直す最初のファイル。添付フォルダ無しで開いた文書なら null（2026-11-08）。</summary>
+        private string RememberableFile()
+        {
+            var path = _stack.Count > 0 ? _stack[0].FilePath : null;
+            return Attachments.IsBare(path) ? null : path;
+        }
+
         private ScreenState CaptureScreen()
         {
             var screen = new ScreenState
@@ -46,7 +53,8 @@ namespace Tsuzuri
             foreach (var view in _stack)
             {
                 // ファイルから消えたページから右は、戻しても開けないので覚えない。
-                if (string.IsNullOrEmpty(view.FilePath) || view.IsReadOnly) break;
+                // 添付フォルダ無しで開いた文書（AI の欄から。2026-11-08）も覚えない。戻すとフォルダを作るか尋ねてしまう。
+                if (string.IsNullOrEmpty(view.FilePath) || view.IsReadOnly || Attachments.IsBare(view.FilePath)) break;
 
                 screen.Pages.Add(new PageState
                 {
@@ -271,7 +279,7 @@ namespace Tsuzuri
                 {
                     window.RememberLastScreen();
                     if (window.IsPrimary && window._screenReady)
-                        _settings.LastFile = window._stack.Count > 0 ? window._stack[0].FilePath : null;
+                        _settings.LastFile = window.RememberableFile();
                 }
 
                 _settings.Save();

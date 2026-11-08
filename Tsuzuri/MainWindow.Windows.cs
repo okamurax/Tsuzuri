@@ -139,7 +139,7 @@ namespace Tsuzuri
             _settings.Windows.Remove(_session);
             _session = null;
 
-            _settings.LastFile = _stack.Count > 0 ? _stack[0].FilePath : null;
+            _settings.LastFile = RememberableFile();
             if (Application.Current != null) Application.Current.MainWindow = this;
         }
 

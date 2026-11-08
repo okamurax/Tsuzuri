@@ -38,7 +38,7 @@ namespace Tsuzuri.Markdown
         /// </summary>
         public static void Record(string documentPath, string message)
         {
-            if (string.IsNullOrEmpty(documentPath)) return;
+            if (string.IsNullOrEmpty(documentPath) || Attachments.IsBare(documentPath)) return;   // 添付フォルダ無しの文書は記録しない（2026-11-08）
 
             lock (Queue)
             {
@@ -59,7 +59,7 @@ namespace Tsuzuri.Markdown
         /// </summary>
         public static void RecordRename(string documentPath, string oldName)
         {
-            if (string.IsNullOrEmpty(documentPath)) return;
+            if (string.IsNullOrEmpty(documentPath) || Attachments.IsBare(documentPath)) return;
 
             lock (Queue)
             {

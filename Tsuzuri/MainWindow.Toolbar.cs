@@ -359,7 +359,7 @@ namespace Tsuzuri
         private void InsertDrawing_Click(object sender, RoutedEventArgs e)
         {
             var view = Active;
-            if (!CanInsertInto(view)) return;
+            if (!CanInsertInto(view) || !HasAttachmentFolder(view, "図を足せません")) return;
 
             string json = null;   // 開き直すときは、書けなかった図から
             while (true)

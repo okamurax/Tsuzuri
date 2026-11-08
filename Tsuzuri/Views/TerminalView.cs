@@ -88,14 +88,14 @@ namespace Tsuzuri.Views
         /// <summary>端末を押したのにキーボードが来ていない（2026-11-08）。エディタが端末にキーボードを渡し直す。</summary>
         public event Action FocusRequested;
 
-        /// <summary>利用者が打った（貼り付けた）文字を中のプログラムに送った（2026-11-08。AI の欄の下のターミナルで、Enter を見る）。</summary>
+        /// <summary>利用者が打った（貼り付けた）文字を中のプログラムに送った（2026-11-08。AI の欄の共通ターミナルで、Enter を見る）。</summary>
         public event Action<string> UserInput;
 
-        /// <summary>中のプログラムの出力を画面に書いた（2026-11-08。下のターミナルで、出力が落ち着いたかを見る）。</summary>
+        /// <summary>中のプログラムの出力を画面に書いた（2026-11-08。共通ターミナルで、出力が落ち着いたかを見る）。</summary>
         public event Action OutputWritten;
 
         /// <summary>
-        /// 打ったのと同じに、中のプログラムへ文字を送る（2026-11-08。AI の欄の下のターミナルに Claude の文字を置く）。
+        /// 打ったのと同じに、中のプログラムへ文字を送る（2026-11-08。AI の欄の共通ターミナルに Claude の文字を置く）。
         /// UserInput は起こさない。動いていなければ false。
         /// </summary>
         public bool WriteInput(string text)

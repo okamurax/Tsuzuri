@@ -15,7 +15,7 @@ using Tsuzuri.Views;
 
 namespace Tsuzuri
 {
-    // MainWindow の一部: AI の欄の下のターミナル（SPEC 19章。2026-11-08）。
+    // MainWindow の一部: AI の欄の共通ターミナル（SPEC 19章。2026-11-08）。
     //
     // 上の段の claude と別に、利用者と Claude が一緒に使う PowerShell を下の段に出す（画面に1つ）。
     // ・画面を Claude に渡す: 話しかけるたびに、最後の 20 行と選んでいる文字を今の状態に足す。全部が要るときは Claude が
@@ -26,7 +26,7 @@ namespace Tsuzuri
     // 頼みは今の状態と同じパイプで来る（ServeAiRequest の shell-type・shell-dump）。
     public partial class MainWindow
     {
-        /// <summary>下のターミナル。開くまでと閉じたあとは null。</summary>
+        /// <summary>共通ターミナル。開くまでと閉じたあとは null。</summary>
         private TerminalView _aiShell;
 
         /// <summary>下の段を出しているか（隠しても中の PowerShell は動いたまま）。</summary>
@@ -46,10 +46,10 @@ namespace Tsuzuri
 
         private DispatcherTimer _aiShellQuiet;
 
-        /// <summary>タブの段の、下のターミナルを出し入れするボタン。</summary>
+        /// <summary>タブの段の、共通ターミナルを出し入れするボタン。</summary>
         private Button _aiShellButton;
 
-        /// <summary>話しかけられたときに読んだ下のターミナルの画面（今の状態に書く）。読めなければ null。</summary>
+        /// <summary>話しかけられたときに読んだ共通ターミナルの画面（今の状態に書く）。読めなければ null。</summary>
         private volatile ShellScreen _aiShellScreen;
 
         /// <summary>毎回の今の状態に入れる行数。</summary>
@@ -62,7 +62,7 @@ namespace Tsuzuri
             public bool Bracketed;
         }
 
-        /// <summary>タブの段の右に置くボタン。下のターミナルを出す・隠す。</summary>
+        /// <summary>タブの段の右に置くボタン。共通ターミナルを出す・隠す。</summary>
         private Button AiShellButton()
         {
             if (_aiShellButton != null) return _aiShellButton;
@@ -70,8 +70,8 @@ namespace Tsuzuri
             // 文字のボタンにする（2026-11-08。アイコンのフォントのコマンドプロンプトの記号は、この大きさでは潰れて読めなかった）。
             _aiShellButton = new Button
             {
-                Content = "ターミナル",
-                ToolTip = "下にターミナルを出す・隠す（Claude と一緒に使う。Claude が文字を置き、Enter は自分で押す）",
+                Content = "共通ターミナル",
+                ToolTip = "共通ターミナルを、この欄の下に出す・隠す（利用者と Claude が一緒に使う。Claude が文字を置き、Enter は自分で押す）",
                 FontSize = 12,
                 Height = 26,
                 Padding = new Thickness(8, 0, 8, 0),
@@ -121,7 +121,7 @@ namespace Tsuzuri
             if (_aiTab != null && AiPane.Visibility == Visibility.Visible) FocusAiTerminal(_aiTab);
         }
 
-        /// <summary>下のターミナルを閉じる。中の PowerShell も終わる。エディタを閉じるときも。</summary>
+        /// <summary>共通ターミナルを閉じる。中の PowerShell も終わる。エディタを閉じるときも。</summary>
         private void CloseAiShell()
         {
             if (_aiShell == null) return;
@@ -162,7 +162,7 @@ namespace Tsuzuri
             ApplyAiShellRows();
         }
 
-        /// <summary>下のターミナルにキーボードを渡す。上の段と同じく、受け皿を経てから（日本語の変換の位置がずれないように）。</summary>
+        /// <summary>共通ターミナルにキーボードを渡す。上の段と同じく、受け皿を経てから（日本語の変換の位置がずれないように）。</summary>
         private void FocusAiShell()
         {
             if (_aiShell == null) return;
@@ -176,7 +176,7 @@ namespace Tsuzuri
         }
 
         /// <summary>
-        /// 利用者が下のターミナルに打った。Enter で、入力欄は空になったと見なし、1行ずつ置いている残りがあれば、出力が落ち着くのを待って次を置く。
+        /// 利用者が共通ターミナルに打った。Enter で、入力欄は空になったと見なし、1行ずつ置いている残りがあれば、出力が落ち着くのを待って次を置く。
         /// Esc・Ctrl+C は、残りをやめる。
         /// </summary>
         private void OnAiShellInput(string data)
@@ -265,7 +265,7 @@ namespace Tsuzuri
         private string TypeIntoAiShell(string text, bool bracketed)
         {
             if (_aiShell == null || !_aiShell.IsRunning)
-                return "error\t下のターミナルが開いていない。利用者に、AI の欄のタブの段の右のボタンで出してもらう。";
+                return "error\t共通ターミナルが開いていない。利用者に、AI の欄の上端の「共通ターミナル」のボタンで出してもらう。";
             if (_aiShellQueue.Count > 0)
                 return "error\t前に置いた行の残りがまだある（" + _aiShellQueue.Count + " 行）。利用者が Enter で進めるか、Esc でやめるまで待つ。";
             if (_aiShellPending)
@@ -289,7 +289,7 @@ namespace Tsuzuri
                 var data = lines.Length == 1 && !bracketed
                     ? body.Replace("\t", "    ")
                     : "\x1b[200~" + body.Replace("\n", "\r") + "\x1b[201~";
-                if (!_aiShell.WriteInput(data)) return "error\t下のターミナルに書けなかった。";
+                if (!_aiShell.WriteInput(data)) return "error\t共通ターミナルに書けなかった。";
                 _aiShellPending = true;
                 ShowAiShellStatus("Claude が置いた（Enter は自分で）");
                 return "ok\t" + (lines.Length == 1 ? "1 行" : lines.Length + " 行をまとめて") + "置いた（Enter は押していない。押すのは利用者）。";
@@ -301,7 +301,7 @@ namespace Tsuzuri
             if (first.Length > 0 && !_aiShell.WriteInput(first))
             {
                 CancelAiShellQueue();
-                return "error\t下のターミナルに書けなかった。";
+                return "error\t共通ターミナルに書けなかった。";
             }
             _aiShellPending = first.Length > 0;
             ShowAiShellStatus();
@@ -310,7 +310,7 @@ namespace Tsuzuri
         }
 
         /// <summary>
-        /// 下のターミナルの画面を読む（パイプのスレッドから呼ぶ。画面のスレッドは空いていること）。
+        /// 共通ターミナルの画面を読む（パイプのスレッドから呼ぶ。画面のスレッドは空いていること）。
         /// count 行（0 なら覚えている全部）。出していない・読めなければ null。パスワードなどの行は伏せる。
         /// </summary>
         private ShellScreen ReadAiShellScreen(int count, int timeout)
@@ -357,12 +357,12 @@ namespace Tsuzuri
             return Regex.Replace(line, @"(?i)\b(password|passwd|pre-shared-key|secret|community|pp auth username|pp auth myname)(\s*[=:]?\s+|\s*[=:]\s*)\S.*$", "$1$2***");
         }
 
-        /// <summary>今の状態に足す、下のターミナルの段（画面のスレッドで）。開いていなければ何も足さない。</summary>
+        /// <summary>今の状態に足す、共通ターミナルの段（画面のスレッドで）。開いていなければ何も足さない。</summary>
         private void AppendAiShellContext(StringBuilder text)
         {
             if (_aiShell == null || !_aiShell.IsRunning) return;
 
-            text.Append("下のターミナル（利用者と一緒に使う PowerShell" + (_aiShellShown ? "" : "。今は隠している") + "）");
+            text.Append("共通ターミナル（利用者と一緒に使う PowerShell" + (_aiShellShown ? "" : "。今は隠している") + "）");
             var screen = _aiShellScreen;
             if (screen == null)
             {
@@ -373,11 +373,11 @@ namespace Tsuzuri
             text.Append("の画面の最後の ").Append(screen.Lines.Count).Append(" 行（全部は指示のとおり -Read で）:\n```\n")
                 .Append(string.Join("\n", screen.Lines)).Append("\n```\n");
             if (screen.Selection.Trim().Length > 0)
-                text.Append("下のターミナルで選んでいる文字:\n```\n").Append(screen.Selection).Append("\n```\n");
+                text.Append("共通ターミナルで選んでいる文字:\n```\n").Append(screen.Selection).Append("\n```\n");
             if (_aiShellQueue.Count > 0)
-                text.Append("下のターミナルには、1行ずつ置いている残りが ").Append(_aiShellQueue.Count).Append(" 行ある。\n");
+                text.Append("共通ターミナルには、1行ずつ置いている残りが ").Append(_aiShellQueue.Count).Append(" 行ある。\n");
             else if (_aiShellPending)
-                text.Append("下のターミナルの入力欄には文字が残っている（Enter を押していない）。\n");
+                text.Append("共通ターミナルの入力欄には文字が残っている（Enter を押していない）。\n");
         }
 
         /// <summary>全部を書き出すファイル。画面ごと。エディタを閉じるときに消す。</summary>
@@ -390,7 +390,7 @@ namespace Tsuzuri
         private string DumpAiShell()
         {
             var screen = ReadAiShellScreen(0, 10000);
-            if (screen == null) return "error\t下のターミナルが開いていないか、読めなかった。";
+            if (screen == null) return "error\t共通ターミナルが開いていないか、読めなかった。";
 
             try
             {

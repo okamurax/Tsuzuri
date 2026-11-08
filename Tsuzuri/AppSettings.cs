@@ -38,7 +38,7 @@ namespace Tsuzuri
         [DataMember(Name = "historySplit", EmitDefaultValue = false)]
         public double HistorySplit { get; set; }
 
-        /// <summary>AI の欄の下のターミナル（2026-11-08）を出したときの、上の段（claude）の高さの割合。0 なら未保存で 6 割。</summary>
+        /// <summary>AI の欄の共通ターミナル（2026-11-08）を出したときの、上の段（claude）の高さの割合。0 なら未保存で 6 割。</summary>
         [DataMember(Name = "aiShellSplit", EmitDefaultValue = false)]
         public double AiShellSplit { get; set; }
 

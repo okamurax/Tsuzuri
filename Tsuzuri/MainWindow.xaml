@@ -287,7 +287,7 @@
                                                FontSize="12" Foreground="{StaticResource AccentText}" />
                                     <TextBlock VerticalAlignment="Center" FontSize="12" Foreground="{StaticResource TextMuted}"
                                                TextTrimming="CharacterEllipsis"
-                                               Text="ターミナル（Claude も文字を置く。Enter は自分で押す）" />
+                                               Text="共通ターミナル（Claude も文字を置く。Enter は自分で押す）" />
                                 </DockPanel>
                             </Border>
                             <Grid x:Name="AiShellHost" />

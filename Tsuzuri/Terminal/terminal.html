@@ -9,7 +9,7 @@
   ・エディタから: claude の出力（文字列）を postMessage で受け取り、そのまま xterm に書く
   ・エディタへ: 打った文字 {type:"input"}、大きさ {type:"resize"}、用意ができた {type:"ready"}、
     タイトル {type:"title"}、押したリンク {type:"link"}（2026-10-27）を送る
-  ・エディタが読む: tsuzuriScreen(count)（2026-11-08。AI の欄の下のターミナルの画面を Claude に渡す）
+  ・エディタが読む: tsuzuriScreen(count)（2026-11-08。AI の欄の共通ターミナルの画面を Claude に渡す）
   色はエディタ（Markdown/Theme.cs・App.xaml）に合わせる。
 -->
 <link rel="stylesheet" href="xterm.css">
@@ -52,7 +52,7 @@
     cursorWidth: 2,
     cursorInactiveStyle: 'none',   // キーボードが無いときは出さない（2026-11-08。打つ先がエディタか端末かを見分けられるように）
     allowProposedApi: true,   // 文字の幅の表（Unicode 11）を使うのに要る
-    scrollback: 10000,   // 2026-11-08。5000 から増やした（下のターミナルの長いログを Claude に全部渡せるように）
+    scrollback: 10000,   // 2026-11-08。5000 から増やした（共通ターミナルの長いログを Claude に全部渡せるように）
     // 端末の中のリンク（OSC 8。Claude Code が出す）は、ページでは開かず、エディタに頼んでいつものブラウザで開く（2026-10-27）。
     // 既定は window.open で、この欄の中で開こうとする。エディタは http・https だけを開く。
     linkHandler: {
@@ -262,7 +262,7 @@
     }, 100);
   });
 
-  // 画面の中身（2026-11-08。SPEC 19章）。エディタが ExecuteScriptAsync で呼び、AI の欄の下のターミナルを Claude に渡す。
+  // 画面の中身（2026-11-08。SPEC 19章）。エディタが ExecuteScriptAsync で呼び、AI の欄の共通ターミナルを Claude に渡す。
   // count 行（折り返した行はつないで1行に数える）をカーソルの行まで返す。count が 0 以下なら、覚えている全部。
   // あわせて、選んでいる文字と、中のプログラムが貼り付けの印（bracketed paste）を受け付けると言っているか。
   window.tsuzuriScreen = (count) => {

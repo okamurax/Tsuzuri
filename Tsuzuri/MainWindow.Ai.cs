@@ -420,6 +420,7 @@ namespace Tsuzuri
         {
             _aiTab = tab;
             ShowAiTabs();
+            RefreshAiFileLinks();
             if (AiPane.Visibility == Visibility.Visible) FocusAiTerminal(tab);
         }
 
@@ -1340,6 +1341,7 @@ namespace Tsuzuri
             {
                 AiContextText.Text = "渡した状態  ファイルを開いていません  " + DateTime.Now.ToString("HH:mm:ss");
                 AiContextText.ToolTip = null;
+                RefreshAiFileLinks();
                 return;
             }
 
@@ -1348,6 +1350,71 @@ namespace Tsuzuri
                                  + "  " + view.TextArea.Caret.Line + " 行目" + (selected ? "（選択あり）" : string.Empty)
                                  + "  " + DateTime.Now.ToString("HH:mm:ss");
             AiContextText.ToolTip = view.FilePath;
+            RefreshAiFileLinks();
+        }
+
+        /// <summary>
+        /// AI の欄の下端に、Claude が前提として読むファイルを押せるボタンで並べる（2026-11-08。SPEC 19章）。
+        /// 指示（起動のたびにエディタが書く --append-system-prompt-file）・今の状態（話しかけるたびに書く）・図の書き方（図を頼まれたときに読む）と、
+        /// Claude Code が自分で読む CLAUDE.md（利用者全体の ~/.claude/CLAUDE.md と、会話のフォルダから上へたどったもの）。あるものだけ出す。
+        /// 押すとメモ帳で開く。Tsuzuri で開くと添付フォルダを作るかを尋ねられ、指示と状態はエディタが書き直すので、読むだけにする。
+        /// </summary>
+        private void RefreshAiFileLinks()
+        {
+            AiFileLinks.Children.Clear();
+
+            var files = new List<KeyValuePair<string, string>>
+            {
+                new KeyValuePair<string, string>("指示", Path.Combine(AiFolder, "instructions.md")),
+                new KeyValuePair<string, string>("今の状態", _aiContextPath),
+                new KeyValuePair<string, string>("図の書き方", AiDrawingFormat),
+                new KeyValuePair<string, string>("CLAUDE.md（全体）",
+                    Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".claude", "CLAUDE.md")),
+            };
+
+            var folder = _aiTab != null && !string.IsNullOrEmpty(_aiTab.Folder) ? _aiTab.Folder
+                : HasDocument && !string.IsNullOrEmpty(Active.FilePath) ? Path.GetDirectoryName(Active.FilePath) : null;
+            try
+            {
+                for (var directory = string.IsNullOrEmpty(folder) ? null : new DirectoryInfo(folder); directory != null; directory = directory.Parent)
+                    files.Add(new KeyValuePair<string, string>("CLAUDE.md（" + directory.Name.TrimEnd('\\') + "）", Path.Combine(directory.FullName, "CLAUDE.md")));
+            }
+            catch (Exception)
+            {
+                // 読めないフォルダ（\\Mac\ が切れたなど）。分かった所までで足りる。
+            }
+
+            foreach (var file in files)
+            {
+                if (string.IsNullOrEmpty(file.Value) || !File.Exists(file.Value)) continue;
+
+                var path = file.Value;
+                var button = new Button
+                {
+                    Content = file.Key,
+                    FontSize = 12,
+                    Padding = new Thickness(6, 1, 6, 1),
+                    Foreground = (Brush)FindResource("AccentText"),
+                    ToolTip = path + "（メモ帳で開く）",
+                    Focusable = false,
+                };
+                var style = FindResource("ToolButton") as Style;
+                if (style != null) button.Style = style;
+                button.Click += delegate { OpenInNotepad(path); };
+                AiFileLinks.Children.Add(button);
+            }
+        }
+
+        private void OpenInNotepad(string path)
+        {
+            try
+            {
+                Process.Start(new ProcessStartInfo("notepad.exe", "\"" + path + "\"") { UseShellExecute = true });
+            }
+            catch (Exception ex)
+            {
+                Status("開けませんでした: " + ex.Message);
+            }
         }
 
         private string AiContext(string note)

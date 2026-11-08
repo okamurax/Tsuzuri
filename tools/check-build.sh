@@ -33,7 +33,7 @@ types = {"TextBlock": "System.Windows.Controls.TextBlock", "Grid": "System.Windo
          "ColumnDefinition": "System.Windows.Controls.ColumnDefinition", "Border": "System.Windows.Controls.Border",
          "Button": "System.Windows.Controls.Button", "TextBox": "System.Windows.Controls.TextBox",
          "ItemsControl": "System.Windows.Controls.ItemsControl", "TreeView": "System.Windows.Controls.TreeView",
-         "ScrollViewer": "System.Windows.Controls.ScrollViewer", "StackPanel": "System.Windows.Controls.StackPanel",
+         "ScrollViewer": "System.Windows.Controls.ScrollViewer", "StackPanel": "System.Windows.Controls.StackPanel", "WrapPanel": "System.Windows.Controls.WrapPanel",
          "DockPanel": "System.Windows.Controls.DockPanel", "GridSplitter": "System.Windows.Controls.GridSplitter",
          "RowDefinition": "System.Windows.Controls.RowDefinition"}
 handlers = {"Click": "System.Windows.RoutedEventHandler",

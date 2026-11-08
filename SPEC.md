@@ -2132,7 +2132,7 @@ WPF 標準のコントロールはそのままだと明るい前提の見た目�
     - `CLAUDE.md（全体）`（`%USERPROFILE%\.claude\CLAUDE.md`。`CLAUDE_CONFIG_DIR` があればそこ）
     - `CLAUDE.md（フォルダ名）`（会話のフォルダ。分からなければ開いている文書のフォルダ）
     - `MEMORY.md`（そのフォルダの自動の記憶。`projects\フォルダの名前\memory\MEMORY.md`。名前はフォルダの場所の英数字以外を - にしたもの。
-      Windows で確かめた: `\\Mac\Home\…\MyNote` → `--Mac-Home-…-MyNote`）
+      Windows で確かめた: `\\Mac\Home\…\notes` → `--Mac-Home-…-notes`）
     - 前は、上のフォルダの CLAUDE.md・rules・settings.json・管理者の設定・`@` の取り込みまで全部出していたが、使っていないのでこの3つにした（2026-11-08）
     - **CLAUDE.md は無くても出す**（薄い色で「（無し）」を付ける）。押すと空のファイルを作って開く。手で書き足す場所なので、無いと書く所が分からないため。
       Windows の `%USERPROFILE%\.claude\CLAUDE.md` は、Mac の `~/.claude/CLAUDE.md` とは別のもの（VM の中なので同期しない）

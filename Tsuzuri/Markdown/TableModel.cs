@@ -42,6 +42,7 @@ namespace Tsuzuri.Markdown
         public static TableModel Parse(IList<string> lines)
         {
             if (lines == null || lines.Count < 2) return null;
+            if (InContainer(lines[0])) return null;
 
             var header = SplitRow(lines[0]);
             var delimiter = SplitRow(lines[1]);
@@ -71,6 +72,18 @@ namespace Tsuzuri.Markdown
             model.Normalize();
             return model;
         }
+
+        /// <summary>
+        /// リストや引用の中の表か（行の頭が `- `・`1. `・`>` など）。そうなら表エディタでは扱わない（Parse は null）。
+        /// 頭の印をセルとして読み、書き戻すと `| - | a | b |` になってリストから外れていた（2026-11-09）。
+        /// </summary>
+        public static bool InContainer(string firstLine)
+        {
+            return ContainerRe.IsMatch(firstLine ?? string.Empty);
+        }
+
+        private static readonly System.Text.RegularExpressions.Regex ContainerRe =
+            new System.Text.RegularExpressions.Regex(@"^ {0,3}(?:>|[-+*](?:[ \t]|$)|[0-9]{1,9}[.)](?:[ \t]|$))");
 
         /// <summary>
         /// 読んだときに、見出し行より多いセルがあった行の数（2026-10-27）。表エディタに渡すとその分は消えるので、
@@ -258,6 +271,8 @@ namespace Tsuzuri.Markdown
 
         /// <summary>
         /// 1行をセルに分ける。両端の `|` は外し、`\|` は区切りにしない（セルの中の `|` に戻す）。
+        /// `code` の中の `|` も区切りにせず、中身はそのまま残す（Markdig と同じ読み方。2026-11-09。
+        /// 前は `a|b` で列が割れ、書き戻すと列が1つ増えて中身も `a  | b` に変わっていた）。
         /// </summary>
         private static List<string> SplitRow(string line)
         {
@@ -272,6 +287,14 @@ namespace Tsuzuri.Markdown
             for (var i = 0; i < text.Length; i++)
             {
                 var ch = text[i];
+
+                var codeEnd = CodeSpanEnd(text, i);
+                if (codeEnd > i)
+                {
+                    cell.Append(text, i, codeEnd - i);
+                    i = codeEnd - 1;
+                    continue;
+                }
 
                 if (ch == '\\' && i + 1 < text.Length && text[i + 1] == '|')
                 {
@@ -317,9 +340,51 @@ namespace Tsuzuri.Markdown
             return true;
         }
 
+        /// <summary>セルの中の `|` を `\|` にする。`code` の中は、読むとき（SplitRow）と同じく触らない。</summary>
         private static string Escape(string text)
         {
-            return (text ?? string.Empty).Replace("|", "\\|");
+            text = text ?? string.Empty;
+            var builder = new StringBuilder();
+
+            for (var i = 0; i < text.Length; i++)
+            {
+                var codeEnd = CodeSpanEnd(text, i);
+                if (codeEnd > i)
+                {
+                    builder.Append(text, i, codeEnd - i);
+                    i = codeEnd - 1;
+                    continue;
+                }
+
+                if (text[i] == '|') builder.Append('\\');
+                builder.Append(text[i]);
+            }
+
+            return builder.ToString();
+        }
+
+        /// <summary>
+        /// text[start] から `code` が始まり、同じ長さの ` の並びで閉じるなら、閉じた次の位置。そうでなければ -1。
+        /// 逃がした \` は始まりにしない。
+        /// </summary>
+        private static int CodeSpanEnd(string text, int start)
+        {
+            if (text[start] != '`' || (start > 0 && text[start - 1] == '`') || IsEscaped(text, start)) return -1;
+
+            var run = 0;
+            while (start + run < text.Length && text[start + run] == '`') run++;
+
+            for (var i = start + run; i < text.Length; )
+            {
+                if (text[i] != '`') { i++; continue; }
+
+                var close = 0;
+                while (i + close < text.Length && text[i + close] == '`') close++;
+                if (close == run) return i + close;
+                i += close;
+            }
+
+            return -1;
         }
 
         private static string LeadingSpaces(string line)

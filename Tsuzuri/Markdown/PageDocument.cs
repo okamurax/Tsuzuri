@@ -600,6 +600,17 @@ namespace Tsuzuri.Markdown
                 var match = pattern.Match(page.Text);
                 if (!match.Success) continue;
 
+                // 同じ所で終わる、もっと内側のリンクがあればそちらにする。切り出した範囲の手前が \ で終わっていると、
+                // 切り出しが書いた [ が逃がした文字になり、手前の [ からのリンクに見える（`[a\` + `[>>](#p2)`）。
+                // 外側を取ると、リンクより前の文字ごと置き換えて消す（2026-11-09）。
+                var end = match.Index + match.Length;
+                for (var inner = pattern.Match(page.Text, match.Index + 1);
+                     inner.Success && inner.Index < end;
+                     inner = pattern.Match(page.Text, inner.Index + 1))
+                {
+                    if (inner.Index + inner.Length == end) match = inner;
+                }
+
                 pageId = page.Id;
                 offset = match.Index;
                 length = match.Length;
@@ -740,13 +751,16 @@ namespace Tsuzuri.Markdown
 
         /// <summary>
         /// [名](#id) の形のリンク。「戻す」で置き換える範囲を決める。
-        /// 名前の中の \] のような逃がした文字も受ける。切り出しは名前の [ ] を逃がして書くため。
+        /// 名前の中の \] のような逃がした文字と、1段の [ ] の入れ子（[a [b] c]）も受ける。
+        /// 逃がしていない [ を名前の中に許すと、同じ行の手前にある閉じていない [ から当たり、
+        /// 「戻す」でリンクより前の文字ごと置き換えて消していた（2026-11-09。`メモ [ここ] 続き` の「ここ」を切り出して戻すと [ が消えた）。
         /// </summary>
         private static Regex LinkPattern(string id)
         {
             var target = Regex.Escape(id);
+            const string plain = @"(?:\\.|[^\[\]\\\r\n])";
 
-            return new Regex(@"\[(?:\\.|[^\]\\\r\n])*\]\([ \t]*(?:<#" + target + @">|#" + target + @")"
+            return new Regex(@"\[(?:" + plain + @"|\[" + plain + @"*\])*\]\([ \t]*(?:<#" + target + @">|#" + target + @")"
                 + @"(?:[ \t]+(?:""[^""\r\n]*""|'[^'\r\n]*'))?[ \t]*\)");
         }
 
@@ -785,14 +799,31 @@ namespace Tsuzuri.Markdown
             return null;
         }
 
-        /// <summary>使われていない一番小さい番号。読めるほうが追いやすい。</summary>
+        /// <summary>
+        /// 使われていない一番小さい番号。読めるほうが追いやすい。
+        /// どこかの本文に #id がある番号も使わない（2026-11-09）。行き先の無い古いリンク（前に消したページ・コードの中の例）があると、
+        /// 開き直したあとそれが新しいページを指し、「戻す」で本文をそちらに戻して、リンクより前の文字を消していた。
+        /// </summary>
         private string CreateId()
         {
             for (var n = 1; ; n++)
             {
                 var id = "p" + n;
-                if (!Contains(id) && !_retired.Contains(id)) return id;
+                if (!Contains(id) && !_retired.Contains(id) && !Mentioned(id)) return id;
             }
+        }
+
+        /// <summary>どこかのページの本文に #id（後ろが Id の文字で続かない）があるか。</summary>
+        private bool Mentioned(string id)
+        {
+            var pattern = new Regex("#" + Regex.Escape(id) + "(?![A-Za-z0-9_-])");
+
+            foreach (var page in _pages)
+            {
+                if (pattern.IsMatch(page.Text)) return true;
+            }
+
+            return false;
         }
 
         // =====================================================================
@@ -821,6 +852,7 @@ namespace Tsuzuri.Markdown
             var bodies = new List<List<string>>();
             var body = new List<string>();
             var fence = new FenceState();
+            var lastClosed = false;   // ページの最後の行が、開いていたフェンスを閉じたか
 
             ids.Add(RootId);
             bodies.Add(body);
@@ -840,16 +872,22 @@ namespace Tsuzuri.Markdown
 
                 if (!marker.Success)
                 {
+                    var wasOpen = fence.IsOpen;
                     fence.Feed(line);
+                    lastClosed = wasOpen && !fence.IsOpen;
                     body.Add(line);
                     continue;
                 }
 
+                DropAddedCloser(body, lastClosed);
+                lastClosed = false;
                 body = new List<string>();
                 ids.Add(marker.Groups[1].Value);
                 bodies.Add(body);
                 fence = new FenceState();
             }
+
+            DropAddedCloser(body, lastClosed);
 
             // 同じ Id が2つあると、リンクからは前のものしか開けず、書き出しからも黙って抜ける。
             // 後ろのものに空いている Id を付け直し、孤立ページとして見えるようにする。
@@ -920,12 +958,35 @@ namespace Tsuzuri.Markdown
                 // 次の印を、読み込みのときにどちらとも決められない。
                 // 閉じていないフェンスはページの終わりで閉じるものとして表示されるので、見た目は変わらない。
                 // 最後のページは後ろに印が無いので、中に印の形の行があるときだけでよい。
-                if (fence.IsOpen && (!last || markerInFence)) builder.Append(_newLine).Append(fence.Closer);
+                // 閉じる行の後ろにタブを1つ付け、ここで足したものだと分かるようにする。読むときに外す（ParsePages）。
+                // 外さないと閉じる行がページの本文に入り、そのページを「戻す」と親の本文に ``` が1行増え、
+                // 後ろの本文がコードと入れ替わっていた（2026-11-09）。
+                if (fence.IsOpen && (!last || markerInFence)) builder.Append(_newLine).Append(fence.Closer).Append(AddedCloserMark);
 
                 if (!last) builder.Append(_newLine);
             }
 
             return builder.ToString();
+        }
+
+        /// <summary>保存のときに足した、フェンスを閉じる行の印（Serialize）。</summary>
+        private const string AddedCloserMark = "\t";
+
+        /// <summary>
+        /// ページの最後の行が、保存のときに足した閉じる行（``` や ~~~ ＋ タブ1つ）なら外す。
+        /// 手で書いた閉じる行は、後ろにタブがちょうど1つだけ付くことはまず無いので、区別できる。
+        /// </summary>
+        private static void DropAddedCloser(List<string> body, bool lastClosed)
+        {
+            if (!lastClosed || body.Count == 0) return;
+
+            var line = body[body.Count - 1];
+            if (!line.EndsWith(AddedCloserMark, StringComparison.Ordinal)) return;
+
+            var run = line.Substring(0, line.Length - AddedCloserMark.Length);
+            if (run.Length < 3 || (run[0] != '`' && run[0] != '~') || run.Trim(run[0]).Length != 0) return;
+
+            body.RemoveAt(body.Count - 1);
         }
 
         private static bool SamePageIds(List<PageRegion> a, List<PageRegion> b)

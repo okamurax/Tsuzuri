@@ -186,6 +186,11 @@ Mac では、XAML を除いた C# のコンパイルだけを `bash tools/check-
 （でたらめな文書に操作をかけ、見出しの並び・親・リストや引用の中か・ほかの段落が変わらないかを見る。既定 30000 文書で十数秒）。
 `MarkdownView.Sections.cs` や `Tsuzuri/Markdown/` を変えたら回してください。`Sections.cs` は `tools/struct-fuzz/Port.cs` に写してあるので、そちらも合わせます。
 
+`bash tools/page-fuzz.sh` で、形の崩れた文書（閉じていないコードブロック・壊れた区切り・行き先の無いリンク・列のそろわない表など）でも、
+保存して開き直す・サブページを作成して解除する・孤立ページを探す・表エディタで書き戻すなどで本文が壊れないかを確かめます。
+`bash tools/page-fuzz.sh demo` で、名前を付けた例だけを出します。まだ直していない壊れが残っているので、今は NG で終わります（TODO.md）。
+`PageDocument.cs`・`TableModel.cs`・`MainWindow.Pages.cs` の作成と解除を変えたら回してください。作成と解除は `tools/page-fuzz/Program.cs` に写してあるので、そちらも合わせます。
+
 ## 設定ファイル
 
 どれも exe と同じフォルダに置きます。持ち運べるように、`%AppData%` は使いません。
@@ -213,7 +218,7 @@ Tsuzuri/
 └ ConPty/                AI の欄の端末で使う ConPTY（conpty.dll・OpenConsole.exe）
 TableEditor/             表エディタ（WPF。本体から DLL として読み込む）
 DrawingEditor/           図エディタ（WPF。本体から DLL として読み込む）
-tools/                   Mac でのコンパイル確認、WordPress の変換の確かめ（wp-check）、部分解析の確かめ（parse-fuzz）、アウトラインの操作の確かめ（struct-fuzz）、コミット前のフック、アイコンの生成
+tools/                   Mac でのコンパイル確認、WordPress の変換の確かめ（wp-check）、部分解析の確かめ（parse-fuzz）、アウトラインの操作の確かめ（struct-fuzz）、崩れた文書での読み書きの確かめ（page-fuzz）、コミット前のフック、アイコンの生成
 sample/                  動作確認用の文書
 ```
 

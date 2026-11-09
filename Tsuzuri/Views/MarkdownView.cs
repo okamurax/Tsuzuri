@@ -1651,11 +1651,17 @@ namespace Tsuzuri.Views
             var start = Document.GetLineByNumber(first);
             var end = Document.GetLineByNumber(last);
             var original = Document.GetText(start.Offset, end.EndOffset - start.Offset);
+            var window = Window.GetWindow(this);
+
+            if (TableModel.InContainer(Document.GetText(start)))
+            {
+                MessageBox.Show(window, "リストや引用の中の表は、表エディタでは開けません（書き戻すとリストや引用から外れるため）。" + Environment.NewLine +
+                    "行番号を押して、生の Markdown で直してください。", "表エディタ", MessageBoxButton.OK, MessageBoxImage.Information);
+                return;
+            }
 
             var model = TableModel.Parse(original.Replace("\r\n", "\n").Split('\n'));
             if (model == null) return;
-
-            var window = Window.GetWindow(this);
 
             // 見出し行より多いセルがある行は、表エディタに渡すとはみ出した分が消える。開く前に知らせて選ばせる（2026-10-27）。
             if (model.ExtraCellRows > 0)

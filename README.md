@@ -116,6 +116,7 @@ B のリンクを踏む     [A帯][B帯][C]
 - タブの段の右の「＋＋」のボタンで、欄の下に、自分と Claude が一緒に使う「共通ターミナル」（PowerShell）を出せる。画面の最後の 20 行と選んでいる文字が Claude に渡り、全部が要れば Claude が自分でファイルに書き出して読む。Claude はここにコマンドを置けるが Enter は押さない（押すのは自分）。複数行は、中のプログラムが貼り付けの印を受け付ければまとめて、受け付けなければ（RTX など）Enter を押すたびに1行ずつ置く。画面の中のパスワードなどの行は伏せて渡す
 - 「ここに構成図を描いて」と頼むと、図エディタ・罫線・Mermaid のどれで描くかを尋ねてくる。図エディタなら、Claude が図の JSON を書き、Tsuzuri が画像にする。出来た図は押せば図エディタで手直しできる
 - SSH でサーバーにつながせるときは、exe の隣の `ssh` フォルダに、接続先の一覧 `config.txt` と鍵をまとめて置く。`config.txt` は1行1つで、鍵なら `名称 | ホスト:ポート | auth=publickey | user=ユーザー名 | keyfile=キーファイル名`、パスワードなら `名称 | ホスト:ポート | auth=password | user=ユーザー名 | passwd=パスワード`。Windows の ssh が使えるように、会話を始めるたびにエディタが `%LOCALAPPDATA%\Tsuzuri\ssh` へ写して本人だけが読める権限にする（exe が Mac の共有フォルダにあっても使える）。最初の指示でその場所と形を伝えてあり、「名称につないで」で通じる。パスワードは Tsuzuri の askpass が `config.txt` から読んで ssh に渡すので、Claude はパスワードの値を扱わない。ヤマハ RTX などのネットワーク機器には、Tsuzuri が置く台本（プロンプトを待って1行ずつ送り、結果の秘密の行を伏せる）でつながせる。サーバーの中を変える前には確かめてくる。RTX などのネットワーク機器には読むだけのコマンド（show）しか送らず、設定を変えるコマンドは案として書くか、共通ターミナルに置いて Enter を自分に任せる。このフォルダはリポジトリには入れない（パスワードを平文で置くので、置き場所の扱いに注意）
+- 目印のファイル `.tsuzuri-no-ai`（中身は空）を置いたフォルダの下の文書は、AI に渡さない。見ていても場所・カーソルの行・選んだ文字を渡さず（Claude とはそのまま話せる）、Claude がその下を読み書きしようとしたら断る。パスワードなどを書いた文書を暗号化した dmg に入れ、その一番上に目印を置く使い方のため。Bash で場所を書かずに読む道などは防げないので、使い終わったら dmg を外す
 - タブの名前（#1・#2…）は claude のセッションの名前。「#2 にこの会話の要約を渡して」のように、ほかのタブの会話に頼める（Claude Code のセッション間のメッセージ。Windows では 2.1.234 以上）
 
 Claude Code は別に入れてください（`claude` が PowerShell から動く状態）。入っていなければ、この欄は普通の PowerShell として使えます。
@@ -191,6 +192,8 @@ Mac では、XAML を除いた C# のコンパイルだけを `bash tools/check-
 `bash tools/page-fuzz.sh demo` で、名前を付けた例だけを出します。まだ直していない壊れが残っているので、今は NG で終わります（TODO.md）。
 `PageDocument.cs`・`TableModel.cs`・`MainWindow.Pages.cs` の作成と解除を変えたら回してください。作成と解除は `tools/page-fuzz/Program.cs` に写してあるので、そちらも合わせます。
 
+`bash tools/ai-guard.sh` で、AI に渡さない場所（目印 `.tsuzuri-no-ai`）の下を Claude が読み書きしようとしたら断り、ほかは通すかを確かめます。`Tsuzuri/Markdown/AiGuard.cs` を変えたら回してください。
+
 ## 設定ファイル
 
 どれも exe と同じフォルダに置きます。持ち運べるように、`%AppData%` は使いません。
@@ -218,7 +221,7 @@ Tsuzuri/
 └ ConPty/                AI の欄の端末で使う ConPTY（conpty.dll・OpenConsole.exe）
 TableEditor/             表エディタ（WPF。本体から DLL として読み込む）
 DrawingEditor/           図エディタ（WPF。本体から DLL として読み込む）
-tools/                   Mac でのコンパイル確認、WordPress の変換の確かめ（wp-check）、部分解析の確かめ（parse-fuzz）、アウトラインの操作の確かめ（struct-fuzz）、崩れた文書での読み書きの確かめ（page-fuzz）、コミット前のフック、アイコンの生成
+tools/                   Mac でのコンパイル確認、WordPress の変換の確かめ（wp-check）、部分解析の確かめ（parse-fuzz）、アウトラインの操作の確かめ（struct-fuzz）、崩れた文書での読み書きの確かめ（page-fuzz）、AI に渡さない場所の確かめ（ai-guard）、コミット前のフック、アイコンの生成
 sample/                  動作確認用の文書
 ```
 

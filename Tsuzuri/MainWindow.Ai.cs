@@ -306,11 +306,7 @@ namespace Tsuzuri
                     first = false;
                     return command;
                 },
-                () => restore != null && !string.IsNullOrEmpty(restore.Folder) && Directory.Exists(restore.Folder)
-                    ? restore.Folder
-                    : HasDocument
-                        ? (WordPressLinkOf(Active) != null ? WordPressTempRoot : Path.GetDirectoryName(Active.FilePath))
-                        : Environment.GetFolderPath(Environment.SpecialFolder.UserProfile));
+                () => AiStartFolder(restore));
             tab.View.Visibility = Visibility.Collapsed;
             AiTerminals.Children.Add(tab.View);
 
@@ -326,6 +322,27 @@ namespace Tsuzuri
             _aiTabs.Add(tab);
             RebuildAiTabStrip();
             SelectAiTab(tab);
+        }
+
+        /// <summary>
+        /// 会話を始めるフォルダ。前の会話を戻すならそのフォルダ、ファイルを開いていればそのフォルダ、無ければ利用者のフォルダ。
+        /// AI に渡さない場所（AiGuard）では始めず、利用者のフォルダで始める（2026-11-09。Claude Code は作業のフォルダを自由に読むため）。
+        /// </summary>
+        private string AiStartFolder(AiTabState restore)
+        {
+            var folder = restore != null && !string.IsNullOrEmpty(restore.Folder) && Directory.Exists(restore.Folder)
+                ? restore.Folder
+                : HasDocument
+                    ? (WordPressLinkOf(Active) != null ? WordPressTempRoot : Path.GetDirectoryName(Active.FilePath))
+                    : null;
+
+            if (folder != null && AiGuard.IsGuarded(folder))
+            {
+                Dispatcher.BeginInvoke(new Action(() => Status("AI に渡さないフォルダ（" + AiGuard.MarkerName + "）なので、会話は利用者のフォルダで始めました。")));
+                folder = null;
+            }
+
+            return folder ?? Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
         }
 
         /// <summary>タブの見出し。押すと選ぶ。右の × で閉じる（その会話の PowerShell と claude も終わる）。</summary>
@@ -923,6 +940,21 @@ namespace Tsuzuri
                 "$r=New-Object System.IO.StreamReader($c,[System.Text.Encoding]::UTF8);$m=$r.ReadLine()}catch{};$c.Dispose();" +
                 "if($m -and $m -ne 'ok'){[Console]::OutputEncoding=[System.Text.Encoding]::UTF8;[Console]::Error.Write($m);exit 2}";
 
+            // 読み書きの前（PreToolUse。2026-11-09）。AI に渡さない場所（AiGuard）を断る。「guard→ツール→フォルダ→項目の名前→値…」を Base64 にしてタブ区切りで送る。
+            // 答えが「ok」でなければ、それを理由として標準エラーに出して 2 で終わる（Claude Code はツールを動かさず、理由を Claude に見せる）。
+            // エディタにつながらなければ止めない（エディタを閉じると中の claude も終わる）。
+            var guard =
+                "$q='';try{$s=New-Object System.IO.MemoryStream;[Console]::OpenStandardInput().CopyTo($s);" +
+                "$j=[System.Text.Encoding]::UTF8.GetString($s.ToArray())|ConvertFrom-Json;" +
+                "$e={param($t)[Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes([string]$t))};" +
+                "$q='guard'+[char]9+(&$e $j.tool_name)+[char]9+(&$e $j.cwd);" +
+                "if($j.tool_input){foreach($i in $j.tool_input.PSObject.Properties){$q+=[char]9+(&$e $i.Name)+[char]9+(&$e $i.Value)}}}catch{};" +
+                "if(-not $q){exit 0};" +
+                connect +
+                "try{$c.Connect(5000);$w=New-Object System.IO.StreamWriter($c);$w.WriteLine($q);$w.Flush();" +
+                "$r=New-Object System.IO.StreamReader($c,[System.Text.Encoding]::UTF8);$m=$r.ReadLine()}catch{};$c.Dispose();" +
+                "if($m -and $m -ne 'ok'){[Console]::OutputEncoding=[System.Text.Encoding]::UTF8;[Console]::Error.Write($m);exit 2}";
+
             var quoted = Quote(contextPath);
             var context = connect +
                 "try{$c.Connect(5000);$w=New-Object System.IO.StreamWriter($c);$w.WriteLine('prompt');$w.Flush();" +
@@ -931,6 +963,7 @@ namespace Tsuzuri
                 "if(Test-Path -LiteralPath " + quoted + "){[Console]::Out.Write([System.IO.File]::ReadAllText(" + quoted + "))}";
 
             return "{\"hooks\":{" +
+                   "\"PreToolUse\":[{\"matcher\":\"Read|Edit|Write|MultiEdit|NotebookEdit|Grep|Glob|Bash|PowerShell\",\"hooks\":[{\"type\":\"command\",\"command\":\"" + PowerShell(guard) + "\"}]}]," +
                    "\"PostToolUse\":[{\"matcher\":\"Edit|Write|MultiEdit|NotebookEdit|Bash\",\"hooks\":[{\"type\":\"command\",\"command\":\"" + PowerShell(notify) + "\"}]}]," +
                    "\"UserPromptSubmit\":[{\"hooks\":[{\"type\":\"command\",\"timeout\":300,\"command\":\"" + PowerShell(context) + "\"}]}]," +
                    "\"SessionStart\":[{\"hooks\":[{\"type\":\"command\",\"command\":\"" + PowerShell(SessionHook(connect, "session")) + "\"}]}]," +
@@ -1005,6 +1038,34 @@ namespace Tsuzuri
             _aiListener.Start();
         }
 
+        /// <summary>
+        /// PreToolUse のフックの「guard→ツール→フォルダ→項目の名前→値…」（どれも Base64）を読んで、AiGuard で確かめる。断るなら理由、よければ null。
+        /// 断ったら、下端の状態の行でも知らせる。読めない頼みは止めない。
+        /// </summary>
+        private string CheckAiGuard(string request)
+        {
+            var parts = request.Split('\t').Skip(1).Select(part =>
+            {
+                try
+                {
+                    return Encoding.UTF8.GetString(Convert.FromBase64String(part));
+                }
+                catch (FormatException)
+                {
+                    return string.Empty;
+                }
+            }).ToList();
+            if (parts.Count < 2) return null;
+
+            var input = new List<KeyValuePair<string, string>>();
+            for (var i = 2; i + 1 < parts.Count; i += 2) input.Add(new KeyValuePair<string, string>(parts[i], parts[i + 1]));
+
+            var answer = AiGuard.Check(parts[0], parts[1], input);
+            if (answer != null)
+                Dispatcher.BeginInvoke(new Action(() => Status("Claude が AI に渡さない場所（" + AiGuard.MarkerName + "）を開こうとしたので、断りました（" + parts[0] + "）。")));
+            return answer;
+        }
+
         /// <summary>つながった1つの頼みに応える（そのつながり用のスレッドで）。</summary>
         private void ServeAiRequest(NamedPipeServerStream server)
         {
@@ -1057,6 +1118,15 @@ namespace Tsuzuri
 
                         var writer = new StreamWriter(server, new UTF8Encoding(false), 256, true);
                         writer.WriteLine(answer.Replace("\r", " ").Replace("\n", " "));
+                        writer.Flush();
+                        server.WaitForPipeDrain();
+                    }
+                    else if (request != null && request.StartsWith("guard\t", StringComparison.Ordinal))
+                    {
+                        // 読み書きの前（2026-11-09。AiGuard）。画面のスレッドは使わない
+                        var answer = CheckAiGuard(request);
+                        var writer = new StreamWriter(server, new UTF8Encoding(false), 256, true);
+                        writer.WriteLine(answer ?? "ok");
                         writer.Flush();
                         server.WaitForPipeDrain();
                     }
@@ -1438,6 +1508,14 @@ namespace Tsuzuri
                 return;
             }
 
+            if (AiGuard.IsGuarded(view.FilePath))
+            {
+                AiContextText.Text = "渡していない  AI に渡さない文書（" + AiGuard.MarkerName + " のあるフォルダ）  " + DateTime.Now.ToString("HH:mm:ss");
+                AiContextText.ToolTip = null;
+                RefreshAiFileLinks();
+                return;
+            }
+
             var selected = !string.IsNullOrEmpty(view.SimpleSelectedText.Trim());
             AiContextText.Text = "渡した状態  " + Path.GetFileName(view.FilePath) + " › " + PageLabel(view)
                                  + "  " + view.TextArea.Caret.Line + " 行目" + (selected ? "（選択あり）" : string.Empty)
@@ -1629,6 +1707,16 @@ namespace Tsuzuri
             }
 
             var document = view.Owner;
+
+            // AI に渡さない場所の文書（2026-11-09。AiGuard）。場所・ページ・カーソルの行・選んだ文字を書かない。頼みそのものは送るので、ほかの話はできる
+            if (AiGuard.IsGuarded(document.FilePath))
+            {
+                text.Append("見ている文書は、利用者が AI に渡さないと決めた場所（目印 ").Append(AiGuard.MarkerName)
+                    .Append(" のあるフォルダの中）にある。場所も中身も渡していない。尋ねたり探したりしない。\n");
+                AppendAiShellContext(text);
+                return text.ToString();
+            }
+
             var before = document.LinesBefore(view.PageId);
             var line = view.TextArea.Caret.Line;
 

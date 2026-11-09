@@ -177,6 +177,7 @@
     <Compile Include="WordPress\WordPressSettings.cs" />
     <Compile Include="Export\DocxBuilder.cs" />
     <Compile Include="Export\DocxExporter.cs" />
+    <Compile Include="Markdown\AiGuard.cs" />
     <Compile Include="Markdown\Attachments.cs" />
     <Compile Include="Markdown\DocumentModel.cs" />
     <Compile Include="Markdown\DocumentHistory.cs" />

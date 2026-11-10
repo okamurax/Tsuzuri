@@ -500,9 +500,9 @@ namespace Tsuzuri
                 WindowList.Children.Add(CreateWindowTab(OpenWindows[i], labels[i], OpenWindows.Count > 1));
                 WindowList.Children.Add(new Border
                 {
-                    Width = 1,
+                    Width = WindowTabSeparatorWidth,
                     Height = 16,
-                    Margin = new Thickness(0, 0, 4, 0),
+                    Margin = new Thickness(0, 0, WindowTabSeparatorMargin, 0),
                     VerticalAlignment = VerticalAlignment.Center,
                     Background = (Brush)FindResource("BorderBrushSoft"),
                 });
@@ -523,8 +523,15 @@ namespace Tsuzuri
 
         private const double WindowTabWidth = 180;
 
-        /// <summary>画面のタブを掴んでこれだけ動かしたら、離したときに休止する（ピクセル）。</summary>
+        /// <summary>画面のタブを掴んで上下にこれだけ動かしたら（段から引き離したら）、離したときに休止する（ピクセル）。</summary>
         private const double SuspendDragDistance = 16;
+
+        /// <summary>画面のタブを掴んで横にこれだけ動かしたら、並べ替える（ピクセル。2026-11-10）。</summary>
+        private const double ReorderDragDistance = 8;
+
+        /// <summary>タブの右の区切り線の幅と、その右の余白（BuildWindowList）。並べ替えで、タブ1つ分の幅を出すのに使う。</summary>
+        private const double WindowTabSeparatorWidth = 1;
+        private const double WindowTabSeparatorMargin = 4;
 
         private Border CreateWindowTab(MainWindow window, string label, bool closable)
         {
@@ -576,12 +583,13 @@ namespace Tsuzuri
                 ToolTip = window.WindowTip(),
             };
 
-            // 押して離したら切り替える。掴んで少し動かしたら休止する（2026-11-01）。
+            // 押して離したら切り替える。掴んで横に動かしたら並べ替え（2026-11-10）、上下に引き離したら休止する（2026-11-01。前は横に動かしても休止した）。
             // 段の空いているところはウィンドウを動かすので、ここで受け止めて段に回さない（× のボタンは自分で受け取る）。
             var shift = new TranslateTransform();
             tab.RenderTransform = shift;
             Point? grabbed = null;
             var dragging = false;
+            var pulled = false;   // 段から引き離している（離せば休止）。段に戻せば並べ替えに戻る
             tab.MouseLeftButtonDown += (sender, e) =>
             {
                 e.Handled = true;
@@ -595,14 +603,18 @@ namespace Tsuzuri
 
                 var moved = e.GetPosition(WindowList) - grabbed.Value;
                 if (!dragging && OpenWindows.Count > 1
-                    && (Math.Abs(moved.X) >= SuspendDragDistance || Math.Abs(moved.Y) >= SuspendDragDistance))
+                    && (Math.Abs(moved.X) >= ReorderDragDistance || Math.Abs(moved.Y) >= SuspendDragDistance))
+                {
                     dragging = true;
+                    Panel.SetZIndex(tab, 1);   // ほかのタブの上を通る
+                }
                 if (!dragging) return;
 
-                // 掴んだタブを手に付いてこさせ、薄くする（離せば休止する印）。
+                // 掴んだタブを手に付いてこさせる。段の中では横にだけ動かし、引き離したら薄くする（離せば休止する印）。
+                pulled = Math.Abs(moved.Y) >= SuspendDragDistance;
                 shift.X = moved.X;
-                shift.Y = moved.Y;
-                tab.Opacity = 0.5;
+                shift.Y = pulled ? moved.Y : 0;
+                tab.Opacity = pulled ? 0.5 : 1;
             };
             tab.MouseLeftButtonUp += (sender, e) =>
             {
@@ -618,17 +630,25 @@ namespace Tsuzuri
                 }
 
                 dragging = false;
-                window.Suspend();
+                Panel.SetZIndex(tab, 0);
+                var steps = (int)Math.Round(shift.X / (tab.ActualWidth + tab.Margin.Right + WindowTabSeparatorWidth + WindowTabSeparatorMargin));
+                var suspend = pulled;
+                pulled = false;
 
-                // 保存するかで取りやめたら、タブを元の場所に戻す。
+                // 元の場所に戻してから動かす（休止を保存するかで取りやめたときも、元の場所に残る）。
                 shift.X = shift.Y = 0;
                 tab.Opacity = 1;
+
+                if (suspend) window.Suspend();
+                else if (steps != 0) MoveWindowTab(window, steps);
             };
             tab.LostMouseCapture += delegate
             {
                 if (grabbed == null) return;
                 grabbed = null;
                 dragging = false;
+                pulled = false;
+                Panel.SetZIndex(tab, 0);
                 shift.X = shift.Y = 0;
                 tab.Opacity = 1;
             };
@@ -642,7 +662,7 @@ namespace Tsuzuri
                 var suspend = new MenuItem
                 {
                     Header = "休止する",
-                    ToolTip = "この画面を閉じて、状態だけを残す（AI の会話も止める）。タブは右端に薄く残り、押すと元の状態で開き直す。タブを掴んで少し動かしても休止する",
+                    ToolTip = "この画面を閉じて、状態だけを残す（AI の会話も止める）。タブは右端に薄く残り、押すと元の状態で開き直す。タブを掴んで上下に引き離しても休止する（横に動かすと並べ替え）",
                     IsEnabled = OpenWindows.Count > 1,
                 };
                 suspend.Click += delegate { window.Suspend(); };
@@ -651,6 +671,61 @@ namespace Tsuzuri
                 menu.IsOpen = true;
             };
             return tab;
+        }
+
+        /// <summary>
+        /// 画面のタブを steps だけ右（負なら左）へ動かす（2026-11-10）。並びは次の起動でも同じにする（app.json の Windows の順）。
+        /// 先頭になった画面が最初の画面でなければ、最初の画面の役（覚えを app.json の上のほうに置く・前回のファイル）を引き継ぐ。
+        /// 起動では最初の画面が先頭に来るため。
+        /// </summary>
+        private static void MoveWindowTab(MainWindow window, int steps)
+        {
+            var from = OpenWindows.IndexOf(window);
+            if (from < 0) return;
+            var to = Math.Max(0, Math.Min(OpenWindows.Count - 1, from + steps));
+            if (to == from) return;
+
+            OpenWindows.RemoveAt(from);
+            OpenWindows.Insert(to, window);
+
+            var first = OpenWindows[0];
+            var primary = OpenWindows.FirstOrDefault(other => other.IsPrimary);
+            if (!first.IsPrimary && primary != null) first.TakePrimaryFrom(primary);
+
+            var settings = first._settings;
+            var order = OpenWindows.Where(other => other._session != null).Select(other => other._session).ToList();
+            settings.Windows.RemoveAll(order.Contains);
+            settings.Windows.InsertRange(0, order);   // 休止している画面は後ろに残る
+            settings.Save();
+
+            RefreshWindowLists();
+        }
+
+        /// <summary>
+        /// 並べ替えで先頭になったので、最初の画面の役を old から引き継ぐ（2026-11-10）。覚えの置き場所を入れ替える
+        /// （この画面の覚えを app.json の上のほうの項目へ、old の覚えをこの画面が使っていた Windows の1つへ）。
+        /// </summary>
+        private void TakePrimaryFrom(MainWindow old)
+        {
+            old.RememberLastScreen();
+            RememberLastScreen();
+
+            var session = _session;
+            var screen = session.Screen;
+            var collapsed = session.Collapsed;
+            var aiTabs = session.AiTabs;
+            session.Screen = _settings.Screen;
+            session.Collapsed = _settings.Collapsed;
+            session.AiTabs = _settings.AiTabs;
+            _settings.Screen = screen;
+            _settings.Collapsed = collapsed;
+            _settings.AiTabs = aiTabs;
+
+            old._session = session;
+            _session = null;
+
+            _settings.LastFile = RememberableFile();
+            if (Application.Current != null) Application.Current.MainWindow = this;
         }
 
         /// <summary>休止している画面のタブ。薄く出す。押すとその覚えから画面を作り直し、× で覚えごと捨てる。</summary>

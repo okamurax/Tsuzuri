@@ -217,6 +217,20 @@ namespace Tsuzuri
                 Save_Click(this, null);
             };
 
+            // Ctrl+F で、見ているページの検索欄へ（2026-11-10）。AI の欄の端末にキーボードがあるときは、端末のキーとして向こうに渡す（Ctrl+S と同じ見分け方）。
+            PreviewKeyDown += (sender, e) =>
+            {
+                if (e.Key != Key.F || Keyboard.Modifiers != ModifierKeys.Control) return;
+
+                var source = e.OriginalSource as Visual;
+                if (AiPane.IsKeyboardFocusWithin || (source != null && AiPane.IsAncestorOf(source))) return;
+
+                var view = Active;
+                if (view == null) return;
+                e.Handled = true;
+                view.FocusSearchBox();
+            };
+
             // Ctrl+PageUp で前の画面、Ctrl+PageDown で次の画面（タブの並び。端で反対の端へ回る。2026-11-01）。
             // AI の欄の端末にキーボードがあるときも切り替える（端末ではまず使わないキー）。
             PreviewKeyDown += (sender, e) =>

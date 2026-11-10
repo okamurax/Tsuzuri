@@ -494,8 +494,19 @@ namespace Tsuzuri
             WindowList.Children.Clear();
             SuspendedList.Children.Clear();
 
+            // タブの右に区切りの縦線（2026-11-10）。左右に付けると隣どうしで重なるので、右だけ。
             for (var i = 0; i < OpenWindows.Count; i++)
+            {
                 WindowList.Children.Add(CreateWindowTab(OpenWindows[i], labels[i], OpenWindows.Count > 1));
+                WindowList.Children.Add(new Border
+                {
+                    Width = 1,
+                    Height = 16,
+                    Margin = new Thickness(0, 0, 4, 0),
+                    VerticalAlignment = VerticalAlignment.Center,
+                    Background = (Brush)FindResource("BorderBrushSoft"),
+                });
+            }
 
             // 休止している画面は、段の右端に薄く並べる。
             foreach (var session in suspended) SuspendedList.Children.Add(CreateSuspendedTab(session));

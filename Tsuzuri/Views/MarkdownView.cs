@@ -3078,6 +3078,13 @@ namespace Tsuzuri.Views
             _searchCount.Text = (target + 1) + " / " + _matchOffsets.Count;
         }
 
+        /// <summary>検索欄にキーボードを移す（Ctrl+F。2026-11-10）。前の検索語は全部選んでおき、打てばそのまま置き換わる。</summary>
+        public void FocusSearchBox()
+        {
+            _searchBox.Focus();
+            _searchBox.SelectAll();
+        }
+
         private void GiveFocus(bool toSearchBox)
         {
             if (toSearchBox) _searchBox.Focus();

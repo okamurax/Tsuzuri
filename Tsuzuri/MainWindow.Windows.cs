@@ -262,7 +262,8 @@ namespace Tsuzuri
             var moved = before != new Rect(Left, Top, Width, Height) || state != WindowState;
             PerfLog.Step("位置合わせ", started);
 
-            if (!IsVisible)
+            var fresh = !IsVisible;
+            if (fresh)
             {
                 started = PerfLog.Start();
                 ShowCloaked();
@@ -277,14 +278,17 @@ namespace Tsuzuri
             }
 
             // 配置が済んで（Loaded の優先度）から描画を2回待ち、DWM が絵を受け取るのを待ってから見せる。待つ間も今の画面はそのまま見えていて、操作もできる。
+            // 初めて出す画面（増やした・再開した）は、支度の残り（遅らせた処理）が全部済む（ApplicationIdle）まで待ち、描画も4回待つ（2026-11-11）。
+            // 2回で見せていたときは、見せたあとも 0.2〜1.1 秒ほど処理と描き直しが続き、窓全体がカクついて見えた（perf.log の「落ち着き」）。
             Dispatcher.BeginInvoke(new Action(delegate
             {
-                PerfLog.StepMark("配置後");
+                PerfLog.StepMark(fresh ? "支度後" : "配置後");
                 var frames = 0;
+                var needed = fresh ? 4 : 2;
                 EventHandler rendering = null;
                 rendering = delegate
                 {
-                    if (++frames < 2 && token == _switchToken) return;
+                    if (++frames < needed && token == _switchToken) return;
                     CompositionTarget.Rendering -= rendering;
                     PerfLog.StepMark("描画");
 
@@ -296,7 +300,7 @@ namespace Tsuzuri
                     }), DispatcherPriority.Background);
                 };
                 CompositionTarget.Rendering += rendering;
-            }), DispatcherPriority.Loaded);
+            }), fresh ? DispatcherPriority.ApplicationIdle : DispatcherPriority.Loaded);
         }
 
         /// <summary>この画面を見せて前に出し、ほかの画面を見えなくする。待っている間にほかの切り替えが来た・閉じた等なら、何もしない（次の切り替えがやる）。</summary>

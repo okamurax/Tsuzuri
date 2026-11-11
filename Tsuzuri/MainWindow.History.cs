@@ -196,7 +196,7 @@ namespace Tsuzuri
             var tip = string.IsNullOrEmpty(mark.Page) ? shown : (label != null ? label + " > " + shown : shown) + "（" + mark.Page + "）";
             var icon = !string.IsNullOrEmpty(mark.Page) && label == null ? CreatePageMark() : null;
 
-            return WrapHistoryRow(CreateRemovableRow(name, mark, tip, "履歴から消す", OpenHeadingHistory_Click, RemoveHeadingHistory_Click, icon), name, icon);
+            return SingleLineHistoryRow(CreateRemovableRow(name, mark, tip, "履歴から消す", OpenHeadingHistory_Click, RemoveHeadingHistory_Click, icon));
         }
 
         /// <summary>
@@ -224,7 +224,7 @@ namespace Tsuzuri
             };
 
             var tip = "リンク元へ戻る: " + origin.File + "（" + origin.Line + " 行目のリンク「" + (origin.Label.Length > 0 ? origin.Label : origin.Target) + "」）";
-            return WrapHistoryRow(CreateRemovableRow(name, mark, tip, "履歴から消す", OpenHeadingHistory_Click, RemoveHeadingHistory_Click, icon), name, icon);
+            return SingleLineHistoryRow(CreateRemovableRow(name, mark, tip, "履歴から消す", OpenHeadingHistory_Click, RemoveHeadingHistory_Click, icon));
         }
 
         /// <summary>
@@ -266,31 +266,23 @@ namespace Tsuzuri
         }
 
         /// <summary>
-        /// 履歴の行は、長い名前を切らずに折り返す（2026-11-08。欄を左右に分けて幅が半分になったため）。
-        /// 行の高さは中身に合わせ（1行なら今までと同じ 32）、印と ✕ は1行目に揃える。
+        /// 履歴の行は、長い名前を切らずに1行で出す（2026-11-10。前は折り返していた）。はみ出す分は、欄の下の横のスクロールバーで見る。
+        /// ✕ は行の右端ではなく名前のすぐ右に置く。右端だと、いちばん長い行に合わせた幅の端になり、短い行でも横に送らないと見えないため。
         /// </summary>
-        private static Border WrapHistoryRow(Border container, TextBlock name, FrameworkElement icon)
+        private static Border SingleLineHistoryRow(Border container)
         {
-            name.TextTrimming = TextTrimming.None;
-            name.TextWrapping = TextWrapping.Wrap;
-            name.Margin = new Thickness(name.Margin.Left, 8, name.Margin.Right, 8);
-
-            container.Height = double.NaN;
-            container.MinHeight = 32;
-
-            if (icon != null)
-            {
-                icon.VerticalAlignment = VerticalAlignment.Top;
-                icon.Margin = new Thickness(16, 10, 0, 0);
-            }
-
             var row = container.Child as DockPanel;
-            if (row != null)
-            {
-                foreach (var child in row.Children.OfType<Button>())
-                    child.VerticalAlignment = VerticalAlignment.Top;
-            }
+            if (row == null) return container;
 
+            var remove = row.Children.OfType<Button>().FirstOrDefault();
+            var name = row.Children.OfType<TextBlock>().LastOrDefault();
+            if (name != null) name.TextTrimming = TextTrimming.None;
+            if (remove == null) return container;
+
+            row.Children.Remove(remove);
+            row.Children.Add(remove);
+            foreach (UIElement child in row.Children) DockPanel.SetDock(child, Dock.Left);
+            row.LastChildFill = false;
             return container;
         }
 

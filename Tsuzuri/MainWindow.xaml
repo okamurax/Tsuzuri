@@ -168,7 +168,7 @@
                                       MouseDoubleClick="HistorySplitter_MouseDoubleClick" />
 
                         <!-- 履歴。左に本文で踏んだ見出し、右にリンクで移ってきたときのリンク元（2026-11-08）。
-                             新しいものから上に積み、押すとそこへ移る。題と空のときの案内は出さない。名前は折り返す -->
+                             新しいものから上に積み、押すとそこへ移る。題と空のときの案内は出さない。名前は1行で出し、はみ出す分は下の横のスクロールバーで見る（2026-11-10。前は折り返していた） -->
                         <Grid Grid.Row="2">
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="*" />
@@ -178,7 +178,7 @@
 
                             <ScrollViewer x:Name="HeadingHistoryScroll" Grid.Column="0"
                                           VerticalScrollBarVisibility="Auto"
-                                          HorizontalScrollBarVisibility="Disabled">
+                                          HorizontalScrollBarVisibility="Auto">
                                 <StackPanel x:Name="HeadingHistoryList" Margin="0,6,0,12" />
                             </ScrollViewer>
 
@@ -186,7 +186,7 @@
 
                             <ScrollViewer x:Name="LinkHistoryScroll" Grid.Column="2"
                                           VerticalScrollBarVisibility="Auto"
-                                          HorizontalScrollBarVisibility="Disabled">
+                                          HorizontalScrollBarVisibility="Auto">
                                 <StackPanel x:Name="LinkHistoryList" Margin="0,6,0,12" />
                             </ScrollViewer>
                         </Grid>

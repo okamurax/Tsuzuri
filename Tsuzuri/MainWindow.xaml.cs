@@ -329,6 +329,9 @@ namespace Tsuzuri
         {
             if (!_aiRestorePending || !OpenWindows.Contains(this)) return;
 
+            // 見えなくしている画面（2026-11-11）は、見せたときに SetCloaked から呼び直す。
+            if (_cloaked) return;
+
             if (!IsVisible)
             {
                 DependencyPropertyChangedEventHandler shown = null;

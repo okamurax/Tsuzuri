@@ -23,7 +23,7 @@ namespace Tsuzuri
     // ・タブの × は、その画面だけを閉じる。ツールバーの「終了」は、アプリごと（全部の画面を）閉じる（2026-10-31）
     //   最初の画面を × で閉じたら、次の画面が最初の画面を引き継ぐ（前回のファイル・app.json の上のほうの項目）
     // ・画面は全部同じ位置・大きさに重ね、ツールバーの一段下のタブで前に出す
-    // ・前に出ている画面のほかは隠す（2026-11-01）。タスクバーのボタンも Alt+Tab も1つで、切り替えはタブだけ
+    // ・前に出ている画面のほかは見えなくする（2026-11-01。2026-11-11 から Hide でなく DWM の cloak）。タスクバーのボタンも Alt+Tab も1つで、切り替えはタブだけ
     // ・タブを掴んで少し動かすか、右クリック →「休止する」で、画面を閉じて覚えだけを残す（2026-11-01）。起動しても作らず、AI の会話も始めない。
     //   タブは薄く残り、押すとその覚えから画面を作り直す（ページの並び・AI の会話も戻す。WordPress の記事は読み込み直す）
     public partial class MainWindow
@@ -89,7 +89,8 @@ namespace Tsuzuri
                 }
             }
 
-            Activated += delegate { _frontWindow = this; };
+            // 見えなくしている画面は前の画面にしない（前の画面を閉じたとき、Windows が重なりの次の窓として、見えない画面を選ぶことがある）。
+            Activated += delegate { if (!_cloaked) _frontWindow = this; };
 
             Closed += delegate
             {
@@ -162,7 +163,7 @@ namespace Tsuzuri
         /// </summary>
         private void CloseShowingFirst()
         {
-            if (!IsVisible && _stack.Any(view => view.IsDirty)) BringForward(FrontWindow());
+            if (!IsOnScreen && _stack.Any(view => view.IsDirty)) BringForward(FrontWindow());
             Close();
         }
 
@@ -207,10 +208,10 @@ namespace Tsuzuri
             foreach (var session in sessions)
             {
                 var window = new MainWindow(_settings, this, session);
-                window.Show();
+                window.ShowCloaked();
             }
 
-            // 中身を戻すのに一度出してから（Loaded）、最初の画面を前に出してほかを隠す。
+            // 中身を戻すのに見えないまま出してから（Loaded）、最初の画面を前に出す。
             Dispatcher.BeginInvoke(new Action(delegate { BringForward(null); }), System.Windows.Threading.DispatcherPriority.ApplicationIdle);
         }
 
@@ -238,80 +239,44 @@ namespace Tsuzuri
             window.BringForward(this);
         }
 
-        /// <summary>この画面を、今の画面と同じ位置・大きさにして前に出し、ほかの画面を隠す（先に出してから隠すので、間に何も見えない時が無い）。</summary>
+        /// <summary>
+        /// この画面を、今の画面と同じ位置・大きさにして前に出し、ほかの画面を見えなくする（2026-11-11）。
+        /// ほかの画面は Hide せず、出したまま DWM の cloak で見えなくしておく（SetCloaked）。描いた絵が残るので、切り替えは見せる窓を替えるだけになる。
+        /// 前は Hide していて、出し直すたびに Windows が窓の描き先を作り直し、最初の絵が届くまでの白い下地が一瞬見えた
+        /// （後ろで描かせてから入れ替えても、WPF の描く合図は実際に窓に届く前に来るので防げなかった）。
+        /// まだ出していない画面（増やした・再開した）と、位置・大きさが変わった画面は、見えないまま描かせ、描き終わってから見せる。
+        /// </summary>
         private void BringForward(MainWindow from)
         {
-            // タブで隠れている画面へ切り替えるときは、今の画面の後ろで先に描かせてから入れ替える（2026-11-05）。
-            if (from != null && !ReferenceEquals(from, this) && from.IsVisible && !IsVisible
-                && from.WindowState != WindowState.Minimized && _stack.Count > 0)
-            {
-                BringForwardBehind(from);
-                return;
-            }
+            var token = ++_switchToken;
 
-            // 切り替えの時間を perf.log に書く（2026-11-05。app.json の perfLog が true のときだけ）。タブの切り替えがもっさりする原因を探すため。
-            var measuring = PerfLog.Enabled && !IsVisible;
+            // 切り替えの時間を perf.log に書く（2026-11-05。app.json の perfLog が true のときだけ）。
+            var measuring = PerfLog.Enabled && !IsOnScreen;
             if (measuring) PerfLog.BeginSteps("タブ " + _windowNumber + (_stack.Count > 0 ? " " + System.IO.Path.GetFileName(_stack[0].FilePath) : string.Empty));
 
             var started = PerfLog.Start();
+            var before = new Rect(Left, Top, Width, Height);
+            var state = WindowState;
             if (from != null && !ReferenceEquals(from, this)) PlaceLike(from);
             if (WindowState == WindowState.Minimized) WindowState = WindowState.Normal;
+            var moved = before != new Rect(Left, Top, Width, Height) || state != WindowState;
             PerfLog.Step("位置合わせ", started);
 
-            started = PerfLog.Start();
-            Show();
-            PerfLog.Step("Show", started);
-
-            started = PerfLog.Start();
-            Activate();
-            PerfLog.Step("Activate", started);
-            _frontWindow = this;
-
-            // ダイアログを出している画面は隠さない（起動のとき、戻している画面が「フォルダを作りますか」などを尋ねている最中に、
-            // 最初の画面を前に出すことがある。隠すと、尋ねている窓が見えなくなる。2026-11-02）。後ろに重なって残るだけ。
-            started = PerfLog.Start();
-            foreach (var other in OpenWindows.Where(window => !ReferenceEquals(window, this) && window.IsVisible && !window.IsShowingDialog()).ToList())
-                other.Hide();
-            PerfLog.Step("ほかを隠す", started);
-
-            if (measuring)
+            if (!IsVisible)
             {
                 started = PerfLog.Start();
-                UpdateLayout();
-                PerfLog.Step("配置", started);
-                FinishStepsLater();
+                ShowCloaked();
+                PerfLog.Step("見えないまま出す", started);
+                moved = true;
             }
-        }
 
-        /// <summary>入れ替えを待っている切り替えの番号。新しい切り替えが来たら、待っていた分はやめる。</summary>
-        private static int _switchToken;
+            if (!_cloaked || !moved)
+            {
+                SwapIn(token, measuring);
+                return;
+            }
 
-        /// <summary>
-        /// 隠れている画面を、今の画面（from）のすぐ後ろに出して描かせ、描き終わってから前に出してほかを隠す（2026-11-05）。
-        /// 前は前に出してから描いたので、描いている途中（空の窓・AI の欄が遅れて出る）が見え、ちらついてもっさりして見えた
-        /// （perf.log では綴の処理は 0.05〜0.3 秒で終わっていて、残りは隠していた窓を出し直す Windows の側の時間だった）。
-        /// 入れ替えは、配置が済んで（Loaded の優先度）から描画を2回待ったあと。待つ間も今の画面はそのまま見えていて、操作もできる。
-        /// </summary>
-        private void BringForwardBehind(MainWindow from)
-        {
-            var token = ++_switchToken;
-            var measuring = PerfLog.Enabled;
-            if (measuring) PerfLog.BeginSteps("タブ(後ろで描く) " + _windowNumber + " " + System.IO.Path.GetFileName(_stack[0].FilePath));
-
-            var started = PerfLog.Start();
-            PlaceLike(from);
-
-            var window = new WindowInteropHelper(this).EnsureHandle();
-            var under = new WindowInteropHelper(from).Handle;
-            PlaceBelow(window, under);
-
-            var activate = ShowActivated;
-            ShowActivated = false;   // 出すだけで前に出さない（SW_SHOWNA。重なりの順は上で決めた所のまま）
-            Show();
-            ShowActivated = activate;
-            PlaceBelow(window, under);
-            PerfLog.Step("後ろに出す", started);
-
+            // 配置が済んで（Loaded の優先度）から描画を2回待ち、DWM が絵を受け取るのを待ってから見せる。待つ間も今の画面はそのまま見えていて、操作もできる。
             Dispatcher.BeginInvoke(new Action(delegate
             {
                 PerfLog.StepMark("配置後");
@@ -320,28 +285,144 @@ namespace Tsuzuri
                 rendering = delegate
                 {
                     if (++frames < 2 && token == _switchToken) return;
-                    System.Windows.Media.CompositionTarget.Rendering -= rendering;
+                    CompositionTarget.Rendering -= rendering;
                     PerfLog.StepMark("描画");
 
-                    // 待っている間にほかの切り替えが来た・閉じた等なら、入れ替えない（隠すのは次の切り替えがやる）。
-                    if (token != _switchToken || !IsVisible || !OpenWindows.Contains(this)) return;
-
-                    var swap = PerfLog.Start();
-                    Activate();
-                    _frontWindow = this;
-                    foreach (var other in OpenWindows.Where(each => !ReferenceEquals(each, this) && each.IsVisible && !each.IsShowingDialog()).ToList())
-                        other.Hide();
-                    PerfLog.Step("入れ替え", swap);
-
-                    if (measuring)
-                        Dispatcher.BeginInvoke(new Action(delegate
-                        {
-                            PerfLog.StepMark("落ち着き");
-                            PerfLog.EndSteps();
-                        }), DispatcherPriority.ApplicationIdle);
+                    Dispatcher.BeginInvoke(new Action(delegate
+                    {
+                        try { DwmFlush(); } catch (Exception) { }
+                        PerfLog.StepMark("DWM");
+                        SwapIn(token, measuring);
+                    }), DispatcherPriority.Background);
                 };
-                System.Windows.Media.CompositionTarget.Rendering += rendering;
+                CompositionTarget.Rendering += rendering;
             }), DispatcherPriority.Loaded);
+        }
+
+        /// <summary>この画面を見せて前に出し、ほかの画面を見えなくする。待っている間にほかの切り替えが来た・閉じた等なら、何もしない（次の切り替えがやる）。</summary>
+        private void SwapIn(int token, bool measuring)
+        {
+            if (token != _switchToken || !IsVisible || !OpenWindows.Contains(this))
+            {
+                if (measuring) PerfLog.EndSteps();
+                return;
+            }
+
+            var started = PerfLog.Start();
+            SetCloaked(false);
+            Activate();
+            _frontWindow = this;
+
+            // ダイアログを出している画面は見えなくしない（起動のとき、戻している画面が「フォルダを作りますか」などを尋ねている最中に、
+            // 最初の画面を前に出すことがある。見えなくすると、尋ねている窓が見えなくなる。2026-11-02）。後ろに重なって残るだけ。
+            foreach (var other in OpenWindows.Where(each => !ReferenceEquals(each, this) && each.IsOnScreen && !each.IsShowingDialog()).ToList())
+                other.SetCloaked(true);
+            PerfLog.Step("入れ替え", started);
+
+            if (measuring)
+                Dispatcher.BeginInvoke(new Action(delegate
+                {
+                    PerfLog.StepMark("落ち着き");
+                    PerfLog.EndSteps();
+                }), DispatcherPriority.ApplicationIdle);
+        }
+
+        /// <summary>入れ替えを待っている切り替えの番号。新しい切り替えが来たら、待っていた分はやめる。</summary>
+        private static int _switchToken;
+
+        /// <summary>DWM の cloak で見えなくしているか（窓は出したまま。描き続け、絵も残る）。</summary>
+        private bool _cloaked;
+
+        /// <summary>画面に見えているか（出していて、見えなくしていない）。窓の IsVisible は、見えなくしている画面でも true。</summary>
+        private bool IsOnScreen
+        {
+            get { return IsVisible && !_cloaked; }
+        }
+
+        /// <summary>
+        /// 窓を出したまま、見えなくする・見せる（DWM の cloak。Windows 8 から。仮想デスクトップと同じ仕組み）。
+        /// 見えなくした画面はタスクバーのボタンも外す（ボタンと Alt+Tab は、画面がいくつあっても1つ）。効かない環境では何もしない。
+        /// </summary>
+        private void SetCloaked(bool cloaked)
+        {
+            var window = new WindowInteropHelper(this).EnsureHandle();
+            var changed = _cloaked != cloaked;
+            _cloaked = cloaked;
+
+            try
+            {
+                var value = cloaked ? 1 : 0;
+                DwmSetWindowAttribute(window, DwmaCloak, ref value, sizeof(int));
+            }
+            catch (Exception)
+            {
+            }
+
+            if (IsVisible)
+            {
+                try
+                {
+                    var taskbar = Taskbar();
+                    if (cloaked) taskbar.DeleteTab(window);
+                    else taskbar.AddTab(window);
+                }
+                catch (Exception)
+                {
+                }
+            }
+
+            // 前は初めて前に出たときに戻していた AI の会話のタブ（RestoreAiTabsWhenShown）を、見せたときに戻す。
+            if (changed && !cloaked && _aiRestorePending)
+                Dispatcher.BeginInvoke(new Action(RestoreAiTabsWhenShown), DispatcherPriority.ApplicationIdle);
+        }
+
+        /// <summary>見えないまま窓を出す（前に出さない）。タスクバーのボタンは、出したあと Windows が付けるので、落ち着いてからもう一度外す。</summary>
+        private void ShowCloaked()
+        {
+            SetCloaked(true);
+            var activate = ShowActivated;
+            ShowActivated = false;
+            Show();
+            ShowActivated = activate;
+            SetCloaked(true);
+
+            Dispatcher.BeginInvoke(new Action(delegate
+            {
+                if (_cloaked && IsVisible) SetCloaked(true);
+            }), DispatcherPriority.ApplicationIdle);
+        }
+
+        private const int DwmaCloak = 13;   // DWMWA_CLOAK
+
+        [DllImport("dwmapi.dll")]
+        private static extern int DwmFlush();
+
+        private static ITaskbarList _taskbar;
+
+        private static ITaskbarList Taskbar()
+        {
+            if (_taskbar == null)
+            {
+                var list = (ITaskbarList)new TaskbarListObject();
+                list.HrInit();
+                _taskbar = list;
+            }
+            return _taskbar;
+        }
+
+        [ComImport, Guid("56FDF342-FD6D-11d0-958A-006097C9A090"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+        private interface ITaskbarList
+        {
+            void HrInit();
+            void AddTab(IntPtr window);
+            void DeleteTab(IntPtr window);
+            void ActivateTab(IntPtr window);
+            void SetActiveAlt(IntPtr window);
+        }
+
+        [ComImport, Guid("56FDF344-FD6D-11d0-958A-006097C9A090")]
+        private class TaskbarListObject
+        {
         }
 
         private const uint SwpNoSize = 0x0001, SwpNoMove = 0x0002, SwpNoActivate = 0x0010;
@@ -359,8 +440,8 @@ namespace Tsuzuri
         /// <summary>前に出ている画面。無ければ、見えている画面のどれか。</summary>
         private static MainWindow FrontWindow()
         {
-            if (_frontWindow != null && OpenWindows.Contains(_frontWindow) && _frontWindow.IsVisible) return _frontWindow;
-            return OpenWindows.FirstOrDefault(window => window.IsVisible);
+            if (_frontWindow != null && OpenWindows.Contains(_frontWindow) && _frontWindow.IsOnScreen) return _frontWindow;
+            return OpenWindows.FirstOrDefault(window => window.IsOnScreen);
         }
 
         /// <summary>
@@ -370,7 +451,7 @@ namespace Tsuzuri
         private void ShowBeforeAsking()
         {
             // 閉じている最中の窓は Show できない（落ちる）。閉じる前に前に出しておく（CloseShowingFirst）。そうでない閉じ方（タスクバーなど）では、出さずに尋ねる。
-            if (!IsVisible && !_closing) BringForward(FrontWindow());
+            if (!IsOnScreen && !_closing) BringForward(FrontWindow());
         }
 
         /// <summary>この画面の Closing を処理している最中。</summary>

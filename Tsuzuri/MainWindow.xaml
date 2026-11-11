@@ -107,7 +107,7 @@
             <Grid.ColumnDefinitions>
                 <ColumnDefinition x:Name="SidebarColumn" Width="190" MinWidth="110" />
                 <ColumnDefinition x:Name="SplitterColumn" Width="4" />
-                <ColumnDefinition Width="*" MinWidth="280" />
+                <ColumnDefinition x:Name="EditorColumn" Width="*" MinWidth="280" />
                 <ColumnDefinition x:Name="AiSplitterColumn" Width="0" />
                 <ColumnDefinition x:Name="AiColumn" Width="0" />
             </Grid.ColumnDefinitions>
@@ -244,7 +244,7 @@
             <!-- AI の欄 (SPEC 19章)。「AI」で出し入れする。中は会話のタブごとの端末（Views/TerminalView。WebView2 の xterm.js と ConPTY）で、PowerShell の中で Claude Code が動く -->
             <GridSplitter x:Name="AiSplitter" Grid.Column="3" Width="4" Visibility="Collapsed"
                           HorizontalAlignment="Stretch" VerticalAlignment="Stretch"
-                          DragCompleted="AiSplitter_DragCompleted" />
+                          DragCompleted="AiSplitter_DragCompleted" MouseDoubleClick="AiSplitter_MouseDoubleClick" />
 
             <Border x:Name="AiPane" Grid.Column="4" Visibility="Collapsed" Background="{StaticResource PageBackground}">
                 <DockPanel>

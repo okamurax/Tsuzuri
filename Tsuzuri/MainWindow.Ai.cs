@@ -805,6 +805,19 @@ namespace Tsuzuri
             StoreAiWidth();
         }
 
+        /// <summary>仕切りをダブルクリックしたら、エディタと AI の欄を同じ幅にする（2026-11-11）。</summary>
+        private void AiSplitter_MouseDoubleClick(object sender, MouseButtonEventArgs e)
+        {
+            e.Handled = true;
+
+            var half = Math.Floor((EditorColumn.ActualWidth + AiColumn.ActualWidth) / 2);
+            if (half < 200) return;
+
+            AiColumn.Width = new GridLength(half);
+            UpdateLayout();
+            StoreAiWidth();
+        }
+
         /// <summary>
         /// エディタを閉じるとき。claude も終わらせる（残すと窓の無いまま動き続ける）。
         /// WebView2 も片付け、このエディタの設定・状態のファイル（settings-番号.json・context-番号.md）も消す（2026-10-27。前は溜まっていった）。

@@ -1862,7 +1862,9 @@ namespace Tsuzuri
 
             if (lost > 0) RebuildStack(false);
 
-            _outlineSignature = null;
+            // 見出しの構成が同じなら、アウトラインの木は作り直さず行番号だけ合わせる（打ったときと同じ。2026-11-11）。
+            // 前は読み直すたびに作り直していて、2万行・見出し千あまりの文書を Claude が書き換えるたびに、木を丸ごと作り直していた
+            // （隠れた画面で起きると、次に前に出したときに配置と描画をまとめて払い、1 秒ほど止まって GC が 50 回走った）。
             RefreshOutline();
             RefreshPageTitles();
             UpdateChrome();

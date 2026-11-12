@@ -278,6 +278,19 @@ namespace Tsuzuri.Export
             Wrote();
         }
 
+        /// <summary>改ページ（2026-11-12。Markdown の <c>***</c>）。</summary>
+        public void PageBreak()
+        {
+            Start("p");
+            Start("r");
+            Start("br");
+            Attr("type", "page");
+            End();
+            End();
+            End();
+            Wrote();
+        }
+
         /// <summary>画像だけの段落。大きさは EMU で渡す。</summary>
         public void Image(ParagraphFormat format, byte[] data, string extension, long width, long height, string description)
         {

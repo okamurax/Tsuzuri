@@ -171,7 +171,85 @@ namespace Tsuzuri.Export
             var inner = context.Clone();
             inner.Document = document;
 
-            WriteBlocks(tree, inner);
+            WritePageBlocks(tree, text, inner);
+        }
+
+        /// <summary>
+        /// ページの一番上の段の並びを書く（2026-11-12）。エディタで見えている空行は、Word でも空の段落にして残す（段落の間は詰めてあるので、残さないと消える）。
+        /// <c>***</c>（* で書いた区切り線）は改ページにする。改ページの前後の空行は残さない（ページの頭や末尾に空きができるだけなので）。
+        /// HTML（コメントなど）は書き出さないので、その前の空行も残さず、後ろの空行だけ残す（覚え書きの前後で空きが2重にならないように）。
+        /// 箇条書き・引用の中の空行は、今までどおり残さない。
+        /// </summary>
+        private void WritePageBlocks(ContainerBlock tree, string text, Context context)
+        {
+            var lines = text.Replace("\r\n", "\n").Replace('\r', '\n').Split('\n');
+            var lineStarts = LineStarts(text);
+            var previousEnd = -1;   // 前に書いた段の最後の行。-1 はページの頭
+            var afterBreak = false;
+
+            foreach (var block in tree)
+            {
+                // 参照リンクの定義・脚注の塊は、置き場所が本文の並びと合わないので、空行の数え方に入れない。
+                if (block is LinkReferenceDefinitionGroup || block is FootnoteGroup || block.Span.IsEmpty || block.Span.Start < 0)
+                {
+                    WriteBlock(block, context);
+                    continue;
+                }
+
+                var first = LineAt(lineStarts, block.Span.Start);
+                var last = LineAt(lineStarts, Math.Max(block.Span.Start, block.Span.End));
+
+                if (IsPageBreak(block))
+                {
+                    _docx.PageBreak();
+                    previousEnd = Math.Max(previousEnd, last);
+                    afterBreak = true;
+                    continue;
+                }
+
+                if (block is HtmlBlock)
+                {
+                    previousEnd = Math.Max(previousEnd, last);
+                    continue;
+                }
+
+                if (previousEnd >= 0 && !afterBreak)
+                {
+                    for (var line = previousEnd + 1; line < first && line < lines.Length; line++)
+                    {
+                        if (string.IsNullOrWhiteSpace(lines[line])) _docx.Paragraph(null, new Piece[0]);
+                    }
+                }
+
+                WriteBlock(block, context);
+                afterBreak = false;
+                previousEnd = Math.Max(previousEnd, last);
+            }
+        }
+
+        /// <summary>改ページの印か。<c>*</c> で書いた区切り線（<c>***</c>・<c>* * *</c>）。<c>---</c>・<c>___</c> は今までどおり線。</summary>
+        private static bool IsPageBreak(Block block)
+        {
+            var rule = block as ThematicBreakBlock;
+            return rule != null && rule.ThematicChar == '*';
+        }
+
+        private static List<int> LineStarts(string text)
+        {
+            var starts = new List<int> { 0 };
+            for (var i = 0; i < text.Length; i++)
+            {
+                if (text[i] == '\n') starts.Add(i + 1);
+                else if (text[i] == '\r' && (i + 1 >= text.Length || text[i + 1] != '\n')) starts.Add(i + 1);
+            }
+            return starts;
+        }
+
+        /// <summary>文字の位置が何行目か（0 始まり）。</summary>
+        private static int LineAt(List<int> lineStarts, int offset)
+        {
+            var index = lineStarts.BinarySearch(offset);
+            return index >= 0 ? index : ~index - 1;
         }
 
         private void WriteBlocks(ContainerBlock container, Context context)

@@ -7,7 +7,7 @@ using Tsuzuri.Markdown;
 namespace Tsuzuri.Views
 {
     /// <summary>
-    /// 水平線（`---`）を本当の線として描く（SPEC 8章）。
+    /// 水平線（`---`）を本当の線として描く（SPEC 8章）。`***` は Word の書き出しで改ページになるので2重線にする。
     ///
     /// AvalonEdit は行に罫線を引けないので、背景の層に自分で描く。
     /// `---` の文字そのものは、カーソルの無い行では画面から消している。
@@ -45,8 +45,26 @@ namespace Tsuzuri.Views
                 // 0.5 ずらして 1px の線がぼやけないようにする。
                 var y = Math.Round(top + visualLine.Height / 2.0) + 0.5;
 
+                // `***`（* で書いた区切り線）は Word の書き出しで改ページになるので、2重線にして見分ける（2026-11-12。SPEC 13章）。
+                if (IsPageBreak(textView, visualLine))
+                {
+                    drawingContext.DrawLine(Stroke, new Point(0, y - 2), new Point(width, y - 2));
+                    drawingContext.DrawLine(Stroke, new Point(0, y + 2), new Point(width, y + 2));
+                    continue;
+                }
+
                 drawingContext.DrawLine(Stroke, new Point(0, y), new Point(width, y));
             }
+        }
+
+        private static bool IsPageBreak(TextView textView, VisualLine visualLine)
+        {
+            var document = textView.Document;
+            if (document == null) return false;
+
+            var line = visualLine.FirstDocumentLine;
+            var text = document.GetText(line.Offset, line.Length).TrimStart(' ', '\t');
+            return text.Length > 0 && text[0] == '*';
         }
 
         private static Pen CreatePen()

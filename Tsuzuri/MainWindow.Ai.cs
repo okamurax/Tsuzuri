@@ -118,7 +118,9 @@ namespace Tsuzuri
   「ここ」「この節」「選んだところ」「このページ」は、それを指す。文字を選んでいて「これ」「直して」と言われたら、選んだところが相手。
   「この文書」「このファイル」「全体」は、ファイル全体（全部のページ）を指す。
 - ファイルは書き換えてよい。エディタは書き換えを知らされて、すぐ読み直す（エディタに保存していない編集がある文書は読み直さない）。
-  書き換える前には必ずファイルを読み直すこと。利用者がエディタで編集・保存していることがある。
+  書き換える前には必ずファイルを読み直すこと。利用者がエディタで編集・保存していることがある。読み直すのは、変える場所の前後だけでよい。
+- 本文を読むときは、先頭から読まない。まず今の状態の「まず読む範囲」（カーソルの前後）だけを Read の offset・limit で読み、足りなければ広げる。
+  ページ全体・ファイル全体が相手の頼み（「このページをまとめて」「全体を見て」）なら、その範囲を読む。探すときは Grep を使う。
   今の状態に「保存できていない編集がある」とあれば、その文書は書き換えず、先にエディタで保存してもらうよう利用者に頼む
   （書き換えると、利用者の編集か書き換えのどちらかが消える。このときの行番号もファイルと合わない）。
 - ファイルの形式:
@@ -1762,6 +1764,21 @@ namespace Tsuzuri
             if (before >= 0) text.Append("（ファイルの ").Append(before + line).Append(" 行目）");
             text.Append(": ").Append(view.Document.GetText(view.Document.GetLineByNumber(line))).Append('\n');
 
+            // まず読む範囲（2026-11-13）。何も言わないと Claude は先頭から 2000 行読むことがあり、数万行の文書では会話がすぐ埋まる。
+            // このエディタには必ずカーソルがあるので、その前後をページの範囲の中で渡す。ページが短ければページ全体。絶対ではなく、足りなければ広げさせる。
+            if (before >= 0 && first > 0)
+            {
+                var at = before + line;
+                int from = first, to = last;
+                if (last - first + 1 > ReadAroundLines * 2)
+                {
+                    from = Math.Max(first, at - ReadAroundLines);
+                    to = Math.Min(last, at + ReadAroundLines);
+                }
+                text.Append("まず読む範囲: ファイルの ").Append(from).Append("〜").Append(to).Append(" 行目（Read の offset ").Append(from)
+                    .Append("・limit ").Append(to - from + 1).Append("）。先頭から読まない。足りなければ広げる\n");
+            }
+
             var selected = view.SimpleSelectedText;
             if (!string.IsNullOrEmpty(selected.Trim()))
             {
@@ -1842,6 +1859,9 @@ namespace Tsuzuri
             text.Append("ほかに開いている文書（利用者が名前やタブの名前で指したら、これのこと。中身はファイルを読む）:\n");
             foreach (var line in lines) text.Append(line).Append('\n');
         }
+
+        /// <summary>今の状態の「まず読む範囲」で、カーソルの前後に何行ずつ取るか。ページがこの2倍より短ければページ全体。</summary>
+        private const int ReadAroundLines = 100;
 
         private static string PageLabel(MarkdownView view)
         {

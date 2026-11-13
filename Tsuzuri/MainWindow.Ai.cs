@@ -114,6 +114,7 @@ namespace Tsuzuri
   - Mermaid: 本文に Mermaid のコードブロックで書く（Tsuzuri の画面では図にならず、コードのまま見える）
   尋ねるときは、何をどこに描くつもりかも一言添える。Markdown の表は図ではないので、尋ねずに表で書く。
 - 利用者が話しかけるたびに、エディタの今の状態（開いているファイル・見ているページ・カーソルの行・選んでいる文字）が付いてくる。
+  ほかの画面や休止している画面で開いている文書の場所も「ほかに開いている文書」として付いてくる。利用者が見ていない文書の名前やタブの名前で話したら、その一覧から探す。
   「ここ」「この節」「選んだところ」「このページ」は、それを指す。文字を選んでいて「これ」「直して」と言われたら、選んだところが相手。
   「この文書」「このファイル」「全体」は、ファイル全体（全部のページ）を指す。
 - ファイルは書き換えてよい。エディタは書き換えを知らされて、すぐ読み直す（エディタに保存していない編集がある文書は読み直さない）。
@@ -1715,6 +1716,7 @@ namespace Tsuzuri
             if (view == null || view.Owner == null)
             {
                 text.Append("ファイルは開いていない。\n");
+                AppendOtherDocuments(text, null);
                 AppendAiShellContext(text);
                 return text.ToString();
             }
@@ -1726,6 +1728,7 @@ namespace Tsuzuri
             {
                 text.Append("見ている文書は、利用者が AI に渡さないと決めた場所（目印 ").Append(AiGuard.MarkerName)
                     .Append(" のあるフォルダの中）にある。場所も中身も渡していない。尋ねたり探したりしない。\n");
+                AppendOtherDocuments(text, document);
                 AppendAiShellContext(text);
                 return text.ToString();
             }
@@ -1771,6 +1774,7 @@ namespace Tsuzuri
             if (_stack.Any(page => page.IsDirty))
                 text.Append("エディタに保存できていない編集がある。ファイルの中身はエディタの画面より古く、行番号もファイルと合わない。この文書は書き換えず、先に保存してもらう。\n");
 
+            AppendOtherDocuments(text, document);
             AppendAiShellContext(text);   // 共通ターミナルの画面（2026-11-08）
 
             // 図の頼みは、最初の指示に書くだけでは罫線で描かれた（2026-11-01）。話しかけるたびに1行だけ念を押す（書き方そのものは渡さない）。
@@ -1782,6 +1786,61 @@ namespace Tsuzuri
                     .Append(AiDrawingFormat).Append(" を読む）。\n");
 
             return text.ToString();
+        }
+
+        /// <summary>
+        /// 見ている文書のほかに開いている文書を、今の状態に足す（2026-11-13）。この画面で右に開いた別の文書・ほかの画面・休止している画面の文書。
+        /// 画面 B の AI の欄で「A の文書について」と話しても通じるように。場所と、その画面で見ているページ、保存できていない編集があるかを書く。
+        /// AI に渡さない場所（AiGuard）の文書は書かない（あることも書かない）。
+        /// </summary>
+        /// <param name="current">見ている文書。無ければ null。</param>
+        private void AppendOtherDocuments(StringBuilder text, PageDocument current)
+        {
+            var lines = new List<string>();
+            var listed = new List<string>();
+            if (current != null && !string.IsNullOrEmpty(current.FilePath)) listed.Add(current.FilePath);
+
+            Func<string, bool> fresh = path =>
+            {
+                if (string.IsNullOrEmpty(path) || AiGuard.IsGuarded(path)) return false;
+                if (listed.Any(seen => SamePath(seen, path))) return false;
+                listed.Add(path);
+                return true;
+            };
+
+            for (var i = 0; i < OpenWindows.Count; i++)
+            {
+                var window = OpenWindows[i];
+                var where = ReferenceEquals(window, this) ? "この画面" : "画面 " + (i + 1) + "（タブ「" + window.WindowLabel(false) + "」）";
+                var shown = window.Active;
+                foreach (var group in window._stack.Where(view => view.Owner != null).GroupBy(view => view.Owner))
+                {
+                    var first = group.First();
+                    if (!fresh(first.FilePath)) continue;
+
+                    var line = new StringBuilder("- ").Append(where).Append(": ");
+                    var link = window.WordPressLinkOf(first);
+                    line.Append(link != null ? "WordPress の記事「" + first.Title + "」の一時ファイル " : string.Empty).Append(first.FilePath);
+                    if (shown != null && ReferenceEquals(shown.Owner, group.Key))
+                        line.Append("（その画面で見ているページ: ").Append(PageLabel(shown)).Append("）");
+                    if (group.Any(view => view.IsDirty))
+                        line.Append("（エディタに保存できていない編集がある。書き換えない）");
+                    lines.Add(line.ToString());
+                }
+            }
+
+            foreach (var session in _settings.Windows.Where(session => session.Suspended && session.Screen != null && session.Screen.Pages != null))
+            {
+                foreach (var page in session.Screen.Pages)
+                {
+                    if (page == null || !fresh(page.File)) continue;
+                    lines.Add("- 休止している画面（タブ「" + session.Title + "」）: " + page.File);
+                }
+            }
+
+            if (lines.Count == 0) return;
+            text.Append("ほかに開いている文書（利用者が名前やタブの名前で指したら、これのこと。中身はファイルを読む）:\n");
+            foreach (var line in lines) text.Append(line).Append('\n');
         }
 
         private static string PageLabel(MarkdownView view)

@@ -725,7 +725,7 @@ namespace Tsuzuri
                     .Replace("{ssh-askpass}", askpass)
                     .Replace("{ssh-session}", Path.Combine(AiFolder, "ssh-session.ps1"))
                     .Replace("{terminal}", Path.Combine(AiFolder, "terminal.ps1")));
-                File.WriteAllText(settings, AiSettings(_aiContextPath, AiPipeName), new UTF8Encoding(false));
+                File.WriteAllText(settings, AiSettings(_aiContextPath, AiPipeName, StartAiHttp()), new UTF8Encoding(false));
                 WriteAiContext(null);
                 Dispatcher.BeginInvoke(new Action(RefreshAiFileLinks));   // 今の状態・フックの設定を書いたので、下端のボタンに出す（2026-11-08）
             }
@@ -828,6 +828,7 @@ namespace Tsuzuri
         private void StopAi()
         {
             _aiStopping = true;
+            StopAiHttp();
 
             // つながりを待っている口を閉じて、待つスレッドを終わらせる。
             var waiting = _aiWaiting;
@@ -935,7 +936,7 @@ namespace Tsuzuri
         ///   そのあとで今の状態のファイルを出力する。出力は Claude への文脈になる。
         ///   つながらなくても、状態のファイルが残っていれば前に書いた状態をそのまま出す（エディタを閉じるとファイルは消える（StopAi）ので、そのときは何も出さない）
         /// </summary>
-        private static string AiSettings(string contextPath, string pipeName)
+        private static string AiSettings(string contextPath, string pipeName, string http)
         {
             var connect =
                 "$c=New-Object System.IO.Pipes.NamedPipeClientStream('.','" + pipeName + "',[System.IO.Pipes.PipeDirection]::InOut);";
@@ -980,10 +981,22 @@ namespace Tsuzuri
                 "[Console]::OutputEncoding=[System.Text.Encoding]::UTF8;" +
                 "if(Test-Path -LiteralPath " + quoted + "){[Console]::Out.Write([System.IO.File]::ReadAllText(" + quoted + "))}";
 
+            // HTTP の口を開けていれば（2026-11-15。MainWindow.AiHttp.cs）、ツールのたび・話しかけるたびのフックは HTTP で受ける。
+            // PowerShell の起動（1 回 0.3〜1 秒）が無くなる。開けなければ今までどおり PowerShell。会話の始まり・終わりは HTTP にしない（始まりは HTTP を使えない。どちらも1回だけ）。
+            var pre = http != null
+                ? "{\"type\":\"http\",\"url\":\"" + http + "pre\",\"timeout\":10}"
+                : "{\"type\":\"command\",\"timeout\":10,\"command\":\"" + PowerShell(guard) + "\"}";
+            var post = http != null
+                ? "{\"type\":\"http\",\"url\":\"" + http + "post\",\"timeout\":30}"
+                : "{\"type\":\"command\",\"command\":\"" + PowerShell(notify) + "\"}";
+            var prompt = http != null
+                ? "{\"type\":\"http\",\"url\":\"" + http + "prompt\",\"timeout\":300}"
+                : "{\"type\":\"command\",\"timeout\":300,\"command\":\"" + PowerShell(context) + "\"}";
+
             return "{\"hooks\":{" +
-                   "\"PreToolUse\":[{\"matcher\":\"Read|Edit|Write|MultiEdit|NotebookEdit|Grep|Glob|Bash|PowerShell\",\"hooks\":[{\"type\":\"command\",\"timeout\":10,\"command\":\"" + PowerShell(guard) + "\"}]}]," +
-                   "\"PostToolUse\":[{\"matcher\":\"Edit|Write|MultiEdit|NotebookEdit|Bash\",\"hooks\":[{\"type\":\"command\",\"command\":\"" + PowerShell(notify) + "\"}]}]," +
-                   "\"UserPromptSubmit\":[{\"hooks\":[{\"type\":\"command\",\"timeout\":300,\"command\":\"" + PowerShell(context) + "\"}]}]," +
+                   "\"PreToolUse\":[{\"matcher\":\"Read|Edit|Write|MultiEdit|NotebookEdit|Grep|Glob|Bash|PowerShell\",\"hooks\":[" + pre + "]}]," +
+                   "\"PostToolUse\":[{\"matcher\":\"Edit|Write|MultiEdit|NotebookEdit|Bash\",\"hooks\":[" + post + "]}]," +
+                   "\"UserPromptSubmit\":[{\"hooks\":[" + prompt + "]}]," +
                    "\"SessionStart\":[{\"hooks\":[{\"type\":\"command\",\"command\":\"" + PowerShell(SessionHook(connect, "session")) + "\"}]}]," +
                    "\"SessionEnd\":[{\"hooks\":[{\"type\":\"command\",\"command\":\"" + PowerShell(SessionHook(connect, "ended")) + "\"}]}]" +
                    "}}";
@@ -1078,10 +1091,53 @@ namespace Tsuzuri
             var input = new List<KeyValuePair<string, string>>();
             for (var i = 2; i + 1 < parts.Count; i += 2) input.Add(new KeyValuePair<string, string>(parts[i], parts[i + 1]));
 
-            var answer = AiGuard.Check(parts[0], parts[1], input);
+            return CheckAiGuard(parts[0], parts[1], input);
+        }
+
+        /// <summary>AiGuard で確かめる。断ったら、下端の状態の行でも知らせる。断るなら理由、よければ null。</summary>
+        private string CheckAiGuard(string tool, string cwd, IList<KeyValuePair<string, string>> input)
+        {
+            var answer = AiGuard.Check(tool, cwd, input);
             if (answer != null)
-                Dispatcher.BeginInvoke(new Action(() => Status("Claude が AI に渡さない場所（" + AiGuard.MarkerName + "）を開こうとしたので、断りました（" + parts[0] + "）。")));
+                Dispatcher.BeginInvoke(new Action(() => Status("Claude が AI に渡さない場所（" + AiGuard.MarkerName + "）を開こうとしたので、断りました（" + tool + "）。")));
             return answer;
+        }
+
+        /// <summary>
+        /// 話しかけられたとき（UserPromptSubmit）。共通ターミナルの画面を読み、保存して今の状態を書き出す。済むまで待つ（パイプのスレッド・HTTP のスレッドから）。
+        /// </summary>
+        private void PrepareAiPrompt()
+        {
+            // 共通ターミナルの画面を先に読む（2026-11-08）。読むのはページの中の式で、画面のスレッドが空いていないと返らないので、ここで待つ。
+            _aiShellScreen = ReadAiShellScreen(AiShellTailLines, 2000);
+
+            // 未保存の編集があれば、保存してから渡す（2026-10-25。話しかけたら保存してよいと決めた）。
+            // 外で書き換わっていて上書きするか尋ねている間はフックが待つ。止まったままにはしないよう、
+            // 4分半で諦めて前の状態を渡させる（フックの持ち時間は5分）。
+            Dispatcher.Invoke(new Action(HandleAiPrompt), TimeSpan.FromSeconds(270));
+        }
+
+        /// <summary>
+        /// Claude が書き換えたあと（PostToolUse）。図の画像を先に作り（読み直した本文に新しい図が出るように。待つのは 20 秒まで）、外で変わった文書を読み直す。
+        /// 作れなかった図があればその知らせ、無ければ null。
+        /// </summary>
+        /// <param name="file">書いたファイル（tool_input.file_path）。無ければ null。</param>
+        /// <param name="folder">作業のフォルダ（cwd）。</param>
+        private string HandleAiChanged(string file, string folder)
+        {
+            var written = WrittenPath(file, folder);
+            string problem = null;
+            try
+            {
+                problem = Dispatcher.Invoke(new Func<string>(() => RenderAiDrawings(written)), TimeSpan.FromSeconds(20)) as string;
+            }
+            catch (Exception)
+            {
+                // 作れなくても、読み直しは続ける
+            }
+
+            Dispatcher.BeginInvoke(new Action(ReloadChangedDocuments), DispatcherPriority.Background);
+            return problem;
         }
 
         /// <summary>つながった1つの頼みに応える（そのつながり用のスレッドで）。</summary>
@@ -1096,13 +1152,7 @@ namespace Tsuzuri
 
                     if (request == "prompt")
                     {
-                        // 共通ターミナルの画面を先に読む（2026-11-08）。読むのはページの中の式で、画面のスレッドが空いていないと返らないので、ここで待つ。
-                        _aiShellScreen = ReadAiShellScreen(AiShellTailLines, 2000);
-
-                        // 未保存の編集があれば、保存してから渡す（2026-10-25。話しかけたら保存してよいと決めた）。
-                        // 外で書き換わっていて上書きするか尋ねている間はフックが待つ。止まったままにはしないよう、
-                        // 4分半で諦めて前の状態を渡させる（フックの持ち時間は5分）。
-                        Dispatcher.Invoke(new Action(HandleAiPrompt), TimeSpan.FromSeconds(270));
+                        PrepareAiPrompt();
 
                         var writer = new StreamWriter(server, new UTF8Encoding(false), 256, true);
                         writer.WriteLine("ok");
@@ -1163,18 +1213,7 @@ namespace Tsuzuri
                         // 図の画像を先に作る（読み直した本文に、新しい図が出るように）。待つのは 20 秒まで。
                         // 「changed→書いたファイル→フォルダ」。前の版の claude が起動したままなら「changed」だけが来る。
                         var parts = (request ?? string.Empty).Split('\t');
-                        var written = WrittenPath(parts.Length > 1 ? parts[1] : null, parts.Length > 2 ? parts[2] : null);
-                        string problem = null;
-                        try
-                        {
-                            problem = Dispatcher.Invoke(new Func<string>(() => RenderAiDrawings(written)), TimeSpan.FromSeconds(20)) as string;
-                        }
-                        catch (Exception)
-                        {
-                            // 作れなくても、読み直しは続ける
-                        }
-
-                        Dispatcher.BeginInvoke(new Action(ReloadChangedDocuments), DispatcherPriority.Background);
+                        var problem = HandleAiChanged(parts.Length > 1 ? parts[1] : null, parts.Length > 2 ? parts[2] : null);
 
                         var writer = new StreamWriter(server, new UTF8Encoding(false), 256, true);
                         writer.WriteLine(problem == null ? "ok" : problem.Replace("\r", " ").Replace("\n", " "));

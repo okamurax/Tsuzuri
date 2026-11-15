@@ -185,7 +185,7 @@ namespace Tsuzuri.Export
             var lines = text.Replace("\r\n", "\n").Replace('\r', '\n').Split('\n');
             var lineStarts = LineStarts(text);
             var previousEnd = -1;   // 前に書いた段の最後の行。-1 はページの頭
-            var afterBreak = false;
+            var afterBreak = false;   // 改ページ・何も出さなかった段のすぐあと。間の空行を出さない
 
             foreach (var block in tree)
             {
@@ -221,8 +221,11 @@ namespace Tsuzuri.Export
                     }
                 }
 
+                // 何も出さなかった段（サブページを入れないときのサブページへのリンクなど）の後ろの空行は、出さない（2026-11-15。
+                // 前は前後の空行が両方とも空の段落になり、2つ続いた）。前の空行は出したあとなので、1つ残る
+                var written = _docx.Written;
                 WriteBlock(block, context);
-                afterBreak = false;
+                afterBreak = _docx.Written == written;
                 previousEnd = Math.Max(previousEnd, last);
             }
         }

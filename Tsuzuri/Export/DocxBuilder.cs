@@ -690,10 +690,15 @@ namespace Tsuzuri.Export
         {
             End();
             _lastWasTable = true;
+            Written++;
         }
+
+        /// <summary>書いた段落・表の数（2026-11-15）。段を書いたか（何も出さない段があるので）を、前後で比べて知る。</summary>
+        public int Written { get; private set; }
 
         private void Wrote()
         {
+            Written++;
             _paragraphsInCell++;
             _lastWasTable = false;
         }

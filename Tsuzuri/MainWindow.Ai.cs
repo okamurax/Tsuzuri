@@ -1737,7 +1737,11 @@ namespace Tsuzuri
                 return text.ToString();
             }
 
-            var before = document.LinesBefore(view.PageId);
+            // ページの範囲は1回だけ数える（2026-11-15。前は LinesBefore と LineRangeOf で、話しかけるたびにファイル全体を2回書き出して行に分けていた）
+            int first, last;
+            bool toEnd;
+            var ranged = document.LineRangeOf(view.PageId, out first, out last, out toEnd);
+            var before = ranged ? first - 1 : -1;
             var line = view.TextArea.Caret.Line;
 
             text.Append("ファイル: ").Append(document.FilePath).Append('\n');
@@ -1753,9 +1757,7 @@ namespace Tsuzuri
             // 付けると、名前を変える前の記録が出ない。--follow を付けても、大文字小文字だけの変更（TODO.md → todo.md）は Windows の git が辿れなかった。
             // ページの範囲は終わりまで書く（2026-11-01）。「このページに書いて」で、ファイルの末尾（最後のページ）に足さないように。
             text.Append("見ているページ: ").Append(PageLabel(view));
-            int first, last;
-            bool toEnd;
-            if (document.LineRangeOf(view.PageId, out first, out last, out toEnd))
+            if (ranged)
             {
                 text.Append("（中身はファイルの ").Append(first).Append("〜").Append(last).Append(" 行目");
                 text.Append(toEnd ? "。ファイルの末尾まで" : "。" + (last + 1) + " 行目からは別のページ").Append('）');

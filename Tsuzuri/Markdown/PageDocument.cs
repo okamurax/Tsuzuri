@@ -443,30 +443,54 @@ namespace Tsuzuri.Markdown
         /// 書き出したときに、このページの中身がファイルの何行目から何行目までか（1 始まり。印の行は含めない。2026-11-01）。
         /// 終わりは次の印の行の手前、最後のページならファイルの末尾。toEnd は最後のページか。ページが無ければ false。
         /// </summary>
+        private static bool IsMarkerLine(string text, int position, int length)
+        {
+            const string head = "<!--page: ";
+            return length >= head.Length + 3
+                   && string.CompareOrdinal(text, position, head, 0, head.Length) == 0
+                   && string.CompareOrdinal(text, position + length - 3, "-->", 0, 3) == 0;
+        }
+
         public bool LineRangeOf(string id, out int first, out int last, out bool toEnd)
         {
             first = last = 0;
             toEnd = false;
 
-            var lines = Serialize().Replace("\r\n", "\n").Split('\n');
-            var start = 0;   // 中身の1行目の、0 始まりの位置
-            if (!string.IsNullOrEmpty(id))
+            if (string.IsNullOrEmpty(id) && !Contains(id)) return false;
+
+            // 行に分けた配列を作らずに、頭から数える（2026-11-15。数万行の文書で、話しかけるたびに数万本の文字列を作っていた）
+            var text = Serialize();
+            var marker = string.IsNullOrEmpty(id) ? null : "<!--page: " + id + "-->";
+            var start = marker == null ? 0 : -1;   // 中身の1行目の、0 始まりの位置
+            var number = 0;
+            var position = 0;
+            while (true)
             {
-                var marker = "<!--page: " + id + "-->";
-                start = Array.IndexOf(lines, marker) + 1;
-                if (start == 0) return false;
-            }
-            else if (!Contains(id))
-            {
-                return false;
+                var newline = text.IndexOf('\n', position);
+                var length = (newline < 0 ? text.Length : newline) - position;
+                if (newline >= 0 && length > 0 && text[position + length - 1] == '\r') length--;
+
+                if (start < 0)
+                {
+                    if (length == marker.Length && string.CompareOrdinal(text, position, marker, 0, length) == 0) start = number + 1;
+                }
+                else if (number >= start && IsMarkerLine(text, position, length))
+                {
+                    first = start + 1;
+                    last = Math.Max(first, number);
+                    toEnd = false;
+                    return true;
+                }
+
+                if (newline < 0) break;
+                position = newline + 1;
+                number++;
             }
 
-            var end = start;
-            while (end < lines.Length && !(lines[end].StartsWith("<!--page: ", StringComparison.Ordinal) && lines[end].EndsWith("-->", StringComparison.Ordinal))) end++;
-
+            if (start < 0) return false;
             first = start + 1;
-            last = Math.Max(first, end);
-            toEnd = end >= lines.Length;
+            last = Math.Max(first, number + 1);
+            toEnd = true;
             return true;
         }
 

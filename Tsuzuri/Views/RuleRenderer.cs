@@ -62,9 +62,13 @@ namespace Tsuzuri.Views
             var document = textView.Document;
             if (document == null) return false;
 
+            // 2重線にするのは、字下げの浅い（3 字まで）*** だけ（2026-11-15）。Word で改ページにするのはページの一番上の段の *** だけで、
+            // リストの中の字下げした *** は線のまま。前は字下げを見ず、リストの中でも2重線にしていた
             var line = visualLine.FirstDocumentLine;
-            var text = document.GetText(line.Offset, line.Length).TrimStart(' ', '\t');
-            return text.Length > 0 && text[0] == '*';
+            var text = document.GetText(line.Offset, Math.Min(line.Length, 8));
+            var indent = 0;
+            while (indent < text.Length && text[indent] == ' ') indent++;
+            return indent <= 3 && indent < text.Length && text[indent] == '*';
         }
 
         private static Pen CreatePen()

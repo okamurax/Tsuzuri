@@ -188,6 +188,7 @@ namespace Tsuzuri
             {
                 UseDarkTitleBar();
                 DisableTransitions();
+                HookWindowMessages();
             };
 
             // 戻ってきたら、外で変わった文書を読み直す（SPEC 19章）。離れるときに保存するのはやめた（2026-10-25。自動保存をやめた）。

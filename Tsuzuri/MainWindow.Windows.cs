@@ -163,7 +163,7 @@ namespace Tsuzuri
         /// </summary>
         private void CloseShowingFirst()
         {
-            if (!IsOnScreen && _stack.Any(view => view.IsDirty)) BringForward(FrontWindow());
+            if (!IsOnScreen && _stack.Any(view => view.IsDirty)) BringForward(FrontWindow(), true);
             Close();
         }
 
@@ -245,8 +245,9 @@ namespace Tsuzuri
         /// 前は Hide していて、出し直すたびに Windows が窓の描き先を作り直し、最初の絵が届くまでの白い下地が一瞬見えた
         /// （後ろで描かせてから入れ替えても、WPF の描く合図は実際に窓に届く前に来るので防げなかった）。
         /// まだ出していない画面（増やした・再開した）と、位置・大きさが変わった画面は、見えないまま描かせ、描き終わってから見せる。
+        /// 尋ねる前（immediate）は待たずにすぐ見せる（2026-11-15）。待つと、問いが先に別の画面の上に出ていた。白い下地が一瞬見えることがあるのは受け入れる。
         /// </summary>
-        private void BringForward(MainWindow from)
+        private void BringForward(MainWindow from, bool immediate = false)
         {
             var token = ++_switchToken;
 
@@ -271,11 +272,23 @@ namespace Tsuzuri
                 moved = true;
             }
 
-            if (!_cloaked || !moved)
+            if (!_cloaked || !moved || immediate)
             {
                 SwapIn(token, measuring);
                 return;
             }
+
+            // 描画の合図が来ない（画面のロック・全部を最小化など）と見せられないので、1 秒で諦めて見せる（2026-11-15）
+            var done = false;
+            var fallback = new DispatcherTimer(DispatcherPriority.Background, Dispatcher) { Interval = TimeSpan.FromSeconds(fresh ? 3 : 1) };
+            fallback.Tick += delegate
+            {
+                fallback.Stop();
+                if (done) return;
+                done = true;
+                SwapIn(token, measuring);
+            };
+            fallback.Start();
 
             // 配置が済んで（Loaded の優先度）から描画を2回待ち、DWM が絵を受け取るのを待ってから見せる。待つ間も今の画面はそのまま見えていて、操作もできる。
             // 初めて出す画面（増やした・再開した）は、支度の残り（遅らせた処理）が全部済む（ApplicationIdle）まで待ち、描画も4回待つ（2026-11-11）。
@@ -288,17 +301,26 @@ namespace Tsuzuri
                 EventHandler rendering = null;
                 rendering = delegate
                 {
-                    if (++frames < needed && token == _switchToken) return;
+                    if (done || token != _switchToken)
+                    {
+                        CompositionTarget.Rendering -= rendering;
+                        return;
+                    }
+                    if (++frames < needed) return;
                     CompositionTarget.Rendering -= rendering;
                     PerfLog.StepMark("描画");
 
                     Dispatcher.BeginInvoke(new Action(delegate
                     {
+                        if (done) return;
                         try { DwmFlush(); } catch (Exception) { }
                         PerfLog.StepMark("DWM");
+                        done = true;
+                        fallback.Stop();
                         SwapIn(token, measuring);
                     }), DispatcherPriority.Background);
                 };
+                if (done) return;
                 CompositionTarget.Rendering += rendering;
             }), fresh ? DispatcherPriority.ApplicationIdle : DispatcherPriority.Loaded);
         }
@@ -372,6 +394,7 @@ namespace Tsuzuri
                 }
                 catch (Exception)
                 {
+                    _taskbar = null;   // Explorer が作り直されたなど。次は作り直す（2026-11-15）
                 }
             }
 
@@ -379,6 +402,75 @@ namespace Tsuzuri
             if (changed && !cloaked && _aiRestorePending)
                 Dispatcher.BeginInvoke(new Action(RestoreAiTabsWhenShown), DispatcherPriority.ApplicationIdle);
         }
+
+        /// <summary>
+        /// 見えなくしている画面がダイアログを出したら、その画面を見せる（2026-11-15）。起動のときに戻している画面が Loaded で
+        /// 「フォルダを作りますか」などを尋ねると、持ち主の窓が見えないまま問いだけが浮き、閉じると見えない窓にキーボードが移った。
+        /// ダイアログは持ち主の窓を使えなくする（WM_ENABLE）ので、それを合図に、この窓が持ち主の見えている窓があるかを少しの間確かめる。
+        /// </summary>
+        private IntPtr WatchDialogs(IntPtr window, int message, IntPtr wParam, IntPtr lParam, ref bool handled)
+        {
+            if (message != WmEnable || wParam != IntPtr.Zero || !_cloaked) return IntPtr.Zero;
+
+            var tries = 0;
+            var timer = new DispatcherTimer(DispatcherPriority.Input, Dispatcher) { Interval = TimeSpan.FromMilliseconds(50) };
+            timer.Tick += delegate
+            {
+                if (++tries > 40 || !_cloaked || !IsShowingDialog() || !OpenWindows.Contains(this))
+                {
+                    timer.Stop();
+                    return;
+                }
+                if (!HasVisibleOwned(window)) return;
+
+                timer.Stop();
+                var front = FrontWindow();
+                if (front != null && !ReferenceEquals(front, this)) PlaceLike(front);
+                ++_switchToken;   // 待っている切り替えはやめる
+                SetCloaked(false);
+                _frontWindow = this;
+                foreach (var other in OpenWindows.Where(each => !ReferenceEquals(each, this) && each.IsOnScreen && !each.IsShowingDialog()).ToList())
+                    other.SetCloaked(true);
+            };
+            timer.Start();
+            return IntPtr.Zero;
+        }
+
+        /// <summary>この窓が持ち主の、見えている窓（ダイアログ）があるか。</summary>
+        private static bool HasVisibleOwned(IntPtr owner)
+        {
+            var found = false;
+            EnumThreadWindows(GetCurrentThreadId(), (each, unused) =>
+            {
+                if (GetWindow(each, GwOwner) == owner && IsWindowVisible(each)) found = true;
+                return !found;
+            }, IntPtr.Zero);
+            return found;
+        }
+
+        /// <summary>窓を作ったら（SourceInitialized）呼ぶ。ダイアログの見張り（WatchDialogs）を付ける。</summary>
+        private void HookWindowMessages()
+        {
+            var source = HwndSource.FromHwnd(new WindowInteropHelper(this).Handle);
+            if (source != null) source.AddHook(WatchDialogs);
+        }
+
+        private const int WmEnable = 0x000A;
+        private const uint GwOwner = 4;
+
+        private delegate bool EnumWindowsProc(IntPtr window, IntPtr parameter);
+
+        [DllImport("user32.dll")]
+        private static extern bool EnumThreadWindows(uint threadId, EnumWindowsProc callback, IntPtr parameter);
+
+        [DllImport("user32.dll")]
+        private static extern IntPtr GetWindow(IntPtr window, uint command);
+
+        [DllImport("user32.dll")]
+        private static extern bool IsWindowVisible(IntPtr window);
+
+        [DllImport("kernel32.dll")]
+        private static extern uint GetCurrentThreadId();
 
         /// <summary>見えないまま窓を出す（前に出さない）。タスクバーのボタンは、出したあと Windows が付けるので、落ち着いてからもう一度外す。</summary>
         private void ShowCloaked()
@@ -455,7 +547,7 @@ namespace Tsuzuri
         private void ShowBeforeAsking()
         {
             // 閉じている最中の窓は Show できない（落ちる）。閉じる前に前に出しておく（CloseShowingFirst）。そうでない閉じ方（タスクバーなど）では、出さずに尋ねる。
-            if (!IsOnScreen && !_closing) BringForward(FrontWindow());
+            if (!IsOnScreen && !_closing) BringForward(FrontWindow(), true);
         }
 
         /// <summary>この画面の Closing を処理している最中。</summary>

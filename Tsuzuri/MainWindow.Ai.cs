@@ -959,12 +959,14 @@ namespace Tsuzuri
             // 読み書きの前（PreToolUse。2026-11-09）。AI に渡さない場所（AiGuard）を断る。「guard→ツール→フォルダ→項目の名前→値…」を Base64 にしてタブ区切りで送る。
             // 答えが「ok」でなければ、それを理由として標準エラーに出して 2 で終わる（Claude Code はツールを動かさず、理由を Claude に見せる）。
             // エディタにつながらなければ止めない（エディタを閉じると中の claude も終わる）。
+            // 送るのは場所の入りうる項目（AiGuard.TextKeys）だけ（2026-11-15。前は Write の中身まで全部 Base64 にして送っていた）。待つのは 10 秒まで（越えたら Claude Code が通す）。
             var guard =
                 "$q='';try{$s=New-Object System.IO.MemoryStream;[Console]::OpenStandardInput().CopyTo($s);" +
                 "$j=[System.Text.Encoding]::UTF8.GetString($s.ToArray())|ConvertFrom-Json;" +
                 "$e={param($t)[Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes([string]$t))};" +
                 "$q='guard'+[char]9+(&$e $j.tool_name)+[char]9+(&$e $j.cwd);" +
-                "if($j.tool_input){foreach($i in $j.tool_input.PSObject.Properties){$q+=[char]9+(&$e $i.Name)+[char]9+(&$e $i.Value)}}}catch{};" +
+                "$k=@(" + string.Join(",", AiGuard.TextKeys.Select(key => "'" + key + "'").ToArray()) + ");" +
+                "if($j.tool_input){foreach($i in $j.tool_input.PSObject.Properties){if($k -contains $i.Name){$q+=[char]9+(&$e $i.Name)+[char]9+(&$e $i.Value)}}}}catch{};" +
                 "if(-not $q){exit 0};" +
                 connect +
                 "try{$c.Connect(5000);$w=New-Object System.IO.StreamWriter($c);$w.WriteLine($q);$w.Flush();" +
@@ -979,7 +981,7 @@ namespace Tsuzuri
                 "if(Test-Path -LiteralPath " + quoted + "){[Console]::Out.Write([System.IO.File]::ReadAllText(" + quoted + "))}";
 
             return "{\"hooks\":{" +
-                   "\"PreToolUse\":[{\"matcher\":\"Read|Edit|Write|MultiEdit|NotebookEdit|Grep|Glob|Bash|PowerShell\",\"hooks\":[{\"type\":\"command\",\"command\":\"" + PowerShell(guard) + "\"}]}]," +
+                   "\"PreToolUse\":[{\"matcher\":\"Read|Edit|Write|MultiEdit|NotebookEdit|Grep|Glob|Bash|PowerShell\",\"hooks\":[{\"type\":\"command\",\"timeout\":10,\"command\":\"" + PowerShell(guard) + "\"}]}]," +
                    "\"PostToolUse\":[{\"matcher\":\"Edit|Write|MultiEdit|NotebookEdit|Bash\",\"hooks\":[{\"type\":\"command\",\"command\":\"" + PowerShell(notify) + "\"}]}]," +
                    "\"UserPromptSubmit\":[{\"hooks\":[{\"type\":\"command\",\"timeout\":300,\"command\":\"" + PowerShell(context) + "\"}]}]," +
                    "\"SessionStart\":[{\"hooks\":[{\"type\":\"command\",\"command\":\"" + PowerShell(SessionHook(connect, "session")) + "\"}]}]," +
@@ -1785,8 +1787,9 @@ namespace Tsuzuri
                 text.Append("選んでいる文字:\n```\n").Append(selected.Replace("\r\n", "\n")).Append("\n```\n");
             }
 
+            // AI に渡さない文書のページは題を伏せる（2026-11-15。右に開いていると、その題が渡っていた）
             text.Append("開いているページの並び（左から）: ")
-                .Append(string.Join(" > ", _stack.Select(PageLabel).ToArray())).Append('\n');
+                .Append(string.Join(" > ", _stack.Select(page => AiGuard.IsGuarded(page.FilePath) ? "（AI に渡さない文書）" : PageLabel(page)).ToArray())).Append('\n');
 
             if (_stack.Any(page => page.IsDirty))
                 text.Append("エディタに保存できていない編集がある。ファイルの中身はエディタの画面より古く、行番号もファイルと合わない。この文書は書き換えず、先に保存してもらう。\n");
@@ -1828,7 +1831,10 @@ namespace Tsuzuri
             for (var i = 0; i < OpenWindows.Count; i++)
             {
                 var window = OpenWindows[i];
-                var where = ReferenceEquals(window, this) ? "この画面" : "画面 " + (i + 1) + "（タブ「" + window.WindowLabel(false) + "」）";
+                // タブの名前は一番左の文書の題。それが AI に渡さない文書なら出さない（2026-11-15）
+                var where = ReferenceEquals(window, this) ? "この画面"
+                    : window._stack.Count > 0 && AiGuard.IsGuarded(window._stack[0].FilePath) ? "画面 " + (i + 1)
+                    : "画面 " + (i + 1) + "（タブ「" + window.WindowLabel(false) + "」）";
                 var shown = window.Active;
                 foreach (var group in window._stack.Where(view => view.Owner != null).GroupBy(view => view.Owner))
                 {
@@ -1848,10 +1854,12 @@ namespace Tsuzuri
 
             foreach (var session in _settings.Windows.Where(session => session.Suspended && session.Screen != null && session.Screen.Pages != null))
             {
+                var first = session.Screen.Pages.FirstOrDefault(page => page != null && !string.IsNullOrEmpty(page.File));
+                var where = first != null && AiGuard.IsGuarded(first.File) ? "休止している画面" : "休止している画面（タブ「" + session.Title + "」）";
                 foreach (var page in session.Screen.Pages)
                 {
                     if (page == null || !fresh(page.File)) continue;
-                    lines.Add("- 休止している画面（タブ「" + session.Title + "」）: " + page.File);
+                    lines.Add("- " + where + ": " + page.File);
                 }
             }
 

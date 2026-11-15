@@ -16,13 +16,17 @@ internal static class Program
         var plain = Path.Combine(root, "Notes");
         Directory.CreateDirectory(Path.Combine(vault, ".secret", "git"));
         Directory.CreateDirectory(plain);
+        Directory.CreateDirectory(vault + "2");   // 名前が金庫で始まる、ふつうのフォルダ
+        File.WriteAllText(Path.Combine(vault + "2", "memo.md"), "x");
         File.WriteAllText(Path.Combine(vault, AiGuard.MarkerName), string.Empty);
         File.WriteAllText(Path.Combine(vault, "secret.md"), "x");
         File.WriteAllText(Path.Combine(plain, "memo.md"), "x");
 
         try
         {
-            // まだ目印のフォルダを知らない間（Bash の文字は照合できない。場所の項目は上へたどる）
+            // まだ目印のフォルダを知らない間。Bash に書いた場所も上へたどる（2026-11-15）
+            Expect("Bash cat 金庫（まだ知らない）", true, "Bash", plain, ("command", "cat " + vault + "/secret.md"));
+            Expect("Bash cat 金庫（引用符・まだ知らない）", true, "Bash", plain, ("command", "cat \"" + vault + "/secret.md\""));
             Expect("Read 金庫の文書", true, "Read", plain, ("file_path", Path.Combine(vault, "secret.md")));
             Expect("Read 履歴の git の中", true, "Read", plain, ("file_path", Path.Combine(vault, ".secret", "git", "HEAD")));
             Expect("Read ふつうの文書", false, "Read", plain, ("file_path", Path.Combine(plain, "memo.md")));
@@ -43,6 +47,30 @@ internal static class Program
             Expect("Glob 上のフォルダから・場所なし", true, "Glob", root, ("pattern", "**/*.md"));
             Expect("Glob パターンに金庫の場所", true, "Glob", plain, ("pattern", vault + "/**/*.md"));
             Expect("Grep 隣のふつうのフォルダ", false, "Grep", root, ("pattern", "bank"), ("path", plain));
+
+            // 2026-11-15 に足したもの
+            Expect("Grep path に .（作業のフォルダが上）", true, "Grep", root, ("pattern", "bank"), ("path", "."));
+            Expect("Grep path に ..（ふつうのフォルダから上へ）", true, "Grep", plain, ("pattern", "bank"), ("path", ".."));
+            Expect("Bash 名前が金庫で始まる別のフォルダ", false, "Bash", plain, ("command", "cat " + vault + "2/memo.md"));
+            Expect("Read 名前が金庫で始まる別のフォルダ", false, "Read", plain, ("file_path", Path.Combine(vault + "2", "memo.md")));
+            Expect("Bash 関係のないコマンド（コロン入り）", false, "Bash", plain, ("command", "git commit -m \"fix: ok\" && echo type: done"));
+
+            // ドライブの一番上に目印を置いたとき（文字での照合だけ。Mac にドライブは無いので Mentions を直に見る）
+            ExpectMentions("e: を含むだけのコマンド", false, "git commit -m \"fix: ok\"; echo $env:PATH; type: x", "E:\\");
+            ExpectMentions("file:/// の URL", false, "curl file:///c:/x", "E:\\");
+            ExpectMentions("E:\\ の下を読む", true, "type E:\\pw.md", "E:\\");
+            ExpectMentions("E:/ の下を読む", true, "cat \"E:/pw.md\"", "E:\\");
+            ExpectMentions("Git Bash の /e/", true, "cat /e/pw.md", "E:\\");
+            ExpectMentions("Git Bash の /etc は別", false, "cat /etc/hosts", "E:\\");
+            ExpectMentions("フォルダの名前の続き（vault2）", false, "cat c:/x/vault2/a.md", "C:\\x\\vault");
+            ExpectMentions("フォルダそのもの（末尾）", true, "dir C:\\x\\vault", "C:\\x\\vault");
+            ExpectMentions("Git Bash の /c/x/vault", true, "ls /c/x/vault/", "C:\\x\\vault");
+
+            // 目印を消したら、覚えを捨てたあとは断らない（前は再起動するまで断り続けた）
+            File.Delete(Path.Combine(vault, AiGuard.MarkerName));
+            AiGuard.ForgetMarkers();
+            Expect("目印を消したあとの Bash", false, "Bash", plain, ("command", "cat " + vault + "/secret.md"));
+            Expect("目印を消したあとの Grep（上から）", false, "Grep", plain, ("pattern", "bank"), ("path", root));
         }
         finally
         {
@@ -51,6 +79,13 @@ internal static class Program
 
         Console.WriteLine(_failed == 0 ? "OK" : "NG（" + _failed + " 件）");
         return _failed == 0 ? 0 : 1;
+    }
+
+    private static void ExpectMentions(string name, bool mentions, string text, string folder)
+    {
+        if (AiGuard.Mentions(text, new[] { folder }) == mentions) return;
+        _failed++;
+        Console.WriteLine("NG  " + name + ": " + (mentions ? "当たるはずが当たらない" : "当たらないはずが当たった"));
     }
 
     private static void Expect(string name, bool refuse, string tool, string cwd, params (string Key, string Value)[] items)

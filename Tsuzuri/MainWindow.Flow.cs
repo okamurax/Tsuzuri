@@ -15,7 +15,8 @@ namespace Tsuzuri
     // フローは今の文書のサブページ（図エディタの図と同じく、別のファイルを作らない。最初の行が印 FlowFile.Marker）。
     // 本文にはそのページへのリンクを置き、押すとフロー図（Views/FlowView）を本文の場所の上に重ねて出す（ページとしては開かない）。
     // ランチャーと同じ重ね方だが、ほぼフロー図で直すので、高さを多めに取る（既定 75%。仕切りで変えられ、覚える）。下の本文は見えたまま。
-    // 送り先: Claude のカードはフローの会話（下）、PowerShell のカードは共通ターミナル。送るのは利用者が1枚ずつ（自動では進めない）。
+    // 送り先は Claude のカードのフローの会話（下）。送るのは利用者が1枚ずつ（自動では進めない）。PowerShell のカードは無くした（2026-11-17）。
+    // 結果のカード（MainWindow.FlowResult.cs）と添付のカードは送らず、つないだ先の Claude のカードに中身・ファイルの場所を渡す。
     public partial class MainWindow
     {
         private FlowView _flowView;
@@ -247,7 +248,7 @@ namespace Tsuzuri
         /// <summary>カードのテキストをターミナルに入れる（enter: Enter まで押す）。入れられたらカードに ✓ を付ける。</summary>
         private void SendFlowCard(FlowView view, FlowCard card, bool enter)
         {
-            if (card.Kind == FlowKind.Result) return;
+            if (card.Kind != FlowKind.Claude) return;
 
             string problem;
             var text = FlowResults.Compose(view.Flow, card, out problem);
@@ -264,39 +265,20 @@ namespace Tsuzuri
             }
 
             if (card.Kind == FlowKind.Claude) SendFlowToClaude(view, card, text, enter);
-            else SendFlowToShell(view, card, text, enter, 0);
         }
 
-
-        /// <summary>
-        /// このカードを送る会話を始めるカード。「新しい会話」の印のカードか、さかのぼって行き着く最初のカード（どこからもつながっていない）。
-        /// 前のカードが2枚以上あれば、ページの並びで先のほうをたどる。
-        /// </summary>
-        private static FlowCard SessionStartOf(FlowFile flow, FlowCard card)
-        {
-            var seen = new HashSet<FlowCard>();
-            var current = card;
-            while (seen.Add(current))
-            {
-                if (current.NewSession) return current;
-                var title = current.Title;
-                var parent = flow.Cards.FirstOrDefault(other => other.Edges.Any(edge => edge.Target == title));
-                if (parent == null) return current;
-                current = parent;
-            }
-            return current;   // 輪になっていた
-        }
 
         private void SendFlowToClaude(FlowView view, FlowCard card, string text, bool enter)
         {
             var wants = FlowResults.WantsOf(view.Flow, card);
             if (wants.Count > 0) text += FlowResults.Instruction(wants);
 
-            // 添付は、場所を書き添えて Claude に読ませる（Claude Code はパスのファイルを読める。画像も）
-            if (card.Attachments.Count > 0)
+            // つないだ添付のカードのファイルは、場所を書き添えて Claude に読ませる（Claude Code はパスのファイルを読める。画像も）
+            var attachments = FlowResults.FilesFor(view.Flow, card);
+            if (attachments.Count > 0)
             {
                 var files = new StringBuilder();
-                foreach (var attachment in card.Attachments)
+                foreach (var attachment in attachments)
                 {
                     var path = ResolveFlowAttachment(attachment);
                     if (path == null || !File.Exists(path))
@@ -309,7 +291,7 @@ namespace Tsuzuri
                 text += "\n\n添付ファイル（読んでから答えて）:" + files;
             }
 
-            var start = SessionStartOf(view.Flow, card);
+            var start = FlowResults.SessionStart(view.Flow, card);
             var key = view.FlowKey + "/" + start.Title;
             AiTab tab;
             if (_flowSessions.TryGetValue(key, out tab) && _aiTabs.Contains(tab) && tab.View != null && tab.View.IsRunning)
@@ -382,69 +364,6 @@ namespace Tsuzuri
             AfterFlowWrite(view, card, terminal, enter, tab.Name ?? "会話");
         }
 
-        private void SendFlowToShell(FlowView view, FlowCard card, string text, bool enter, int tries)
-        {
-            if (AiPane.Visibility != Visibility.Visible) ShowAiPane();
-            if (_aiShell == null || !_aiShellShown) ToggleAiShell();
-
-            // 開いたばかりの PowerShell は、動き出すまで少し待つ（5 秒まで）
-            if (_aiShell == null || !_aiShell.IsRunning)
-            {
-                if (tries >= 25)
-                {
-                    view.ShowStatus("共通ターミナルが動いていません");
-                    return;
-                }
-                var timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(200) };
-                timer.Tick += delegate
-                {
-                    timer.Stop();
-                    SendFlowToShell(view, card, text, enter, tries + 1);
-                };
-                timer.Start();
-                view.ShowStatus("共通ターミナルを開いています…");
-                return;
-            }
-
-            if (_aiShellQueue.Count > 0 || _aiShellPending)
-            {
-                view.ShowStatus("共通ターミナルの入力欄に文字が残っています。Enter か Ctrl+C で空にしてから送ってください");
-                return;
-            }
-
-            // 1行ならそのまま打つ。複数行は、一時の .ps1 に書いて読み込ませる（PowerShell 5.1 は貼り付けの印を受け付けず、
-            // 改行ごとに実行になって、if { } などが途中で切れるため）。変数などは今の PowerShell に残る（ドットで読み込む）
-            string line;
-            var lines = text.Split('\n');
-            if (lines.Length == 1)
-            {
-                line = text.Replace("\t", "    ");
-            }
-            else
-            {
-                string script;
-                try
-                {
-                    script = WriteFlowScript(card, text);
-                }
-                catch (Exception ex)
-                {
-                    view.ShowStatus("一時のスクリプトを書けませんでした: " + ex.Message);
-                    return;
-                }
-                line = ". '" + script.Replace("'", "''") + "'";
-            }
-
-            if (!_aiShell.WriteInput(line))
-            {
-                view.ShowStatus("共通ターミナルに書けませんでした");
-                return;
-            }
-            _aiShellPending = !enter;
-
-            AfterFlowWrite(view, card, _aiShell, enter, "共通ターミナル");
-        }
-
         /// <summary>
         /// 書いたあと。Enter まで押すなら少し待って押す（文字の直後だと、Claude Code は貼り付けの一部と見なして送信しない。
         /// 2026-11-17。0.15 秒では Enter が効かず、次のカードの文字が後ろにつながった。今は 0.6 秒）。
@@ -483,30 +402,6 @@ namespace Tsuzuri
                 if (c == '\n' || c == '\t' || (c >= ' ' && c != '\x7f')) clean.Append(c);
             }
             return clean.ToString().TrimEnd('\n', ' ', '\t');
-        }
-
-        /// <summary>複数行の PowerShell を一時のフォルダの .ps1 に書く（%TEMP%\Tsuzuri-flow。1 日より古いものは消す）。</summary>
-        private static string WriteFlowScript(FlowCard card, string text)
-        {
-            var folder = Path.Combine(Path.GetTempPath(), "Tsuzuri-flow");
-            Directory.CreateDirectory(folder);
-            foreach (var old in Directory.GetFiles(folder, "*.ps1"))
-            {
-                try
-                {
-                    if (File.GetLastWriteTimeUtc(old) < DateTime.UtcNow.AddDays(-1)) File.Delete(old);
-                }
-                catch (Exception)
-                {
-                }
-            }
-
-            var name = new string(card.Title.Select(c => Path.GetInvalidFileNameChars().Contains(c) || c == '\'' ? '_' : c).ToArray());
-            if (name.Length > 40) name = name.Substring(0, 40);
-            var path = Path.Combine(folder, DateTime.Now.ToString("HHmmss") + " " + name + ".ps1");
-            // PowerShell 5.1 は BOM の無い UTF-8 を ANSI として読むので、BOM を付ける
-            File.WriteAllText(path, text.Replace("\n", "\r\n") + "\r\n", new UTF8Encoding(true));
-            return path;
         }
     }
 }

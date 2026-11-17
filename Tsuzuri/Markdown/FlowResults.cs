@@ -15,7 +15,7 @@ namespace Tsuzuri.Markdown
         private static readonly Regex Placeholder = new Regex(@"\{\{[ \t]*(?<title>[^{}\s]+)[ \t]*\}\}");
 
         /// <summary>
-        /// 送るテキストを作る。本文の {{番号}} は、その結果のカードの中身にする。Claude のカードは、つながってくる結果のカードのうち
+        /// 送るテキストを作る。本文の {{番号}} は、その結果のカードの中身にする。つながってくる結果のカードのうち
         /// {{ }} で使っていないものの中身を後ろに付ける。まだ受け取っていない結果があれば、送らずに problem を返す。
         /// </summary>
         public static string Compose(FlowFile flow, FlowCard card, out string problem)
@@ -48,6 +48,41 @@ namespace Tsuzuri.Markdown
 
             problem = missing != null ? "結果のカード " + missing + " をまだ受け取っていません（前の Claude のカードを送って答えを待つか、結果のカードに直接書いてください）" : null;
             return text;
+        }
+
+        /// <summary>
+        /// このカードへつないだ添付のカードのファイル（2026-11-17）。同じファイルは1度だけ。ページの並びの順。
+        /// </summary>
+        public static List<FlowAttachment> FilesFor(FlowFile flow, FlowCard card)
+        {
+            var files = new List<FlowAttachment>();
+            foreach (var source in flow.Cards.Where(other => other.Kind == FlowKind.Files && other.Edges.Any(edge => edge.Target == card.Title)))
+            {
+                foreach (var attachment in source.Attachments)
+                {
+                    if (files.All(other => other.Target != attachment.Target)) files.Add(attachment);
+                }
+            }
+            return files;
+        }
+
+        /// <summary>
+        /// このカードを送る会話を始めるカード。「新しい会話」の印のカードか、さかのぼって行き着く最初のカード（Claude・結果のカードからつながっていない）。
+        /// 添付のカードからのつながりは、会話の流れに数えない（2026-11-17）。前のカードが2枚以上あれば、ページの並びで先のほうをたどる。
+        /// </summary>
+        public static FlowCard SessionStart(FlowFile flow, FlowCard card)
+        {
+            var seen = new HashSet<FlowCard>();
+            var current = card;
+            while (seen.Add(current))
+            {
+                if (current.NewSession) return current;
+                var title = current.Title;
+                var parent = flow.Cards.FirstOrDefault(other => other.Kind != FlowKind.Files && other.Edges.Any(edge => edge.Target == title));
+                if (parent == null) return current;
+                current = parent;
+            }
+            return current;   // 輪になっていた
         }
 
         /// <summary>このカードの答えを受け取る結果のカードと、その印（送るたびに変える。前の答えの印と取り違えないため）。</summary>

@@ -14,13 +14,11 @@ namespace Tsuzuri.Markdown
     ///   &lt;!-- tsuzuri-flow --&gt;          … フローの印（最初の行）
     ///   # フローの名前                 … 最初のカードより前の行は、そのまま残す（説明など）
     ///
-    ///   ## [Claude] 1                  … カード。[Claude] か [PowerShell] と題（番号。つながりの目印で、画面には出さない）
+    ///   ## [Claude] 1                  … カード。種類（Claude・結果・添付）と題（番号。つながりの目印で、画面には出さない）
     ///   ## [Claude 新しい会話] 4       … ここから新しい会話で送る（続くカードもその会話へ）
     ///   &lt;!-- 120,40 --&gt;               … フロー図での位置（無くてもよい。無ければ並べて置く）
     ///
     ///   ログを読んで原因を調べて。      … 送るテキスト（前後の空行は除く）
-    ///
-    ///   添付: [ログ](ログ.txt)          … 添付のファイル（文書と同じリンクの書き方）
     ///
     ///   → 2                            … つながり。最後に並べる。→ [名前] 題 で、線に名前を付ける
     ///   → [失敗] 3
@@ -30,7 +28,12 @@ namespace Tsuzuri.Markdown
     ///   受け取った答え
     ///   ```
     ///
-    /// 送るテキストの中には、`## [Claude] ` などで始まる行を書けない（次のカードになる）。最後の `添付:`・`→ ` で始まる行は、添付・つながりになる。
+    ///   ## [添付] 6                    … 添付のカード（2026-11-17）。つないだ先の Claude のカードに、ファイルの場所を渡す
+    ///   添付: [ログ](ログ.txt)          … ファイル（文書と同じリンクの書き方）
+    ///   → 1
+    ///
+    /// 送るテキストの中には、`## [Claude] ` などで始まる行を書けない（次のカードになる）。最後の `→ ` で始まる行（添付のカードは `添付:` も）は、つながり・添付になる。
+    /// PowerShell のカード（初めの版）は無くした（2026-11-17）。`## [PowerShell]` は Claude のカードとして読む（テキストを失わないため）。
     /// </summary>
     public sealed class FlowFile
     {
@@ -68,7 +71,8 @@ namespace Tsuzuri.Markdown
         {
             var value = (name ?? string.Empty).Trim();
             if (value.Equals("Claude", StringComparison.OrdinalIgnoreCase) || value.Equals("AI", StringComparison.OrdinalIgnoreCase)) return FlowKind.Claude;
-            if (value.Equals("PowerShell", StringComparison.OrdinalIgnoreCase) || value.Equals("PS", StringComparison.OrdinalIgnoreCase)) return FlowKind.PowerShell;
+            if (value.Equals("PowerShell", StringComparison.OrdinalIgnoreCase) || value.Equals("PS", StringComparison.OrdinalIgnoreCase)) return FlowKind.Claude;
+            if (value == FilesWord || value.Equals("Files", StringComparison.OrdinalIgnoreCase)) return FlowKind.Files;
             if (value == ResultWord || value.Equals("Result", StringComparison.OrdinalIgnoreCase)) return FlowKind.Result;
             return null;
         }
@@ -76,12 +80,15 @@ namespace Tsuzuri.Markdown
         /// <summary>結果のカードの種類の名前。</summary>
         public const string ResultWord = "結果";
 
+        /// <summary>添付のカードの種類の名前。</summary>
+        public const string FilesWord = "添付";
+
         public static string NameOf(FlowKind kind)
         {
             switch (kind)
             {
-                case FlowKind.PowerShell:
-                    return "PowerShell";
+                case FlowKind.Files:
+                    return FilesWord;
                 case FlowKind.Result:
                     return ResultWord;
                 default:
@@ -193,14 +200,14 @@ namespace Tsuzuri.Markdown
             while (edgeStart > 0)
             {
                 var line = lines[edgeStart - 1];
-                if (line.Trim().Length == 0 || IsEdge(line) || AttachmentLine.IsMatch(line)) edgeStart--;
+                if (line.Trim().Length == 0 || IsEdge(line) || (card.Kind == FlowKind.Files && AttachmentLine.IsMatch(line))) edgeStart--;
                 else break;
             }
             for (var i = edgeStart; i < end; i++)
             {
                 if (lines[i].Trim().Length == 0) continue;
                 var attachment = AttachmentLine.Match(lines[i]);
-                if (attachment.Success)
+                if (attachment.Success && card.Kind == FlowKind.Files)
                 {
                     card.Attachments.Add(new FlowAttachment { Label = attachment.Groups["label"].Value, Target = attachment.Groups["target"].Value.Trim() });
                     continue;
@@ -251,7 +258,7 @@ namespace Tsuzuri.Markdown
                 if (card.Kind == FlowKind.Result) body = WrapResult(body);
                 if (body.Length > 0) text.Append('\n').Append(body).Append('\n');
 
-                if (card.Attachments.Count > 0)
+                if (card.Kind == FlowKind.Files && card.Attachments.Count > 0)
                 {
                     text.Append('\n');
                     foreach (var attachment in card.Attachments)
@@ -358,10 +365,12 @@ namespace Tsuzuri.Markdown
     public enum FlowKind
     {
         Claude,
-        PowerShell,
 
         /// <summary>結果（2026-11-17）。送らない。前の Claude のカードの答えを受け取り、次のカードに渡す。</summary>
         Result,
+
+        /// <summary>添付（2026-11-17）。送らない。つないだ先の Claude のカードに、ファイルの場所を渡す。</summary>
+        Files,
     }
 
     public sealed class FlowCard
@@ -376,6 +385,7 @@ namespace Tsuzuri.Markdown
         /// <summary>ここから新しい会話で送る（Claude のカード。続くカードもその会話へ）。</summary>
         public bool NewSession;
 
+        /// <summary>ファイル（添付のカードだけ）。</summary>
         public readonly List<FlowAttachment> Attachments = new List<FlowAttachment>();
         public readonly List<FlowEdge> Edges = new List<FlowEdge>();
     }

@@ -49,7 +49,7 @@ namespace Tsuzuri.Views
         private static readonly Brush NextBorder = Freeze(Color.FromRgb(0x3F, 0xB6, 0x8B));
         private static readonly Brush DoneFill = Freeze(Color.FromRgb(0x2E, 0x9E, 0x6F));
         private static readonly Brush ClaudeFill = Freeze(Color.FromRgb(0xD9, 0x77, 0x57));
-        private static readonly Brush ShellFill = Freeze(Color.FromRgb(0x2F, 0x6F, 0xD0));
+        private static readonly Brush FilesFill = Freeze(Color.FromRgb(0x2B, 0x8C, 0x8C));
         private static readonly Brush ResultFill = Freeze(Color.FromRgb(0x8A, 0x6C, 0xD8));
         private static readonly Brush EdgeStroke = Freeze(Color.FromRgb(0x5A, 0x63, 0x78));
         private static readonly Brush LabelFill = Freeze(Color.FromRgb(0x22, 0x2B, 0x3F));
@@ -80,7 +80,7 @@ namespace Tsuzuri.Views
         private readonly Border _panel = new Border();
         private readonly TextBox _bodyBox = new TextBox();
         private readonly Button _claudeKind = new Button();
-        private readonly Button _shellKind = new Button();
+        private readonly Button _filesKind = new Button();
         private readonly Button _resultKind = new Button();
         private readonly TextBlock _bodyCaption = new TextBlock();
         private readonly StackPanel _edgeList = new StackPanel();
@@ -200,6 +200,9 @@ namespace Tsuzuri.Views
             _scroll.Focusable = false;
             Children.Add(_scroll);
 
+            _canvas.AllowDrop = true;
+            _canvas.DragOver += (sender, e) => DragOverFiles(e);
+            _canvas.Drop += (sender, e) => DropFilesOnCanvas(e);
             _canvas.MouseLeftButtonDown += Canvas_MouseLeftButtonDown;
             _canvas.MouseMove += Canvas_MouseMove;
             _canvas.MouseLeftButtonUp += Canvas_MouseLeftButtonUp;
@@ -379,8 +382,8 @@ namespace Tsuzuri.Views
             var buttons = new StackPanel { Orientation = Orientation.Horizontal };
             var addClaude = ToolButton("＋ Claude", "Claude に送るカードを足す");
             addClaude.Click += delegate { AddCard(FlowKind.Claude); };
-            var addShell = ToolButton("＋ PowerShell", "共通ターミナル（PowerShell）に送るカードを足す");
-            addShell.Click += delegate { AddCard(FlowKind.PowerShell); };
+            var addFiles = ToolButton("＋ 添付", "ファイルを渡すカードを足す（ファイルをドラッグして入れ、Claude のカードへつなぐ）");
+            addFiles.Click += delegate { AddCard(FlowKind.Files); };
             var addResult = ToolButton("＋ 結果", "前の Claude のカードの答えを受け取るカードを足す（選んでいるカードからつなぐ）");
             addResult.Click += delegate { AddCard(FlowKind.Result); };
             var delete = ToolButton("削除 (Del)", "選んでいるカードを消す（Ctrl+Z で戻る）");
@@ -395,8 +398,8 @@ namespace Tsuzuri.Views
                 ShowStatus("読み直しました");
             };
             buttons.Children.Add(addClaude);
-            buttons.Children.Add(addShell);
             buttons.Children.Add(addResult);
+            buttons.Children.Add(addFiles);
             buttons.Children.Add(delete);
             buttons.Children.Add(Separator());
             buttons.Children.Add(clear);
@@ -440,12 +443,13 @@ namespace Tsuzuri.Views
             var top = new StackPanel();
             var kinds = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 0, 8) };
             SetupKind(_claudeKind, "Claude", FlowKind.Claude);
-            SetupKind(_shellKind, "PowerShell", FlowKind.PowerShell);
             SetupKind(_resultKind, FlowFile.ResultWord, FlowKind.Result);
+            SetupKind(_filesKind, FlowFile.FilesWord, FlowKind.Files);
             kinds.Children.Add(_claudeKind);
-            kinds.Children.Add(_shellKind);
             kinds.Children.Add(_resultKind);
+            kinds.Children.Add(_filesKind);
             top.Children.Add(kinds);
+            top.Children.Add(_newSession);
             var caption = Caption("送るテキスト");
             _bodyCaption.Text = caption.Text;
             _bodyCaption.Foreground = caption.Foreground;
@@ -465,11 +469,11 @@ namespace Tsuzuri.Views
 
             // 添付（本文の下・つながりの上）と、新しい会話
             _attachmentPart.Margin = new Thickness(0, 8, 0, 0);
-            _attachmentPart.Children.Add(Caption("添付（ファイルをカードかこの欄へドラッグ。添付フォルダの外のものはコピーする）"));
+            _attachmentPart.Children.Add(Caption("渡すファイル（カードかこの欄へドラッグ。添付フォルダの外のものはコピーする。つないだ Claude のカードを送るとき、場所を書き添える）"));
             _attachmentPart.Children.Add(_attachmentList);
             _newSession.Content = "ここから新しい会話で送る（続くカードもその会話へ）";
             _newSession.Foreground = Resource("TextPrimary");
-            _newSession.Margin = new Thickness(0, 8, 0, 0);
+            _newSession.Margin = new Thickness(0, 0, 0, 8);
             _newSession.Focusable = false;
             _newSession.Click += delegate
             {
@@ -480,7 +484,6 @@ namespace Tsuzuri.Views
                 UpdateCard(card);
                 Changed();
             };
-            _attachmentPart.Children.Add(_newSession);
             DockPanel.SetDock(_attachmentPart, Dock.Bottom);
             stack.Children.Add(_attachmentPart);
 
@@ -556,7 +559,9 @@ namespace Tsuzuri.Views
                 if (_bodyBox.Text.Replace("\r\n", "\n") != card.Body) _bodyBox.Text = card.Body;
                 _newSession.IsChecked = card.NewSession;
                 _newSession.Visibility = card.Kind == FlowKind.Claude ? Visibility.Visible : Visibility.Collapsed;
-                _attachmentPart.Visibility = card.Kind == FlowKind.Claude ? Visibility.Visible : Visibility.Collapsed;
+                _attachmentPart.Visibility = card.Kind == FlowKind.Files ? Visibility.Visible : Visibility.Collapsed;
+                _bodyBox.Visibility = card.Kind == FlowKind.Files ? Visibility.Collapsed : Visibility.Visible;
+                _bodyCaption.Visibility = _bodyBox.Visibility;
                 _attachmentList.Children.Clear();
                 if (card.Attachments.Count == 0)
                     _attachmentList.Children.Add(new TextBlock { Text = "（なし）", Foreground = Resource("TextMuted"), FontSize = 12, Margin = new Thickness(2, 2, 0, 2) });
@@ -589,10 +594,10 @@ namespace Tsuzuri.Views
                 }
 
                 _claudeKind.BorderBrush = card.Kind == FlowKind.Claude ? Resource("AccentBrush") : Brushes.Transparent;
-                _shellKind.BorderBrush = card.Kind == FlowKind.PowerShell ? Resource("AccentBrush") : Brushes.Transparent;
+                _filesKind.BorderBrush = card.Kind == FlowKind.Files ? Resource("AccentBrush") : Brushes.Transparent;
                 _resultKind.BorderBrush = card.Kind == FlowKind.Result ? Resource("AccentBrush") : Brushes.Transparent;
                 _bodyCaption.Text = card.Kind == FlowKind.Result
-                    ? "受け取った結果（前の Claude のカードを送ると、答えのうち印で囲ませた部分が入る。直してもよい。次のカードには、本文の {{" + card.Title + "}} に入れるか、Claude のカードなら後ろに付けて渡す）"
+                    ? "受け取った結果（前の Claude のカードを送ると、答えのうち印で囲ませた部分が入る。直してもよい。つないだ Claude のカードには、本文の {{" + card.Title + "}} に入れるか、後ろに付けて渡す）"
                     : "送るテキスト（結果のカードの中身は {{番号}} で入れられる。カードの番号は、カードの見出しにマウスを載せると出る）";
 
                 _edgeList.Children.Clear();
@@ -928,18 +933,20 @@ namespace Tsuzuri.Views
             var waiting = result && WaitingSet().Contains(card.Title);
             parts.Title.Text = FlowFile.NameOf(card.Kind) + (waiting ? " — 答えを待っています…" : string.Empty);
             parts.Title.ToolTip = "カード " + card.Title + (result ? "（次のカードの本文に {{" + card.Title + "}} と書くと、ここの中身が入る）" : string.Empty);
-            var lines = card.Body.Split('\n').Where(line => line.Trim().Length > 0).Take(6).ToList();
+            var files = card.Kind == FlowKind.Files;
+            var lines = files
+                ? card.Attachments.Select(attachment => "📎 " + System.IO.Path.GetFileName(attachment.Target.Trim('<', '>'))).Take(6).ToList()
+                : card.Body.Split('\n').Where(line => line.Trim().Length > 0).Take(6).ToList();
             parts.Preview.Text = lines.Count > 0 ? string.Join("\n", lines)
-                : result ? "（まだ受け取っていない）" : "（送るテキストが無い）";
-            parts.Preview.FontFamily = card.Kind == FlowKind.PowerShell ? Theme.CodeFont : Theme.BodyFont;
-            parts.Icon.Background = card.Kind == FlowKind.PowerShell ? ShellFill : result ? ResultFill : ClaudeFill;
-            parts.IconText.Text = card.Kind == FlowKind.PowerShell ? ">_" : result ? "=" : "AI";
+                : result ? "（まだ受け取っていない）" : files ? "（ファイルをここへドラッグ）" : "（送るテキストが無い）";
+            parts.Preview.FontFamily = Theme.BodyFont;
+            parts.Icon.Background = files ? FilesFill : result ? ResultFill : ClaudeFill;
+            parts.IconText.Text = files ? "添" : result ? "=" : "AI";
             parts.IconText.FontSize = card.Kind == FlowKind.Claude ? 10 : 12;
-            parts.Send.Visibility = result ? Visibility.Collapsed : Visibility.Visible;
+            parts.Send.Visibility = card.Kind == FlowKind.Claude ? Visibility.Visible : Visibility.Collapsed;
             var claude = card.Kind == FlowKind.Claude;
             parts.Badge.Visibility = claude && card.NewSession ? Visibility.Visible : Visibility.Collapsed;
-            parts.Files.Visibility = claude && card.Attachments.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
-            parts.Files.Text = "📎 " + string.Join("、", card.Attachments.Select(attachment => System.IO.Path.GetFileName(attachment.Target.Trim('<', '>'))));
+            parts.Files.Visibility = Visibility.Collapsed;
         }
 
         private void AddCard(FlowKind kind)
@@ -949,15 +956,19 @@ namespace Tsuzuri.Views
             var card = new FlowCard { Kind = kind, Title = _flow.NewId(), HasPosition = true };
 
             // 選んでいるカードの右（無ければ見えているところの左上）に置く。重なれば下へずらす
+            // 添付のカードは、選んでいる Claude のカードの左に置いて、そこへつなぐ（ファイルを渡す向き）
+            var feeds = kind == FlowKind.Files && from != null && from.Kind == FlowKind.Claude;
             Point point;
-            if (from != null) point = new Point(from.X + CardWidth + 80, from.Y);
+            if (feeds) point = new Point(Math.Max(20, from.X - CardWidth - 80), from.Y);
+            else if (from != null) point = new Point(from.X + CardWidth + 80, from.Y);
             else point = new Point(_scroll.HorizontalOffset / _scale.ScaleX + 40, _scroll.VerticalOffset / _scale.ScaleY + 40);
             while (_flow.Cards.Any(other => Math.Abs(other.X - point.X) < CardWidth && Math.Abs(other.Y - point.Y) < 120)) point.Y += 140;
             card.X = Math.Round(point.X / 10) * 10;
             card.Y = Math.Round(point.Y / 10) * 10;
 
             // 選んでいたカードからつなぐ
-            if (from != null) from.Edges.Add(new FlowEdge { Target = card.Title });
+            if (feeds) card.Edges.Add(new FlowEdge { Target = from.Title });
+            else if (from != null && kind != FlowKind.Files) from.Edges.Add(new FlowEdge { Target = card.Title });
 
             _flow.Cards.Add(card);
             AddCardElement(card);
@@ -966,7 +977,7 @@ namespace Tsuzuri.Views
             Dispatcher.BeginInvoke(new Action(RedrawEdges), DispatcherPriority.Loaded);
             Changed();
 
-            Dispatcher.BeginInvoke(new Action(() => _bodyBox.Focus()), DispatcherPriority.Loaded);   // すぐ打てるように
+            if (kind != FlowKind.Files) Dispatcher.BeginInvoke(new Action(() => _bodyBox.Focus()), DispatcherPriority.Loaded);   // すぐ打てるように
         }
 
         /// <summary>選んでいるカードを消す（つながりも）。Ctrl+Z で戻るので尋ねない（図エディタと同じ）。</summary>
@@ -1045,14 +1056,18 @@ namespace Tsuzuri.Views
             e.Handled = true;
         }
 
+        /// <summary>
+        /// カードにファイルを落とした（2026-11-17。ファイルは添付のカードが持つ）。添付のカードなら足す。Claude のカードなら、そこへつないだ
+        /// 添付のカード（無ければ左に作ってつなぐ）に足す。
+        /// </summary>
         private void DropFiles(FlowCard card, DragEventArgs e)
         {
             e.Handled = true;
             var paths = e.Data.GetData(DataFormats.FileDrop) as string[];
             if (card == null || paths == null || paths.Length == 0 || ImportFiles == null) return;
-            if (card.Kind != FlowKind.Claude)
+            if (card.Kind == FlowKind.Result)
             {
-                ShowStatus("添付は Claude のカードだけです");
+                ShowStatus("ファイルは、添付のカードか Claude のカードへドラッグしてください");
                 return;
             }
 
@@ -1060,14 +1075,65 @@ namespace Tsuzuri.Views
             if (added == null || added.Count == 0) return;
 
             Record();
+            var holder = card;
+            if (card.Kind == FlowKind.Claude)
+            {
+                holder = _flow.Cards.FirstOrDefault(other => other.Kind == FlowKind.Files && other.Edges.Any(edge => edge.Target == card.Title));
+                if (holder == null)
+                {
+                    holder = NewFilesCard(new Point(card.X - CardWidth - 80, card.Y));
+                    holder.Edges.Add(new FlowEdge { Target = card.Title });
+                }
+            }
+            AddFiles(holder, added);
+        }
+
+        /// <summary>何も無い所にファイルを落とした。そこに添付のカードを作る（つなぐのは利用者）。</summary>
+        private void DropFilesOnCanvas(DragEventArgs e)
+        {
+            e.Handled = true;
+            var paths = e.Data.GetData(DataFormats.FileDrop) as string[];
+            if (paths == null || paths.Length == 0 || ImportFiles == null) return;
+
+            var added = ImportFiles(paths);
+            if (added == null || added.Count == 0) return;
+
+            Record();
+            var at = e.GetPosition(_canvas);
+            AddFiles(NewFilesCard(new Point(at.X - CardWidth / 2, at.Y - 20)), added);
+        }
+
+        /// <summary>添付のカードを作って置く（重なれば下へずらす）。Record は呼ぶ側で。</summary>
+        private FlowCard NewFilesCard(Point point)
+        {
+            point.X = Math.Max(20, point.X);   // 左の端より外に出さない
+            point.Y = Math.Max(20, point.Y);
+            while (_flow.Cards.Any(other => Math.Abs(other.X - point.X) < CardWidth && Math.Abs(other.Y - point.Y) < 120)) point.Y += 140;
+            var card = new FlowCard
+            {
+                Kind = FlowKind.Files,
+                Title = _flow.NewId(),
+                X = Math.Round(point.X / 10) * 10,
+                Y = Math.Round(point.Y / 10) * 10,
+                HasPosition = true,
+            };
+            _flow.Cards.Add(card);
+            AddCardElement(card);
+            UpdateExtent();
+            return card;
+        }
+
+        private void AddFiles(FlowCard holder, List<FlowAttachment> added)
+        {
             foreach (var attachment in added)
             {
-                if (card.Attachments.All(other => other.Target != attachment.Target)) card.Attachments.Add(attachment);
+                if (holder.Attachments.All(other => other.Target != attachment.Target)) holder.Attachments.Add(attachment);
             }
-            SelectOnly(card);
-            UpdateCard(card);
+            SelectOnly(holder);
+            UpdateCard(holder);
+            Dispatcher.BeginInvoke(new Action(RedrawEdges), DispatcherPriority.Loaded);
             Changed();
-            ShowStatus(added.Count + " 件添付しました");
+            ShowStatus(added.Count + " 件のファイルを添付のカードに入れました");
         }
 
         // ---------------------------------------------------------------
@@ -1190,8 +1256,9 @@ namespace Tsuzuri.Views
             }
             else
             {
-                var targets = new HashSet<string>(_flow.Cards.SelectMany(card => card.Edges).Select(edge => edge.Target));
-                next = new HashSet<string>(_flow.Cards.Where(card => !targets.Contains(card.Title)).Select(card => card.Title));
+                // 添付のカードからのつながりは数えない。送らないカード（結果・添付）は「次」にしない
+                var targets = new HashSet<string>(_flow.Cards.Where(card => card.Kind != FlowKind.Files).SelectMany(card => card.Edges).Select(edge => edge.Target));
+                next = new HashSet<string>(_flow.Cards.Where(card => card.Kind == FlowKind.Claude && !targets.Contains(card.Title)).Select(card => card.Title));
             }
 
             foreach (var pair in _cards)

@@ -203,9 +203,11 @@ namespace Tsuzuri
             }
             if (AiPane.Visibility != Visibility.Visible) ShowAiPane();
 
-            // 貼り付けの印で囲む（中の改行で送らないため。Claude Code は受け付ける）。改行は CR で送る（xterm の貼り付けと同じ）
+            // 複数行は貼り付けの印で囲む（中の改行で送らないため。Claude Code は受け付ける）。改行は CR で送る（xterm の貼り付けと同じ）。
+            // 1行は印を付けずに打つ（2026-11-17。印を付けると、続けて送った Enter が貼り付けの続きと見なされ、送信されなかった）
             var terminal = _aiTab.View;
-            if (!terminal.WriteInput("\x1b[200~" + text.Replace("\n", "\r") + "\x1b[201~"))
+            var data = text.IndexOf('\n') < 0 ? text.Replace("\t", "    ") : "\x1b[200~" + text.Replace("\n", "\r") + "\x1b[201~";
+            if (!terminal.WriteInput(data))
             {
                 view.ShowStatus("会話のタブに書けませんでした");
                 return;
@@ -277,7 +279,10 @@ namespace Tsuzuri
             AfterFlowWrite(view, card, _aiShell, enter, "共通ターミナル");
         }
 
-        /// <summary>書いたあと。Enter まで押すなら少し待って押す（貼り付けの直後だと、貼り付けの一部と見なされることがある）。</summary>
+        /// <summary>
+        /// 書いたあと。Enter まで押すなら少し待って押す（文字の直後だと、Claude Code は貼り付けの一部と見なして送信しない。
+        /// 2026-11-17。0.15 秒では Enter が効かず、次のカードの文字が後ろにつながった。今は 0.6 秒）。
+        /// </summary>
         private void AfterFlowWrite(FlowView view, FlowCard card, TerminalView terminal, bool enter, string where)
         {
             if (!enter)
@@ -287,7 +292,7 @@ namespace Tsuzuri
                 return;
             }
 
-            var timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(150) };
+            var timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(600) };
             timer.Tick += delegate
             {
                 timer.Stop();

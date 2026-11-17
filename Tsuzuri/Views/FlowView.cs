@@ -120,7 +120,15 @@ namespace Tsuzuri.Views
                 TileMode = TileMode.Tile,
                 Viewport = new Rect(0, 0, 20, 20),
                 ViewportUnits = BrushMappingMode.Absolute,
-                Drawing = new GeometryDrawing(DotFill, null, new EllipseGeometry(new Point(1, 1), 1, 1)),
+                // 透明な 20×20 の四角を入れて、点を 1 つ分のマスに置く（点だけだと、点がマスいっぱいに引き伸ばされて大きな丸になった。2026-11-17）
+                Drawing = new DrawingGroup
+                {
+                    Children =
+                    {
+                        new GeometryDrawing(Brushes.Transparent, null, new RectangleGeometry(new Rect(0, 0, 20, 20))),
+                        new GeometryDrawing(DotFill, null, new EllipseGeometry(new Point(10, 10), 1, 1)),
+                    },
+                },
             };
             dots.Freeze();
             _canvas.Background = dots;

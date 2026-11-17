@@ -154,7 +154,7 @@ namespace Tsuzuri.Markdown
             foreach (var want in wants.Where(want => want.Options != null))
             {
                 var names = string.Join("・", want.Options.Select(option => "「" + option + "」"));
-                text.Append("\n\n（このあと、どの作業へ進むかをツールが決めます。作業を終えたら、答えの最後に、次のうちから進む先を1つだけ選び、")
+                text.Append("\n\n（ツールが、この答えに合わせて次の頼みを決めます。答え終わったら、答えの最後に、答えの内容に一番合うものを次から1つだけ選び、")
                     .Append("その名前だけを次の印の行で囲んで書いてください: ").Append(names)
                     .Append("。印の行は1行ずつそのまま書き、コードブロックや強調の中に入れないでください）\n")
                     .Append(want.Start).Append("\n（").Append(string.Join(" か ", want.Options)).Append(" のどれか1つ）\n").Append(want.End);

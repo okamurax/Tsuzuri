@@ -53,6 +53,7 @@ namespace Tsuzuri.Views
         private static readonly Brush ClaudeFill = Freeze(Color.FromRgb(0xD9, 0x77, 0x57));
         private static readonly Brush FilesFill = Freeze(Color.FromRgb(0x2B, 0x8C, 0x8C));
         private static readonly Brush ResultFill = Freeze(Color.FromRgb(0x8A, 0x6C, 0xD8));
+        private static readonly Brush ConfirmFill = Freeze(Color.FromRgb(0xC9, 0x9A, 0x2E));
         private static readonly Brush EdgeStroke = Freeze(Color.FromRgb(0x5A, 0x63, 0x78));
         private static readonly Brush LabelFill = Freeze(Color.FromRgb(0x22, 0x2B, 0x3F));
         private static readonly Brush SurfaceFill = Freeze(Color.FromRgb(0x10, 0x18, 0x27));
@@ -130,8 +131,15 @@ namespace Tsuzuri.Views
             public TextBlock IconText;
             public Border Done;
             public Button Send;
+
+            /// <summary>確認のカードで止まっているときの「続ける」・行き先のボタン（2026-11-17）。</summary>
+            public StackPanel Choices;
             public FrameworkElement Footer;
         }
+
+        /// <summary>送りが止まって利用者を待っている確認のカード（無ければ null）と、その行き先（分かれ道でなければ空）。</summary>
+        private string _pausedTitle;
+        private List<string> _pausedChoices = new List<string>();
 
         /// <summary>カードを送る（enter: Enter まで押す）。送れたら持ち主が MarkSent を呼ぶ。</summary>
         public event Action<FlowCard, bool> SendRequested;
@@ -141,6 +149,9 @@ namespace Tsuzuri.Views
 
         /// <summary>「止める」（自動で進めるのをやめる）。</summary>
         public event Action StopRequested;
+
+        /// <summary>確認のカードの「続ける」・行き先のボタン（行き先の名前。分かれ道でなければ null）。</summary>
+        public event Action<FlowCard, string> ContinueRequested;
 
         /// <summary>カードにファイルを落とした。持ち主が添付フォルダに取り込み（外のファイルならコピー）、添付を返す。取り込めなければ null。</summary>
         public Func<string[], List<FlowAttachment>> ImportFiles;
@@ -382,6 +393,8 @@ namespace Tsuzuri.Views
             addFiles.Click += delegate { AddCard(FlowKind.Files); };
             var addResult = ToolButton("＋ 結果", "前の Claude のカードの答えを受け取るカードを足す（選んでいるカードからつなぐ）");
             addResult.Click += delegate { AddCard(FlowKind.Result); };
+            var addConfirm = ToolButton("＋ 確認", "自動で進めているとき、ここで止まって確かめるカードを足す（線に名前を付けると、ボタンで行き先を選べる）");
+            addConfirm.Click += delegate { AddCard(FlowKind.Confirm); };
             var delete = ToolButton("削除 (Del)", "選んでいるカードを消す（Ctrl+Z で戻る）");
             delete.Click += delegate { DeleteSelection(); };
             var clear = ToolButton("印を消す", "送ったカードの ✓ を全部消す");
@@ -396,6 +409,7 @@ namespace Tsuzuri.Views
             buttons.Children.Add(addClaude);
             buttons.Children.Add(addResult);
             buttons.Children.Add(addFiles);
+            buttons.Children.Add(addConfirm);
             _stopButton = ToolButton("■ 止める", "自動で次のカードへ進むのをやめる（今の Claude の作業は止めない）");
             _stopButton.Visibility = Visibility.Collapsed;
             _stopButton.Click += delegate { if (StopRequested != null) StopRequested(); };
@@ -584,8 +598,11 @@ namespace Tsuzuri.Views
             send.Click += delegate { RequestSend(card, true); };
             parts.Send = send;
             DockPanel.SetDock(send, Dock.Right);
+            parts.Choices = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right };
+            DockPanel.SetDock(parts.Choices, Dock.Right);
             var footer = new DockPanel { LastChildFill = false, Margin = new Thickness(0, 6, 0, 0) };
             footer.Children.Add(send);
+            footer.Children.Add(parts.Choices);
             DockPanel.SetDock(footer, Dock.Bottom);
             parts.Footer = footer;
 
@@ -659,10 +676,13 @@ namespace Tsuzuri.Views
             var menu = new ContextMenu();
             var send = new MenuItem { Header = "送る（つながるカードは答えが終わるたびに順に）" };
             send.Click += delegate { RequestSend(card, true); };
+            // 途中のカードから送り直す（2026-11-17。失敗したところからやり直すため）
+            var resume = new MenuItem { Header = "ここから送る（つながるカードも順に）" };
+            resume.Click += delegate { RequestSend(card, true); };
 
             // 種類を変える（2026-11-17。右の欄を無くしたので、ここで）
             var kind = new MenuItem { Header = "種類" };
-            foreach (var each in new[] { FlowKind.Claude, FlowKind.Result, FlowKind.Files })
+            foreach (var each in new[] { FlowKind.Claude, FlowKind.Result, FlowKind.Files, FlowKind.Confirm })
             {
                 var item = new MenuItem { Header = FlowFile.NameOf(each), IsCheckable = true };
                 var value = each;
@@ -701,6 +721,7 @@ namespace Tsuzuri.Views
             var remove = new MenuItem { Header = "削除", InputGestureText = "Del" };
             remove.Click += delegate { DeleteSelection(); };
             menu.Items.Add(send);
+            menu.Items.Add(resume);
             menu.Items.Add(unmark);
             menu.Items.Add(kind);
             menu.Items.Add(new Separator());
@@ -714,6 +735,7 @@ namespace Tsuzuri.Views
                 // 選んでいないカードの右クリックは、そのカードだけを選ぶ
                 if (!_selection.Contains(card)) SelectOnly(card);
                 send.Visibility = IsStart(card) ? Visibility.Visible : Visibility.Collapsed;
+                resume.Visibility = card.Kind == FlowKind.Claude && !IsStart(card) ? Visibility.Visible : Visibility.Collapsed;
                 foreach (MenuItem item in kind.Items) item.IsChecked = (string)item.Header == FlowFile.NameOf(card.Kind);
             };
             return menu;
@@ -737,8 +759,10 @@ namespace Tsuzuri.Views
             parts.Title.Text = FlowFile.NameOf(card.Kind) + (waiting ? " — 答えを待っています…" : string.Empty);
             parts.Title.ToolTip = "カード " + card.Title + (result ? "（次のカードの本文に {{" + card.Title + "}} と書くと、ここの中身が入る）" : string.Empty);
             var files = card.Kind == FlowKind.Files;
-            parts.Icon.Background = files ? FilesFill : result ? ResultFill : ClaudeFill;
-            parts.IconText.Text = files ? "添" : result ? "=" : "AI";
+            var confirm = card.Kind == FlowKind.Confirm;
+            if (confirm && card.Title == _pausedTitle) parts.Title.Text = FlowFile.NameOf(card.Kind) + " — 止まっています";
+            parts.Icon.Background = files ? FilesFill : result ? ResultFill : confirm ? ConfirmFill : ClaudeFill;
+            parts.IconText.Text = files ? "添" : result ? "=" : confirm ? "?" : "AI";
             parts.IconText.FontSize = card.Kind == FlowKind.Claude ? 10 : 12;
 
             // 本文（Claude・結果）か、ファイルの一覧（添付）
@@ -750,7 +774,9 @@ namespace Tsuzuri.Views
                 parts.Editor.Text = card.Body;
                 _filling = filling;
             }
-            parts.Hint.Text = result ? "（まだ受け取っていない。直接書いてもよい）" : "Claude に送るテキストを打つ";
+            parts.Hint.Text = result ? "（まだ受け取っていない。直接書いてもよい）"
+                : confirm ? "ここで止まって確かめる（見る人への言葉。無くてよい）"
+                : "Claude に送るテキストを打つ";
             parts.Hint.Visibility = !files && card.Body.Length == 0 ? Visibility.Visible : Visibility.Collapsed;
 
             parts.FileList.Visibility = files ? Visibility.Visible : Visibility.Collapsed;
@@ -783,7 +809,50 @@ namespace Tsuzuri.Views
                 });
                 parts.FileList.Children.Add(row);
             }
-            parts.Footer.Visibility = IsStart(card) ? Visibility.Visible : Visibility.Collapsed;
+            UpdateFooter(card, parts);
+        }
+
+        /// <summary>
+        /// 下の段: 最初のカードの「▶ 送る」か、止まっている確認のカードの「続ける」・行き先のボタン。どちらでもなければ隠す。
+        /// </summary>
+        private void UpdateFooter(FlowCard card, CardParts parts)
+        {
+            var paused = card.Kind == FlowKind.Confirm && card.Title == _pausedTitle;
+            parts.Send.Visibility = IsStart(card) ? Visibility.Visible : Visibility.Collapsed;
+            parts.Choices.Children.Clear();
+            if (paused)
+            {
+                var names = _pausedChoices.Count > 0 ? _pausedChoices : new List<string> { null };
+                foreach (var name in names)
+                {
+                    var button = ToolButton(name == null ? "▶ 続ける" : "▶ " + name, name == null ? "次のカードへ進む" : "「" + name + "」の線の先へ進む");
+                    button.FontSize = 12;
+                    button.Padding = new Thickness(8, 1, 8, 1);
+                    button.Margin = new Thickness(4, 0, 0, 0);
+                    var choice = name;
+                    button.Click += delegate
+                    {
+                        if (ContinueRequested != null) ContinueRequested(card, choice);
+                    };
+                    parts.Choices.Children.Add(button);
+                }
+            }
+            parts.Choices.Visibility = paused ? Visibility.Visible : Visibility.Collapsed;
+            parts.Footer.Visibility = IsStart(card) || paused ? Visibility.Visible : Visibility.Collapsed;
+        }
+
+        /// <summary>送りが確認のカードで止まった・続けた（持ち主が呼ぶ。title が null なら止まっていない）。</summary>
+        public void SetPaused(string title, List<string> choices)
+        {
+            var before = _pausedTitle;
+            _pausedTitle = title;
+            _pausedChoices = choices ?? new List<string>();
+            foreach (var card in _flow.Cards.Where(card => card.Title == before || card.Title == title).ToList()) UpdateCard(card);
+            RefreshMarks();
+            if (title == null) return;
+            var paused = _flow.Find(title);
+            CardParts parts;
+            if (paused != null && _cards.TryGetValue(paused, out parts)) parts.Root.BringIntoView();
         }
 
         /// <summary>
@@ -792,8 +861,23 @@ namespace Tsuzuri.Views
         /// </summary>
         public bool IsStart(FlowCard card)
         {
-            return card.Kind == FlowKind.Claude
-                   && !_flow.Cards.Any(other => other.Kind != FlowKind.Files && other.Edges.Any(edge => edge.Target == card.Title));
+            if (card.Kind != FlowKind.Claude) return false;
+            var parents = _flow.Cards.Where(other => other.Kind != FlowKind.Files && other.Edges.Any(edge => edge.Target == card.Title)).ToList();
+            if (parents.Count == 0) return true;
+
+            // 入ってくる線が全部、このカードから行けるカードからの線（繰り返しで戻ってくる線）なら、最初のカード（2026-11-17）
+            var reach = new HashSet<string> { card.Title };
+            var stack = new Stack<FlowCard>();
+            stack.Push(card);
+            while (stack.Count > 0)
+            {
+                foreach (var edge in stack.Pop().Edges)
+                {
+                    var target = _flow.Find(edge.Target);
+                    if (target != null && target.Kind != FlowKind.Files && reach.Add(target.Title)) stack.Push(target);
+                }
+            }
+            return parents.All(parent => reach.Contains(parent.Title));
         }
 
         /// <summary>カードの本文の欄に打てるようにする。</summary>
@@ -920,7 +1004,7 @@ namespace Tsuzuri.Views
             e.Handled = true;
             var paths = e.Data.GetData(DataFormats.FileDrop) as string[];
             if (card == null || paths == null || paths.Length == 0 || ImportFiles == null) return;
-            if (card.Kind == FlowKind.Result)
+            if (card.Kind == FlowKind.Result || card.Kind == FlowKind.Confirm)
             {
                 ShowStatus("ファイルは、添付のカードか Claude のカードへドラッグしてください");
                 return;
@@ -998,9 +1082,9 @@ namespace Tsuzuri.Views
         private void RequestSend(FlowCard card, bool enter)
         {
             if (card == null) return;
-            if (!IsStart(card))
+            if (card.Kind != FlowKind.Claude)
             {
-                ShowStatus("送れるのは、どこからもつながっていない Claude のカードだけです（続くカードは自動で送ります）");
+                ShowStatus("送れるのは Claude のカードだけです");
                 return;
             }
             if (card.Body.Trim().Length == 0)
@@ -1119,7 +1203,7 @@ namespace Tsuzuri.Views
             {
                 var card = pair.Key;
                 var parts = pair.Value;
-                parts.Footer.Visibility = IsStart(card) ? Visibility.Visible : Visibility.Collapsed;
+                UpdateFooter(card, parts);
                 parts.Done.Visibility = sent.Contains(card.Title) ? Visibility.Visible : Visibility.Collapsed;
                 Dictionary<string, string> places;
                 string where;
@@ -1132,7 +1216,7 @@ namespace Tsuzuri.Views
                     parts.Frame.BorderBrush = Resource("AccentBrush");
                     parts.Frame.BorderThickness = new Thickness(2);
                 }
-                else if (next.Contains(card.Title))
+                else if (next.Contains(card.Title) || card.Title == _pausedTitle)
                 {
                     parts.Frame.BorderBrush = NextBorder;
                     parts.Frame.BorderThickness = new Thickness(2);

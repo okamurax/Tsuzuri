@@ -10,5 +10,6 @@
   <ItemGroup>
     <Compile Include="../../Tsuzuri/Markdown/FlowFile.cs" />
     <Compile Include="../../Tsuzuri/Markdown/FlowResults.cs" />
+    <Compile Include="../../Tsuzuri/Markdown/FlowPlan.cs" />
   </ItemGroup>
 </Project>

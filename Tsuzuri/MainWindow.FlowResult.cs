@@ -104,11 +104,11 @@ namespace Tsuzuri
             foreach (var other in _flowWatches.ToList())
             {
                 if (other.Key != watch.Key) continue;
-                other.Wants.RemoveAll(want => watch.Wants.Any(mine => mine.Title == want.Title));
+                other.Wants.RemoveAll(want => watch.Wants.Any(mine => mine.Title == want.Title && (mine.Options == null) == (want.Options == null)));
                 if (other.Wants.Count == 0) StopFlowWatch(other);
             }
 
-            foreach (var want in watch.Wants) FlowView.SetWaiting(watch.Key, want.Title, true);
+            foreach (var want in watch.Wants.Where(want => want.Options == null)) FlowView.SetWaiting(watch.Key, want.Title, true);
             view.RefreshWaiting();
 
             _flowWatches.Add(watch);
@@ -121,7 +121,7 @@ namespace Tsuzuri
         {
             if (watch.Timer != null) watch.Timer.Stop();
             _flowWatches.Remove(watch);
-            foreach (var want in watch.Wants) FlowView.SetWaiting(watch.Key, want.Title, false);
+            foreach (var want in watch.Wants.Where(want => want.Options == null)) FlowView.SetWaiting(watch.Key, want.Title, false);
             if (_flowView != null && _flowView.FlowKey == watch.Key) _flowView.RefreshWaiting();
         }
 
@@ -161,6 +161,13 @@ namespace Tsuzuri
                 var value = FlowResults.Extract(answer, want.Start, want.End);
                 if (value == null) continue;
                 watch.Wants.Remove(want);
+                if (want.Options != null)
+                {
+                    // 行き先（2026-11-17）。送りの段取りに渡す（合わせるのは答えが終わったとき。AfterFlowTurn）
+                    var run = _flowRun;
+                    if (run != null && ReferenceEquals(run.Tab, watch.Tab) && run.View.FlowKey == watch.Key && run.Current == want.Title) run.Choice = value;
+                    continue;
+                }
                 FlowView.SetWaiting(watch.Key, want.Title, false);
                 DeliverFlowResult(watch, want.Title, value);
             }

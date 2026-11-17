@@ -15,7 +15,8 @@ namespace Tsuzuri
     // フローは今の文書のサブページ（図エディタの図と同じく、別のファイルを作らない。最初の行が印 FlowFile.Marker）。
     // 本文にはそのページへのリンクを置き、押すとフロー図（Views/FlowView）を本文の場所の上に重ねて出す（ページとしては開かない）。
     // ランチャーと同じ重ね方だが、ほぼフロー図で直すので、高さを多めに取る（既定 75%。仕切りで変えられ、覚える）。下の本文は見えたまま。
-    // 送り先はフローの会話（下）。利用者が送るのは最初のカードだけで、つながるカードは Claude の答えが終わる（Stop のフック）たびに順に送る（2026-11-17）。
+    // 送り先はフローの会話（下）。利用者が送るのは最初のカード（か「ここから送る」のカード）だけで、つながるカードは Claude の答えが終わる（Stop のフック）たびに順に送る（2026-11-17）。
+    // 次に送るカードは FlowPlan が決める（分かれ道は Claude が選び、確認のカードでは止まって利用者を待ち、戻る線で繰り返す）。
     // PowerShell のカード・途中から新しい会話にするのは無くした。
     // 結果のカード（MainWindow.FlowResult.cs）と添付のカードは送らず、つないだ先の Claude のカードに中身・ファイルの場所を渡す。
     public partial class MainWindow
@@ -109,6 +110,7 @@ namespace Tsuzuri
             var flowView = _flowView;
             _flowView.SendRequested += (card, enter) => SendFlowCard(flowView, card, enter);
             _flowView.StopRequested += delegate { StopFlowRun("次のカードへ進むのをやめました"); };
+            _flowView.ContinueRequested += (card, choice) => ContinueFlow(flowView, card, choice);
 
             FlowLayer.Children.Clear();
             FlowLayer.RowDefinitions.Clear();
@@ -169,6 +171,9 @@ namespace Tsuzuri
         private void CloseFlow()
         {
             if (_flowView == null) return;
+
+            // 確認のカードで止まっている送りは、続けるボタンが無くなるので止める（送って答えを待っている送りは、答えが終わったときに止まる）
+            if (_flowRun != null && ReferenceEquals(_flowRun.View, _flowView) && _flowRun.Paused != null) StopFlowRun("フローを閉じたので、送りをやめました");
 
             var hadFocus = _flowView.IsKeyboardFocusWithin;
             _flowView.Flush();
@@ -254,8 +259,19 @@ namespace Tsuzuri
         {
             public FlowView View;
             public AiTab Tab;
-            public readonly Queue<string> Rest = new Queue<string>();
+
+            /// <summary>次に送るカードを決める段取り（分かれ道・繰り返し。FlowPlan）。</summary>
+            public FlowPlan Plan;
+
+            /// <summary>送り始めたカード（新しい会話を始めてよいのは、このカードだけ）。</summary>
+            public string Begin;
             public string Current;
+
+            /// <summary>分かれ道のカードで、Claude が選んだ行き先（答えから読んだもの。合わせる前）。</summary>
+            public string Choice;
+
+            /// <summary>止まって利用者を待っている確認のカード（無ければ null）。</summary>
+            public string Paused;
 
             /// <summary>送った（Enter まで押した）カードの答えを待っている。</summary>
             public bool Waiting;
@@ -264,18 +280,66 @@ namespace Tsuzuri
 
         private FlowRun _flowRun;
 
-        /// <summary>最初のカードの「▶ 送る」。続くカードを順に送る送りを始める。</summary>
+        /// <summary>
+        /// 「▶ 送る」（最初のカード）・「ここから送る」（途中の Claude のカード。2026-11-17）。そのカードから、続くカードを順に送る送りを始める。
+        /// </summary>
         private void SendFlowCard(FlowView view, FlowCard card, bool enter)
         {
-            if (!view.IsStart(card)) return;
+            if (card.Kind != FlowKind.Claude) return;
 
             StopFlowRun(null);
             foreach (var watch in _flowWatches.Where(each => each.Key == view.FlowKey).ToList()) StopFlowWatch(watch);   // 前の送りの結果はもう待たない
-            var run = new FlowRun { View = view };
-            foreach (var next in FlowResults.Order(view.Flow, card)) run.Rest.Enqueue(next.Title);
+            var run = new FlowRun { View = view, Plan = new FlowPlan(view.Flow, card), Begin = card.Title };
             _flowRun = run;
             view.SetRunning(true);
+            AdvanceFlow(run);
+        }
+
+        /// <summary>段取りの次のカードへ進む。Claude のカードなら送り、確認のカードなら止まって利用者を待つ。無ければ終わる。</summary>
+        private void AdvanceFlow(FlowRun run)
+        {
+            if (run.Stopped) return;
+            var title = run.Plan.Next();
+            if (title == null)
+            {
+                StopFlowRun(run.Plan.Problem ?? "フローを最後まで送りました");
+                return;
+            }
+            var card = run.View.Flow.Find(title);
+            if (card == null)
+            {
+                StopFlowRun("送るはずのカード " + title + " が無くなったので止めました");
+                return;
+            }
+            run.Current = card.Title;
+            run.Choice = null;
+
+            if (card.Kind == FlowKind.Confirm)
+            {
+                run.Paused = card.Title;
+                var choices = run.Plan.ChoicesOf(card.Title);
+                run.View.SetPaused(card.Title, choices);
+                var why = choices.Count > 0 ? "確認のカードで止まっています。行き先のボタンを押すと続けます" : "確認のカードで止まっています。「続ける」を押すと次へ進みます";
+                run.View.ShowStatus(why);
+                Status("フロー: " + why);
+                return;
+            }
             SendFlowStep(run, card);
+        }
+
+        /// <summary>確認のカードの「続ける」・行き先のボタン（利用者が押した）。</summary>
+        private void ContinueFlow(FlowView view, FlowCard card, string choice)
+        {
+            var run = _flowRun;
+            if (run == null || !ReferenceEquals(run.View, view) || run.Paused != card.Title) return;
+            run.Paused = null;
+            view.SetPaused(null, null);
+            if (!run.Plan.Finish(card.Title, choice))
+            {
+                StopFlowRun(run.Plan.Problem);
+                return;
+            }
+            AdvanceFlow(run);
         }
 
         /// <summary>自動で進めるのをやめる（「止める」・送れなかった・フローを閉じた）。why があれば知らせる。</summary>
@@ -287,6 +351,7 @@ namespace Tsuzuri
             run.Stopped = true;
             if (run.Tab != null && run.Tab.SessionId != null) SetFlowPrompt(run.Tab.SessionId, null);
             run.View.SetRunning(false);
+            if (run.Paused != null) run.View.SetPaused(null, null);
             if (why != null)
             {
                 run.View.ShowStatus(why);
@@ -309,7 +374,6 @@ namespace Tsuzuri
                 StopFlowRun(problem);
                 return;
             }
-            run.Current = card.Title;
             SendFlowToClaude(run, card, text);
         }
 
@@ -350,22 +414,30 @@ namespace Tsuzuri
                         AfterFlowTurn(run, tries + 1);
                         return;
                     }
-                    StopFlowRun("Claude の答えに結果の印が見つからなかったので止めました（結果のカードに直接書いて、続きのカードを送り直せます）");
+                    StopFlowRun("Claude の答えに結果・行き先の印が見つからなかったので止めました（結果のカードに直接書いて、続きのカードを「ここから送る」で送り直せます）");
                     return;
                 }
 
-                FlowCard next = null;
-                while (next == null && run.Rest.Count > 0)
+                // 分かれ道なら、Claude が選んだ行き先を線の名前に合わせる
+                string choice = null;
+                var options = run.Plan.ChoicesOf(run.Current);
+                if (options.Count > 0)
                 {
-                    var card = run.View.Flow.Find(run.Rest.Dequeue());
-                    if (card != null && card.Kind == FlowKind.Claude) next = card;
+                    choice = FlowResults.MatchChoice(options, run.Choice);
+                    if (choice == null)
+                    {
+                        StopFlowRun("Claude の選んだ行き先（" + (run.Choice ?? "無し") + "）が線の名前（" + string.Join("・", options) + "）に合わないので止めました。"
+                                    + "進む先のカードを「ここから送る」で送り直せます");
+                        return;
+                    }
+                    run.View.ShowStatus("行き先「" + choice + "」へ進みます");
                 }
-                if (next == null)
+                if (!run.Plan.Finish(run.Current, choice))
                 {
-                    StopFlowRun("フローを最後まで送りました");
+                    StopFlowRun(run.Plan.Problem);
                     return;
                 }
-                SendFlowStep(run, next);
+                AdvanceFlow(run);
             };
             timer.Start();
         }
@@ -403,7 +475,7 @@ namespace Tsuzuri
                 WriteFlowToClaude(run, card, tab, text, wants);
                 return;
             }
-            if (!view.IsStart(card))   // 新しい会話を始めるのは最初のカードだけ
+            if (card.Title != run.Begin)   // 新しい会話を始めるのは、送り始めたカードだけ
             {
                 StopFlowRun("フローの会話のタブが閉じたので止めました");
                 return;
@@ -505,8 +577,9 @@ namespace Tsuzuri
                 view.MarkSent(card, where);
                 if (run.Stopped) return;
                 run.Waiting = true;
-                view.ShowStatus(run.Rest.Count > 0
-                    ? where + " に送りました。答えが終わったら次のカードを送ります（残り " + run.Rest.Count + " 枚以内）"
+                var rest = run.Plan.Remaining;
+                view.ShowStatus(rest > 0 || run.Plan.ChoicesOf(card.Title).Count > 0
+                    ? where + " に送りました。答えが終わったら次のカードを送ります" + (rest > 0 ? "（残り " + rest + " 枚以内）" : string.Empty)
                     : where + " に送りました（最後のカード）");
             };
             timer.Start();

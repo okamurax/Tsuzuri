@@ -67,44 +67,37 @@ namespace Tsuzuri.Markdown
         }
 
         /// <summary>
-        /// 最初のカードから自動で送る順（2026-11-17）。つながりをたどって行ける Claude のカードを、前のカードが全部済んでから並べる
-        /// （結果のカードは通り抜ける。添付のカードからのつながりは数えない。分かれ道は両方送る。送れるものが並んだらページの並びの順）。最初のカードは含めない。
-        /// 輪になっていたら1周で止める（済んだカードへは戻らない。輪の中で前が済まないカードは送らない）。
+        /// 分かれ道の行き先（2026-11-17）。Claude・確認のカードから Claude・確認のカードへの線のうち、名前の付いたものの名前（重なりは1つに）。
+        /// 名前が2つ以上あれば分かれ道で、そのうち1つを選んだ線だけ進む（名前の無い線はいつも進む）。1つ以下なら分かれ道ではない（空の一覧）。
+        /// 結果のカードへの線の名前は、何を書いてほしいかなので数えない。
         /// </summary>
-        public static List<FlowCard> Order(FlowFile flow, FlowCard start)
+        public static List<string> Choices(FlowFile flow, FlowCard card)
         {
-            // 行ける Claude・結果のカード
-            var reach = new HashSet<FlowCard> { start };
-            var stack = new Stack<FlowCard>();
-            stack.Push(start);
-            while (stack.Count > 0)
+            var labels = new List<string>();
+            if (card.Kind != FlowKind.Claude && card.Kind != FlowKind.Confirm) return labels;
+            foreach (var edge in card.Edges)
             {
-                foreach (var edge in stack.Pop().Edges)
-                {
-                    var target = flow.Find(edge.Target);
-                    if (target == null || target.Kind == FlowKind.Files || !reach.Add(target)) continue;
-                    stack.Push(target);
-                }
+                var target = flow.Find(edge.Target);
+                if (target == null || (target.Kind != FlowKind.Claude && target.Kind != FlowKind.Confirm)) continue;
+                if (edge.Label.Length > 0 && !labels.Contains(edge.Label)) labels.Add(edge.Label);
             }
+            return labels.Count >= 2 ? labels : new List<string>();
+        }
 
-            // 前のカード（行けるものだけ）が全部済んだものから並べる
-            var done = new HashSet<FlowCard> { start };
-            var order = new List<FlowCard>();
-            var progressed = true;
-            while (progressed)
-            {
-                progressed = false;
-                foreach (var card in flow.Cards)
-                {
-                    if (!reach.Contains(card) || done.Contains(card)) continue;
-                    var parents = flow.Cards.Where(other => reach.Contains(other) && other.Edges.Any(edge => edge.Target == card.Title));
-                    if (!parents.All(done.Contains)) continue;
-                    done.Add(card);
-                    if (card.Kind == FlowKind.Claude) order.Add(card);
-                    progressed = true;
-                }
-            }
-            return order;
+        /// <summary>
+        /// Claude が書いた行き先を、線の名前に合わせる。そのままか、かぎ括弧などを除いて同じなら、それ。
+        /// 違えば、その中に1つだけ含まれる名前（「OK です」なら OK）。決まらなければ null。
+        /// </summary>
+        public static string MatchChoice(List<string> options, string value)
+        {
+            if (value == null) return null;
+            var text = value.Trim().Trim('「', '」', '『', '』', '"', '\'', '*', '`', '[', ']', '(', ')', '（', '）', ' ', '　', '.', '。');
+            var exact = options.FirstOrDefault(option => string.Equals(option, text, StringComparison.OrdinalIgnoreCase));
+            if (exact != null) return exact;
+            var contained = options.Where(option => text.IndexOf(option, StringComparison.OrdinalIgnoreCase) >= 0).ToList();
+            // 「直す」と「直さない」のように、ほかの名前に含まれる名前は、長いほうが当たったら数えない
+            contained = contained.Where(option => !contained.Any(other => other.Length > option.Length && other.IndexOf(option, StringComparison.OrdinalIgnoreCase) >= 0)).ToList();
+            return contained.Count == 1 ? contained[0] : null;
         }
 
         /// <summary>このカードの答えを受け取る結果のカードと、その印（送るたびに変える。前の答えの印と取り違えないため）。</summary>
@@ -125,20 +118,46 @@ namespace Tsuzuri.Markdown
                     End = "<<<ここまで " + target.Title + " " + nonce + ">>>",
                 });
             }
+
+            // 分かれ道なら、行き先も選ばせる（2026-11-17）
+            var choices = Choices(flow, card);
+            if (choices.Count > 0)
+            {
+                wants.Add(new FlowWant
+                {
+                    Title = card.Title,
+                    Label = string.Empty,
+                    Start = "<<<行き先 " + nonce + ">>>",
+                    End = "<<<ここまで 行き先 " + nonce + ">>>",
+                    Options = choices,
+                });
+            }
             return wants;
         }
 
-        /// <summary>結果を印で囲んで書くよう頼む文（送るテキストの後ろに付ける）。</summary>
+        /// <summary>結果を印で囲んで書く・行き先を選んで書くよう頼む文（送るテキストの後ろに付けるか、フックの文脈で渡す）。</summary>
         public static string Instruction(List<FlowWant> wants)
         {
             var text = new StringBuilder();
-            text.Append("\n\n（この作業の結果は、ツールが受け取って次の作業に渡します。答えの最後に、渡す結果だけを次の印の行で囲んで書いてください。")
-                .Append("印の行は1行ずつそのまま書き、コードブロックや強調の中に入れないでください。囲みの中には結果だけを書き、説明は囲みの外に書いてください）");
-            foreach (var want in wants)
+            var results = wants.Where(want => want.Options == null).ToList();
+            if (results.Count > 0)
             {
-                text.Append("\n").Append(want.Start)
-                    .Append("\n（ここに").Append(want.Label.Length > 0 ? "「" + want.Label + "」" : "結果").Append("）\n")
-                    .Append(want.End);
+                text.Append("\n\n（この作業の結果は、ツールが受け取って次の作業に渡します。答えの最後に、渡す結果だけを次の印の行で囲んで書いてください。")
+                    .Append("印の行は1行ずつそのまま書き、コードブロックや強調の中に入れないでください。囲みの中には結果だけを書き、説明は囲みの外に書いてください）");
+                foreach (var want in results)
+                {
+                    text.Append("\n").Append(want.Start)
+                        .Append("\n（ここに").Append(want.Label.Length > 0 ? "「" + want.Label + "」" : "結果").Append("）\n")
+                        .Append(want.End);
+                }
+            }
+            foreach (var want in wants.Where(want => want.Options != null))
+            {
+                var names = string.Join("・", want.Options.Select(option => "「" + option + "」"));
+                text.Append("\n\n（このあと、どの作業へ進むかをツールが決めます。作業を終えたら、答えの最後に、次のうちから進む先を1つだけ選び、")
+                    .Append("その名前だけを次の印の行で囲んで書いてください: ").Append(names)
+                    .Append("。印の行は1行ずつそのまま書き、コードブロックや強調の中に入れないでください）\n")
+                    .Append(want.Start).Append("\n（").Append(string.Join(" か ", want.Options)).Append(" のどれか1つ）\n").Append(want.End);
             }
             return text.ToString();
         }
@@ -168,12 +187,15 @@ namespace Tsuzuri.Markdown
         }
     }
 
-    /// <summary>Claude のカードからつながる結果のカード。答えのうち、この印で囲ませた部分を受け取る。</summary>
+    /// <summary>Claude のカードからつながる結果のカード（か、選ばせる行き先）。答えのうち、この印で囲ませた部分を受け取る。</summary>
     public sealed class FlowWant
     {
         public string Title;
         public string Label;
         public string Start;
         public string End;
+
+        /// <summary>行き先を選ばせるとき（2026-11-17）、選べる線の名前。Title はそのカード自身。結果を受け取るときは null。</summary>
+        public List<string> Options;
     }
 }

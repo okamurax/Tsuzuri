@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using Tsuzuri.Markdown;
 
@@ -11,6 +12,28 @@ internal static class Program
     {
         Console.WriteLine((ok ? "OK  " : "NG  ") + name);
         if (!ok) _failed++;
+    }
+
+    /// <summary>段取りどおりに送ったときの順（「題=選ぶ名前」を前から順に使う）。止まったら最後に「!」。</summary>
+    private static string Run(FlowFile flow, string start, params string[] picks)
+    {
+        var plan = new FlowPlan(flow, flow.Find(start));
+        var sent = new List<string>();
+        var queue = new Queue<string>(picks);
+        for (var guard = 0; guard < 100; guard++)
+        {
+            var title = plan.Next();
+            if (title == null) break;
+            sent.Add(title);
+            string choice = null;
+            if (plan.ChoicesOf(title).Count > 0 && queue.Count > 0 && queue.Peek().StartsWith(title + "=")) choice = queue.Dequeue().Substring(title.Length + 1);
+            if (!plan.Finish(title, choice))
+            {
+                sent.Add("!");
+                break;
+            }
+        }
+        return string.Join(",", sent).Replace(",!", "!");
     }
 
     private static int Main()
@@ -207,7 +230,7 @@ internal static class Program
         Expect(wants.Count == 1 && wants[0].Title == "2" && wants[0].Label == "要約" && wants[0].Start.StartsWith("<<<結果 2 ") && wants[0].End.StartsWith("<<<ここまで 2 "), "受け取る結果と印");
         Expect(FlowResults.WantsOf(chain, chain.Find("2")).Count == 0, "結果のカードからは受け取らない");
 
-        // 自動で送る順: 結果のカードは通り抜ける・添付のカードからのつながりは数えない・合流は前が全部済んでから・輪で止まる
+        // 自動で送る段取り（FlowPlan）: 結果のカードは通り抜ける・添付のカードからのつながりは数えない・合流は前が全部済んでから
         var orderFlow = FlowFile.Parse(string.Join("\n", new[]
         {
             "## [添付] 9", "添付: [a](a.txt)", "→ 3",
@@ -219,11 +242,64 @@ internal static class Program
             "## [Claude] 6", "→ 7",
             "## [Claude] 7", "→ 6",
         }));
-        var order = string.Join(",", FlowResults.Order(orderFlow, orderFlow.Find("1")).Select(card => card.Title));
-        Expect(order == "3,4,5", "送る順: " + order);
-        Expect(FlowResults.Order(orderFlow, orderFlow.Find("5")).Count == 0, "先の無いカード");
-        var loop = string.Join(",", FlowResults.Order(orderFlow, orderFlow.Find("6")).Select(card => card.Title));
-        Expect(loop == "7", "輪は1周で止める（最初のカードへは戻らない）: " + loop);
+        Expect(Run(orderFlow, "1") == "1,3,4,5", "送る順: " + Run(orderFlow, "1"));
+        Expect(Run(orderFlow, "5") == "5", "先の無いカード");
+        Expect(Run(orderFlow, "3") == "3,5", "途中から: 前のカードは待たない");
+        var unconditional = Run(orderFlow, "6");
+        Expect(unconditional.StartsWith("6,7,6,7") && unconditional.EndsWith("!"), "名前の無い戻る線は上限まで回って止まる: " + unconditional);
+
+        // 分かれ道: 名前の違う線が2つ以上。選んだ線と名前の無い線だけ進む。進まなかった先は飛ばし、合流は飛ばした前を待たない
+        var branch = FlowFile.Parse(string.Join("\n", new[]
+        {
+            "## [Claude] 1", "→ [良い] 2", "→ [悪い] 3", "→ 6", "→ [要約] 7",
+            "## [Claude] 2", "→ 4",
+            "## [Claude] 3", "→ 4",
+            "## [Claude] 4",
+            "## [Claude] 6",
+            "## [結果] 7",
+        }));
+        Expect(string.Join(",", FlowResults.Choices(branch, branch.Find("1"))) == "良い,悪い", "行き先は Claude・確認のカードへの線の名前だけ");
+        Expect(FlowResults.Choices(branch, branch.Find("2")).Count == 0, "名前の無い線は分かれ道でない");
+        Expect(Run(branch, "1", "1=良い") == "1,2,4,6", "良いを選ぶ: " + Run(branch, "1", "1=良い"));
+        Expect(Run(branch, "1", "1=悪い") == "1,3,4,6", "悪いを選ぶ: " + Run(branch, "1", "1=悪い"));
+        Expect(Run(branch, "1").EndsWith("!"), "選ばなければ止まる");
+        var branchWants = FlowResults.WantsOf(branch, branch.Find("1"));
+        Expect(branchWants.Count == 2 && branchWants[0].Title == "7" && branchWants[1].Options != null && branchWants[1].Title == "1"
+               && branchWants[1].Start.StartsWith("<<<行き先 "), "結果と行き先の両方を頼む");
+        var branchText = FlowResults.Instruction(branchWants);
+        Expect(branchText.Contains("「良い」・「悪い」") && branchText.Contains(branchWants[1].Start) && branchText.Contains(branchWants[0].Start), "行き先の頼み: " + branchText);
+
+        Expect(FlowResults.MatchChoice(new List<string> { "OK", "直す" }, " 「OK」 ") == "OK", "かぎ括弧を除く");
+        Expect(FlowResults.MatchChoice(new List<string> { "OK", "直す" }, "ok") == "OK", "大文字小文字は見ない");
+        Expect(FlowResults.MatchChoice(new List<string> { "OK", "直す" }, "直すことにします") == "直す", "含まれる名前");
+        Expect(FlowResults.MatchChoice(new List<string> { "OK", "直す" }, "OK か 直す") == null, "2つ含まれたら決めない");
+        Expect(FlowResults.MatchChoice(new List<string> { "直す", "直さない" }, "直さない") == "直さない", "長い名前に含まれる短い名前は数えない");
+        Expect(FlowResults.MatchChoice(new List<string> { "OK", "直す" }, "わからない") == null, "どれでもない");
+
+        // 繰り返し: 確認のカードで行き先を選ぶ。戻る線で戻り先から送り直す
+        var loopFlow = FlowFile.Parse(string.Join("\n", new[]
+        {
+            "## [Claude] 1", "書いて", "→ [文] 2",
+            "## [結果] 2", "→ 3",
+            "## [確認] 3", "見て", "→ [OK] 4", "→ [直す] 5",
+            "## [Claude] 4", "仕上げて",
+            "## [Claude] 5", "直して", "→ 2",
+        }));
+        Expect(loopFlow.Find("3").Kind == FlowKind.Confirm && FlowFile.Parse(loopFlow.Serialize()).Serialize() == loopFlow.Serialize()
+               && loopFlow.Serialize().Contains("## [確認] 3"), "確認のカードを読み書きする");
+        var twice = Run(loopFlow, "1", "3=直す", "3=直す", "3=OK");
+        Expect(twice == "1,3,5,3,5,3,4", "直すを2回選んでから OK: " + twice);
+        var forever = Run(loopFlow, "1", "3=直す", "3=直す", "3=直す", "3=直す", "3=直す", "3=直す", "3=直す");
+        Expect(forever.EndsWith("!") && forever.TrimEnd('!').Split(',').Count(title => title == "5") == FlowPlan.LoopLimit + 1, "戻る回数の上限: " + forever);
+
+        // 戻り先が送り始めたカード
+        var back = FlowFile.Parse(string.Join("\n", new[]
+        {
+            "## [Claude] 1", "→ 2",
+            "## [Claude] 2", "→ [もう一度] 1", "→ [終わり] 3",
+            "## [Claude] 3",
+        }));
+        Expect(Run(back, "1", "2=もう一度", "2=終わり") == "1,2,1,2,3", "最初のカードへ戻る: " + Run(back, "1", "2=もう一度", "2=終わり"));
 
         var instruction = FlowResults.Instruction(wants);
         Expect(instruction.Contains(wants[0].Start + "\n（ここに「要約」）\n" + wants[0].End), "頼む文に印: " + instruction);

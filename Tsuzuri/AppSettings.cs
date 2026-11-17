@@ -38,6 +38,10 @@ namespace Tsuzuri
         [DataMember(Name = "historySplit", EmitDefaultValue = false)]
         public double HistorySplit { get; set; }
 
+        /// <summary>ページの検索欄の下の、一覧とお気に入りの欄の高さ（2026-11-17。全部のページで共有）。0 なら未保存で標準（132）。</summary>
+        [DataMember(Name = "searchResultHeight", EmitDefaultValue = false)]
+        public double SearchResultHeight { get; set; }
+
         /// <summary>AI の欄の共通ターミナル（2026-11-08）を出したときの、上の段（claude）の高さの割合。0 なら未保存で 6 割。</summary>
         [DataMember(Name = "aiShellSplit", EmitDefaultValue = false)]
         public double AiShellSplit { get; set; }
@@ -149,6 +153,7 @@ namespace Tsuzuri
             if (FilerWidth < 180 || FilerWidth > 2000) FilerWidth = 300;
             if (AiWidth < 200 || AiWidth > 4000) AiWidth = 560;
             if (!(HistorySplit >= 0.1 && HistorySplit <= 0.9)) HistorySplit = 0.5;
+            if (!(SearchResultHeight >= 40 && SearchResultHeight <= 4000)) SearchResultHeight = 132;   // NaN もここで直す
             if (!(AiShellSplit >= 0.15 && AiShellSplit <= 0.85)) AiShellSplit = 0.6;   // NaN もここで直す
 
             // 壊れた値や小さすぎる大きさは「未保存」に戻す。最小サイズ（640×400）を下回るものは使わない。

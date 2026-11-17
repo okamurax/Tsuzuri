@@ -436,13 +436,20 @@ namespace Tsuzuri.Views
             halves.Children.Add(favoriteScroll);
 
             _resultArea = new Border();
-            _resultArea.Height = ResultAreaHeight;
+            _resultArea.Height = DefaultResultAreaHeight;
             _resultArea.Background = Theme.Background;
             _resultArea.BorderBrush = Theme.Divider;
             _resultArea.BorderThickness = new Thickness(0, 0, 0, 1);
             _resultArea.Padding = new Thickness(0, 3, 0, 3);
             _resultArea.Child = halves;
-            DockPanel.SetDock(_resultArea, Dock.Top);
+
+            // 欄の下端（本文との境界）をつかんで上下に動かせる（2026-11-17。SPEC 12章）。高さは全部のページで共有し、app.json に覚える。
+            // ダブルクリックで標準の高さ（132）に戻す。つかむところは下の線の上の 5px（線に重ねると線が太って見えるので、欄の中に置く）
+            var resultGrip = CreateResultGrip();
+            var resultWrap = new Grid();
+            resultWrap.Children.Add(_resultArea);
+            resultWrap.Children.Add(resultGrip);
+            DockPanel.SetDock(resultWrap, Dock.Top);
 
             // お気に入りはファイルごと。画面に出るたびに、そのファイルの分で並べ直す。
             _resultArea.Loaded += delegate { RebuildFavorites(); };
@@ -484,7 +491,7 @@ namespace Tsuzuri.Views
             var body = new DockPanel();
             body.LastChildFill = true;
             body.Children.Add(searchArea);
-            body.Children.Add(_resultArea);
+            body.Children.Add(resultWrap);
             body.Children.Add(breadcrumbArea);
             body.Children.Add(this);
 
@@ -2593,8 +2600,77 @@ namespace Tsuzuri.Views
         /// <summary>並べる行の上限。これを超えたら残りの行数だけ出す。</summary>
         private const int MaxResultRows = 300;
 
-        /// <summary>検索欄の下の、一覧とお気に入りの欄の高さ（2026-11-04。いつも出す）。</summary>
-        private const double ResultAreaHeight = 132;
+        /// <summary>検索欄の下の、一覧とお気に入りの欄の標準の高さ（2026-11-04。いつも出す）。2026-11-17 から下端をドラッグで変えられ、ダブルクリックでこの高さに戻る。</summary>
+        public const double DefaultResultAreaHeight = 132;
+
+        /// <summary>一覧とお気に入りの欄の、いちばん低い高さ（1 行と少し見える）。</summary>
+        public const double MinResultAreaHeight = 40;
+
+        /// <summary>ドラッグで広げても本文に残す高さ。</summary>
+        private const double MinBodyHeight = 80;
+
+        /// <summary>一覧とお気に入りの欄の下端を動かし終えた・ダブルクリックで戻した。引数は新しい高さ。ほかのページにも配り、覚えるのは MainWindow。</summary>
+        public event EventHandler<double> ResultAreaResized;
+
+        private double _gripStartHeight;
+
+        /// <summary>一覧とお気に入りの欄の高さを変える（低すぎる値は直す。画面に出ていれば、本文に高さを残す）。</summary>
+        public void SetResultAreaHeight(double height)
+        {
+            if (double.IsNaN(height) || double.IsInfinity(height)) height = DefaultResultAreaHeight;
+
+            // 画面に出ているときだけ上を抑える（出ていないページは大きさが 0 なので、覚えた値をそのまま使う）
+            var frameHeight = _frame != null ? _frame.ActualHeight : 0;
+            if (frameHeight > 0)
+            {
+                // 検索欄（32）・パンくず（24）・本文の残りを引いたもの
+                var max = frameHeight - 32 - 24 - MinBodyHeight;
+                if (height > max) height = max;
+            }
+            if (height < MinResultAreaHeight) height = MinResultAreaHeight;
+
+            height = Math.Round(height);
+            if (_resultArea.Height != height) _resultArea.Height = height;
+        }
+
+        private System.Windows.Controls.Primitives.Thumb CreateResultGrip()
+        {
+            var factory = new FrameworkElementFactory(typeof(Border));
+            factory.SetValue(Border.BackgroundProperty, Brushes.Transparent);
+
+            var grip = new System.Windows.Controls.Primitives.Thumb();
+            grip.Template = new ControlTemplate(typeof(System.Windows.Controls.Primitives.Thumb)) { VisualTree = factory };
+            grip.Height = 5;
+            grip.VerticalAlignment = VerticalAlignment.Bottom;
+            grip.Cursor = Cursors.SizeNS;
+            grip.Focusable = false;
+            grip.ToolTip = "ドラッグで高さを変える（ダブルクリックで標準の高さ）";
+
+            // つかめるところに来たら、下の線をほかの仕切りと同じ色にする
+            var accent = Application.Current != null ? Application.Current.TryFindResource("AccentBrush") as Brush : null;
+            grip.MouseEnter += delegate { _resultArea.BorderBrush = accent ?? Theme.Link; };
+            grip.MouseLeave += delegate { if (!grip.IsDragging) _resultArea.BorderBrush = Theme.Divider; };
+
+            grip.DragStarted += delegate { _gripStartHeight = _resultArea.Height; };
+            grip.DragDelta += (sender, e) => SetResultAreaHeight(_resultArea.Height + e.VerticalChange);
+            grip.DragCompleted += delegate
+            {
+                if (!grip.IsMouseOver) _resultArea.BorderBrush = Theme.Divider;
+                if (_resultArea.Height == _gripStartHeight) return;   // 押しただけ（ダブルクリックの1回目も）
+                var handler = ResultAreaResized;
+                if (handler != null) handler(this, _resultArea.Height);
+            };
+
+            grip.PreviewMouseLeftButtonDown += (sender, e) =>
+            {
+                if (e.ClickCount != 2) return;
+                e.Handled = true;
+                SetResultAreaHeight(DefaultResultAreaHeight);
+                var handler = ResultAreaResized;
+                if (handler != null) handler(this, _resultArea.Height);
+            };
+            return grip;
+        }
 
         private void RebuildResults()
         {

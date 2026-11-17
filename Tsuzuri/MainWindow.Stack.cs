@@ -51,6 +51,8 @@ namespace Tsuzuri
             view.BookmarkToggleRequested += (sender, line) => ToggleHeadingBookmark(view, line);
             view.ImageDisplayToggleRequested += delegate { ToggleImageDisplay(); };
             view.SetLinkTextOnly(_settings.ImageLinkTextOnly);
+            view.SetResultAreaHeight(_settings.SearchResultHeight);
+            view.ResultAreaResized += (sender, height) => ResizeSearchResults(height);
 
             // 検索語のお気に入りは、ファイルごとに state.json に覚える（2026-11-04。SPEC 12章）。
             view.SearchFavoritesSource = () =>
@@ -99,6 +101,21 @@ namespace Tsuzuri
             _settings.Save();
 
             foreach (var view in _stack) view.SetLinkTextOnly(_settings.ImageLinkTextOnly);
+        }
+
+        /// <summary>
+        /// ページの検索結果の欄の下端を動かした（2026-11-17。SPEC 12章）。高さを覚え、全部の画面のページをそろえる。
+        /// 中断している画面のページは、戻すときに作り直すので、そのときに覚えた高さになる。
+        /// </summary>
+        private void ResizeSearchResults(double height)
+        {
+            _settings.SearchResultHeight = height;
+            _settings.Save();
+
+            foreach (var window in OpenWindows)
+            {
+                foreach (var view in window._stack) view.SetResultAreaHeight(height);
+            }
         }
 
         /// <summary>連鎖を捨てて、このファイルのルートページを開く。</summary>

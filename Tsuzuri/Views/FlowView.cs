@@ -19,17 +19,25 @@ namespace Tsuzuri.Views
     /// フロー図（2026-11-17。SPEC 21章）。AI の欄のターミナルへ流し込むテキストを、カードとして自由に置いてつなぎ、1枚ずつ送る。
     /// 元はテキストのファイル（`名前.flow.md`。FlowFile）。直したら少し待って書く。
     ///
-    /// ・カードは掴んで動かす。右の丸から線を引いて、ほかのカードへつなぐ。何も無いところを掴むと、図全体を動かす。Ctrl+ホイールで拡大・縮小
-    /// ・カードを押すと右の欄で直す（種類・題・送るテキスト・つながりと線の名前）
-    /// ・「送る」でターミナルに入れて Enter まで押す。「置くだけ」は Enter を押さない。送り先と送り方は持ち主（MainWindow）が決める
-    /// ・送ったカードには ✓ を付け、そこからつながる先のカードを「次」として縁取る（何も送っていなければ、どこからもつながっていないカード）。
-    ///   ✓ はファイルに書かない（アプリを閉じるまで、ファイルごとに覚える）。「印を消す」で消す
+    /// 操作は図エディタ（SPEC 8.4.3）にそろえる（2026-11-17）:
+    /// ・押して選ぶ。Shift・Ctrl で足す・外す。何も無い所からドラッグで、範囲に収まるカードを選ぶ。Ctrl+A ですべて
+    /// ・選んだカードをドラッグでまとめて動かす（Shift で縦か横だけ）。矢印キーで 10（Shift で 50、Ctrl で 1）
+    /// ・Delete で消す。Ctrl+C・X・V（貼るたびに少しずらす）、Ctrl+D で複製、Ctrl+Z・Y（200 回まで）。Esc でつかむのをやめる・選ぶのをやめる
+    /// ・ホイールで拡大・縮小（カーソルの所を中心に）。真ん中のボタンのドラッグで動かす。Shift+ホイールで左右、Ctrl+ホイールで上下
+    /// ・ダブルクリック・F2 で送るテキストを打つ
+    /// フロー図だけのもの: カードの右の丸から線を引いてつなぐ。カードの「▶ 送る」でターミナルに入れる（送り先と送り方は持ち主の MainWindow が決める）。
+    /// 送ったカードには ✓ を付け、そこからつながる先のカードを「次」として縁取る。✓ はファイルに書かない（アプリを閉じるまで、ファイルごとに覚える）
     /// </summary>
     public sealed class FlowView : DockPanel
     {
         private const double CardWidth = 250;
         private const double PortSize = 11;
-        private const double CanvasMargin = 400;
+        private const double CanvasMargin = 600;
+        private const int MaxUndo = 200;
+        private const double PasteStep = 20;
+
+        /// <summary>カードをコピーしたときに Windows のクリップボードに置く印（中身はフローのテキスト）。</summary>
+        private const string ClipboardFormat = "Tsuzuri.FlowCards";
 
         /// <summary>送ったカードの題。ファイルごと（アプリを閉じるまで）。</summary>
         private static readonly Dictionary<string, HashSet<string>> SentByFile = new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase);
@@ -45,6 +53,7 @@ namespace Tsuzuri.Views
         private static readonly Brush LabelFill = Freeze(Color.FromRgb(0x22, 0x2B, 0x3F));
         private static readonly Brush SurfaceFill = Freeze(Color.FromRgb(0x10, 0x18, 0x27));
         private static readonly Brush DotFill = Freeze(Color.FromRgb(0x23, 0x2B, 0x3D));
+        private static readonly Brush BandFill = Freeze(Color.FromArgb(0x30, 0x4A, 0x7C, 0xE8));
 
         private readonly string _path;
         private FlowFile _flow;
@@ -57,28 +66,46 @@ namespace Tsuzuri.Views
         private readonly Dictionary<FlowCard, CardParts> _cards = new Dictionary<FlowCard, CardParts>();
         private readonly List<UIElement> _edgeElements = new List<UIElement>();
 
-        // 右の欄（選んだカードを直す）
+        // 選んでいるカード（右の欄は1枚だけ選んでいるときに出す）
+        private readonly HashSet<FlowCard> _selection = new HashSet<FlowCard>();
+
+        // 右の欄
         private readonly Border _panel = new Border();
         private readonly TextBox _bodyBox = new TextBox();
         private readonly Button _claudeKind = new Button();
         private readonly Button _shellKind = new Button();
         private readonly StackPanel _edgeList = new StackPanel();
-        private FlowCard _selected;
         private bool _filling;
 
         private readonly DispatcherTimer _saveDelay = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(600) };
         private bool _dirty;
 
+        // 元に戻す（フローのテキストを丸ごと覚える）。欄に打つ間は、打ち始めに1回だけ覚える
+        private readonly List<string> _undo = new List<string>();
+        private readonly List<string> _redo = new List<string>();
+        private bool _typingRecorded;
+        private int _pasteCount;
+
         // ドラッグ
-        private FlowCard _dragCard;
+        private enum DragMode
+        {
+            None,
+            Move,
+            Connect,
+            Band,
+            Pan,
+        }
+
+        private DragMode _drag;
         private Point _dragStart;
-        private double _dragX, _dragY;
+        private Dictionary<FlowCard, Point> _dragOrigins;
         private bool _dragMoved;
+        private bool _dragRecorded;
+        private FlowCard _pressedCard;
         private FlowCard _connectFrom;
         private Path _connectLine;
-        private Point _panStart;
+        private Rectangle _band;
         private double _panX, _panY;
-        private bool _panning;
 
         private sealed class CardParts
         {
@@ -94,7 +121,7 @@ namespace Tsuzuri.Views
         /// <summary>カードを送る（enter: Enter まで押す）。送れたら持ち主が MarkSent を呼ぶ。</summary>
         public event Action<FlowCard, bool> SendRequested;
 
-        /// <summary>× か Esc で閉じる。</summary>
+        /// <summary>× で閉じる。</summary>
         public event Action CloseRequested;
 
         public FlowView(string path)
@@ -142,16 +169,26 @@ namespace Tsuzuri.Views
             _canvas.MouseLeftButtonDown += Canvas_MouseLeftButtonDown;
             _canvas.MouseMove += Canvas_MouseMove;
             _canvas.MouseLeftButtonUp += Canvas_MouseLeftButtonUp;
-            _canvas.LostMouseCapture += delegate { EndDrag(); };
+            _canvas.LostMouseCapture += delegate { EndDrag(false); };
+            _scroll.PreviewMouseDown += Scroll_PreviewMouseDown;
+            _scroll.PreviewMouseUp += Scroll_PreviewMouseUp;
+            _scroll.PreviewMouseMove += Scroll_PreviewMouseMove;
             _scroll.PreviewMouseWheel += Scroll_PreviewMouseWheel;
             PreviewKeyDown += View_PreviewKeyDown;
 
             Load();
+            ShowStatus("ホイールで拡大・真ん中のボタンで動かす・右の丸から線を引いてつなぐ・Ctrl+Z で元に戻す");
         }
 
         public string FilePath
         {
             get { return _path; }
+        }
+
+        /// <summary>右の欄で直しているカード（1枚だけ選んでいるとき）。</summary>
+        private FlowCard Single
+        {
+            get { return _selection.Count == 1 ? _selection.First() : null; }
         }
 
         // ---------------------------------------------------------------
@@ -172,13 +209,26 @@ namespace Tsuzuri.Views
                 ShowStatus("読めませんでした: " + ex.Message);
             }
 
-            var selected = _selected != null ? _selected.Title : null;
-            _selected = null;   // 前のフローのカード（題を確かめ直さない）
-            _flow = FlowFile.Parse(text);
+            _undo.Clear();
+            _redo.Clear();
+            Restore(text);
             _dirty = false;
+        }
+
+        /// <summary>フローのテキストから作り直す（読んだとき・元に戻すとき）。選んでいたカードは題で選び直す。</summary>
+        private void Restore(string text)
+        {
+            var selected = _selection.Select(card => card.Title).ToList();
+            _selection.Clear();
+            _flow = FlowFile.Parse(text);
             PlaceUnplaced();
             Rebuild();
-            Select(selected != null ? _flow.Find(selected) : null);
+            foreach (var title in selected)
+            {
+                var card = _flow.Find(title);
+                if (card != null) _selection.Add(card);
+            }
+            SelectionChanged();
         }
 
         /// <summary>ファイルがほかで（Claude など）書き換わっていたら読み直す。直しかけ（書く前）なら、書くときに尋ねる。</summary>
@@ -257,6 +307,50 @@ namespace Tsuzuri.Views
         }
 
         // ---------------------------------------------------------------
+        // 元に戻す
+        // ---------------------------------------------------------------
+
+        /// <summary>変える前に呼ぶ。今の形を覚える（同じなら覚えない）。やり直しの分は捨てる。</summary>
+        private void Record()
+        {
+            var now = _flow.Serialize();
+            if (_undo.Count == 0 || _undo[_undo.Count - 1] != now)
+            {
+                _undo.Add(now);
+                if (_undo.Count > MaxUndo) _undo.RemoveAt(0);
+            }
+            _redo.Clear();
+        }
+
+        private void Undo()
+        {
+            if (_undo.Count == 0)
+            {
+                ShowStatus("元に戻すものがありません");
+                return;
+            }
+            _redo.Add(_flow.Serialize());
+            var text = _undo[_undo.Count - 1];
+            _undo.RemoveAt(_undo.Count - 1);
+            Restore(text);
+            Changed();
+        }
+
+        private void Redo()
+        {
+            if (_redo.Count == 0)
+            {
+                ShowStatus("やり直すものがありません");
+                return;
+            }
+            _undo.Add(_flow.Serialize());
+            var text = _redo[_redo.Count - 1];
+            _redo.RemoveAt(_redo.Count - 1);
+            Restore(text);
+            Changed();
+        }
+
+        // ---------------------------------------------------------------
         // 上の段と右の欄
         // ---------------------------------------------------------------
 
@@ -264,7 +358,7 @@ namespace Tsuzuri.Views
         {
             var bar = new DockPanel { LastChildFill = true, Margin = new Thickness(10, 0, 6, 0), VerticalAlignment = VerticalAlignment.Center };
 
-            var close = ToolButton("", "閉じる（Esc）");
+            var close = ToolButton("", "閉じる");
             close.FontFamily = new FontFamily("Segoe Fluent Icons, Segoe MDL2 Assets");
             close.FontSize = 10;
             close.Click += delegate { if (CloseRequested != null) CloseRequested(); };
@@ -288,6 +382,8 @@ namespace Tsuzuri.Views
             addClaude.Click += delegate { AddCard(FlowKind.Claude); };
             var addShell = ToolButton("＋ PowerShell", "共通ターミナル（PowerShell）に送るカードを足す");
             addShell.Click += delegate { AddCard(FlowKind.PowerShell); };
+            var delete = ToolButton("削除 (Del)", "選んでいるカードを消す（Ctrl+Z で戻る）");
+            delete.Click += delegate { DeleteSelection(); };
             var clear = ToolButton("印を消す", "送ったカードの ✓ を全部消す");
             clear.Click += delegate { ClearMarks(); };
             var reload = ToolButton("読み直す", "ファイルから読み直す");
@@ -299,6 +395,7 @@ namespace Tsuzuri.Views
             };
             buttons.Children.Add(addClaude);
             buttons.Children.Add(addShell);
+            buttons.Children.Add(delete);
             buttons.Children.Add(Separator());
             buttons.Children.Add(clear);
             buttons.Children.Add(reload);
@@ -330,14 +427,14 @@ namespace Tsuzuri.Views
 
             // 下: 消す（送るのはカードの「▶ 送る」。直している間は送らない。2026-11-17）
             var actions = new DockPanel { LastChildFill = false, Margin = new Thickness(0, 10, 0, 0) };
-            var remove = ToolButton("カードを消す", "このカードと、このカードへのつながりを消す");
-            remove.Click += delegate { RemoveCard(_selected); };
+            var remove = ToolButton("カードを消す", "このカードと、このカードへのつながりを消す（Ctrl+Z で戻る）");
+            remove.Click += delegate { DeleteSelection(); };
             DockPanel.SetDock(remove, Dock.Right);
             actions.Children.Add(remove);
             DockPanel.SetDock(actions, Dock.Bottom);
             stack.Children.Add(actions);
 
-            // 上: 種類・題
+            // 上: 種類
             var top = new StackPanel();
             var kinds = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 0, 8) };
             SetupKind(_claudeKind, "Claude", FlowKind.Claude);
@@ -345,7 +442,6 @@ namespace Tsuzuri.Views
             kinds.Children.Add(_claudeKind);
             kinds.Children.Add(_shellKind);
             top.Children.Add(kinds);
-
             top.Children.Add(Caption("送るテキスト"));
             DockPanel.SetDock(top, Dock.Top);
             stack.Children.Add(top);
@@ -366,9 +462,11 @@ namespace Tsuzuri.Views
             _bodyBox.FontFamily = Theme.CodeFont;
             _bodyBox.TextChanged += delegate
             {
-                if (_filling || _selected == null) return;
-                _selected.Body = _bodyBox.Text.Replace("\r\n", "\n");
-                UpdateCard(_selected);
+                var card = Single;
+                if (_filling || card == null) return;
+                RecordTyping();
+                card.Body = _bodyBox.Text.Replace("\r\n", "\n");
+                UpdateCard(card);
                 Changed();
             };
             stack.Children.Add(_bodyBox);
@@ -383,6 +481,14 @@ namespace Tsuzuri.Views
             return _panel;
         }
 
+        /// <summary>欄に打ち始めたときに1回だけ、打つ前の形を覚える（1字ごとに覚えると、元に戻すが1字ずつになる）。</summary>
+        private void RecordTyping()
+        {
+            if (_typingRecorded) return;
+            Record();
+            _typingRecorded = true;
+        }
+
         private void SetupKind(Button button, string text, FlowKind kind)
         {
             button.Content = text;
@@ -390,12 +496,15 @@ namespace Tsuzuri.Views
             button.Margin = new Thickness(0, 0, 4, 0);
             button.Padding = new Thickness(10, 3, 10, 3);
             button.BorderThickness = new Thickness(1);
+            button.Focusable = false;
             button.Click += delegate
             {
-                if (_filling || _selected == null) return;
-                _selected.Kind = kind;
+                var card = Single;
+                if (_filling || card == null || card.Kind == kind) return;
+                Record();
+                card.Kind = kind;
                 FillPanel();
-                UpdateCard(_selected);
+                UpdateCard(card);
                 Changed();
             };
         }
@@ -403,29 +512,32 @@ namespace Tsuzuri.Views
         private void FillPanel()
         {
             _filling = true;
+            _typingRecorded = false;
             try
             {
-                _panel.Visibility = _selected == null ? Visibility.Collapsed : Visibility.Visible;
-                if (_selected == null) return;
+                var card = Single;
+                _panel.Visibility = card == null ? Visibility.Collapsed : Visibility.Visible;
+                if (card == null) return;
 
-                if (_bodyBox.Text.Replace("\r\n", "\n") != _selected.Body) _bodyBox.Text = _selected.Body;
-                _claudeKind.BorderBrush = _selected.Kind == FlowKind.Claude ? Resource("AccentBrush") : Brushes.Transparent;
-                _shellKind.BorderBrush = _selected.Kind == FlowKind.PowerShell ? Resource("AccentBrush") : Brushes.Transparent;
+                if (_bodyBox.Text.Replace("\r\n", "\n") != card.Body) _bodyBox.Text = card.Body;
+                _claudeKind.BorderBrush = card.Kind == FlowKind.Claude ? Resource("AccentBrush") : Brushes.Transparent;
+                _shellKind.BorderBrush = card.Kind == FlowKind.PowerShell ? Resource("AccentBrush") : Brushes.Transparent;
 
                 _edgeList.Children.Clear();
-                if (_selected.Edges.Count == 0)
+                if (card.Edges.Count == 0)
                 {
                     _edgeList.Children.Add(new TextBlock { Text = "（なし）", Foreground = Resource("TextMuted"), FontSize = 12, Margin = new Thickness(2, 2, 0, 2) });
                 }
-                foreach (var edge in _selected.Edges.ToList())
+                foreach (var edge in card.Edges.ToList())
                 {
                     var row = new DockPanel { Margin = new Thickness(0, 2, 0, 2) };
                     var delete = ToolButton("×", "このつながりを消す");
                     delete.Padding = new Thickness(6, 0, 6, 0);
-                    var owner = _selected;
+                    var owner = card;
                     var target = edge;
                     delete.Click += delegate
                     {
+                        Record();
                         owner.Edges.Remove(target);
                         FillPanel();
                         RedrawEdges();
@@ -438,10 +550,12 @@ namespace Tsuzuri.Views
                     var label = new TextBox { Width = 90, Text = edge.Label, ToolTip = "線の名前（分かれ道の目印。無くてもよい）" };
                     StyleBox(label);
                     label.Margin = new Thickness(6, 0, 4, 0);
+                    label.GotKeyboardFocus += delegate { _typingRecorded = false; };
                     label.TextChanged += delegate
                     {
                         var clean = FlowFile.CleanTitle(label.Text).Replace("]", string.Empty);
                         if (target.Label == clean) return;
+                        RecordTyping();
                         target.Label = clean;
                         RedrawEdges();
                         Changed();
@@ -508,6 +622,8 @@ namespace Tsuzuri.Views
             _canvas.Children.Clear();
             _cards.Clear();
             _edgeElements.Clear();
+            _band = null;
+            _connectLine = null;
 
             foreach (var card in _flow.Cards) AddCardElement(card);
             RefreshMarks();
@@ -601,7 +717,6 @@ namespace Tsuzuri.Views
                 Padding = new Thickness(12, 10, 10, 8),
                 Margin = new Thickness(PortSize / 2, 0, PortSize / 2, 0),
                 Child = content,
-                Cursor = Cursors.SizeAll,
                 Effect = new System.Windows.Media.Effects.DropShadowEffect { BlurRadius = 10, ShadowDepth = 2, Opacity = 0.35, Color = Colors.Black },
             };
 
@@ -636,14 +751,7 @@ namespace Tsuzuri.Views
             {
                 if (IsInButton(e.OriginalSource as DependencyObject)) return;
                 e.Handled = true;
-                Select(card);
-                Focus();   // 題の欄などからフォーカスを外す（直した題を確かめる。Delete・Esc をここで受ける）
-                if (e.ClickCount == 2)
-                {
-                    _bodyBox.Focus();
-                    return;
-                }
-                StartDrag(card, e);
+                CardPressed(card, e);
             };
             parts.Frame.ContextMenu = CardMenu(card);
             parts.Root.SizeChanged += delegate { RedrawEdges(); };
@@ -665,12 +773,15 @@ namespace Tsuzuri.Views
             var unmark = new MenuItem { Header = "✓ を外す" };
             unmark.Click += delegate
             {
-                var sent = SentSet();
-                sent.Remove(card.Title);
+                SentSet().Remove(card.Title);
                 RefreshMarks();
             };
-            var copy = new MenuItem { Header = "テキストをコピー" };
-            copy.Click += delegate
+            var copy = new MenuItem { Header = "コピー", InputGestureText = "Ctrl+C" };
+            copy.Click += delegate { CopySelection(false); };
+            var duplicate = new MenuItem { Header = "複製", InputGestureText = "Ctrl+D" };
+            duplicate.Click += delegate { Duplicate(); };
+            var copyText = new MenuItem { Header = "送るテキストをコピー" };
+            copyText.Click += delegate
             {
                 try
                 {
@@ -680,15 +791,22 @@ namespace Tsuzuri.Views
                 {
                 }
             };
-            var remove = new MenuItem { Header = "カードを消す" };
-            remove.Click += delegate { RemoveCard(card); };
+            var remove = new MenuItem { Header = "削除", InputGestureText = "Del" };
+            remove.Click += delegate { DeleteSelection(); };
             menu.Items.Add(send);
             menu.Items.Add(place);
             menu.Items.Add(unmark);
+            menu.Items.Add(new Separator());
             menu.Items.Add(copy);
+            menu.Items.Add(duplicate);
+            menu.Items.Add(copyText);
             menu.Items.Add(new Separator());
             menu.Items.Add(remove);
-            menu.Opened += delegate { Select(card); };
+            menu.Opened += delegate
+            {
+                // 選んでいないカードの右クリックは、そのカードだけを選ぶ
+                if (!_selection.Contains(card)) SelectOnly(card);
+            };
             return menu;
         }
 
@@ -716,61 +834,95 @@ namespace Tsuzuri.Views
 
         private void AddCard(FlowKind kind)
         {
-            var card = new FlowCard
-            {
-                Kind = kind,
-                Title = _flow.NewId(),
-                HasPosition = true,
-            };
+            Record();
+            var from = Single;
+            var card = new FlowCard { Kind = kind, Title = _flow.NewId(), HasPosition = true };
 
             // 選んでいるカードの右（無ければ見えているところの左上）に置く。重なれば下へずらす
             Point point;
-            if (_selected != null) point = new Point(_selected.X + CardWidth + 80, _selected.Y);
+            if (from != null) point = new Point(from.X + CardWidth + 80, from.Y);
             else point = new Point(_scroll.HorizontalOffset / _scale.ScaleX + 40, _scroll.VerticalOffset / _scale.ScaleY + 40);
             while (_flow.Cards.Any(other => Math.Abs(other.X - point.X) < CardWidth && Math.Abs(other.Y - point.Y) < 120)) point.Y += 140;
-            card.X = Math.Round(point.X);
-            card.Y = Math.Round(point.Y);
+            card.X = Math.Round(point.X / 10) * 10;
+            card.Y = Math.Round(point.Y / 10) * 10;
 
             // 選んでいたカードからつなぐ
-            if (_selected != null) _selected.Edges.Add(new FlowEdge { Target = card.Title });
+            if (from != null) from.Edges.Add(new FlowEdge { Target = card.Title });
 
             _flow.Cards.Add(card);
             AddCardElement(card);
             UpdateExtent();
-            Select(card);
-            RefreshMarks();
+            SelectOnly(card);
             Dispatcher.BeginInvoke(new Action(RedrawEdges), DispatcherPriority.Loaded);
             Changed();
 
             Dispatcher.BeginInvoke(new Action(() => _bodyBox.Focus()), DispatcherPriority.Loaded);   // すぐ打てるように
         }
 
-        private void RemoveCard(FlowCard card)
+        /// <summary>選んでいるカードを消す（つながりも）。Ctrl+Z で戻るので尋ねない（図エディタと同じ）。</summary>
+        private void DeleteSelection()
         {
-            if (card == null) return;
-            if (card.Body.Trim().Length > 0)
+            if (_selection.Count == 0) return;
+            Record();
+            var count = _selection.Count;
+            foreach (var card in _selection.ToList())
             {
-                var answer = MessageBox.Show(Window.GetWindow(this), "このカードを消しますか。" + Environment.NewLine + Environment.NewLine + Describe(card), "フロー",
-                    MessageBoxButton.YesNo, MessageBoxImage.Question, MessageBoxResult.No);
-                if (answer != MessageBoxResult.Yes) return;
+                _flow.Remove(card);
+                CardParts parts;
+                if (_cards.TryGetValue(card, out parts)) _canvas.Children.Remove(parts.Root);
+                _cards.Remove(card);
             }
-
-            _flow.Remove(card);
-            CardParts parts;
-            if (_cards.TryGetValue(card, out parts)) _canvas.Children.Remove(parts.Root);
-            _cards.Remove(card);
-            if (ReferenceEquals(_selected, card)) Select(null);
-            else FillPanel();
+            _selection.Clear();
+            SelectionChanged();
             RedrawEdges();
-            RefreshMarks();
             Changed();
+            ShowStatus(count + " 枚消しました（Ctrl+Z で戻る）");
         }
 
-        private void Select(FlowCard card)
+        // ---------------------------------------------------------------
+        // 選ぶ
+        // ---------------------------------------------------------------
+
+        private void SelectOnly(FlowCard card)
         {
-            _selected = card != null && _cards.ContainsKey(card) ? card : null;
+            _selection.Clear();
+            if (card != null && _cards.ContainsKey(card)) _selection.Add(card);
+            SelectionChanged();
+        }
+
+        private void SelectionChanged()
+        {
+            _selection.RemoveWhere(card => !_cards.ContainsKey(card));
             FillPanel();
             RefreshMarks();
+        }
+
+        private void CardPressed(FlowCard card, MouseButtonEventArgs e)
+        {
+            Focus();   // 欄からフォーカスを外す。キーをここで受ける
+
+            if (e.ClickCount == 2)
+            {
+                SelectOnly(card);
+                _bodyBox.Focus();
+                return;
+            }
+
+            var modifiers = Keyboard.Modifiers & (ModifierKeys.Shift | ModifierKeys.Control);
+            if (modifiers != 0)
+            {
+                // Shift・Ctrl で足す・外す
+                if (!_selection.Remove(card)) _selection.Add(card);
+                SelectionChanged();
+                if (!_selection.Contains(card)) return;
+            }
+            else if (!_selection.Contains(card))
+            {
+                SelectOnly(card);
+            }
+
+            _pressedCard = modifiers == 0 ? card : null;
+            StartMove(e);
         }
 
         // ---------------------------------------------------------------
@@ -837,7 +989,7 @@ namespace Tsuzuri.Views
                 var parts = pair.Value;
                 parts.Done.Visibility = sent.Contains(card.Title) ? Visibility.Visible : Visibility.Collapsed;
 
-                if (ReferenceEquals(card, _selected))
+                if (_selection.Contains(card))
                 {
                     parts.Frame.BorderBrush = Resource("AccentBrush");
                     parts.Frame.BorderThickness = new Thickness(2);
@@ -852,8 +1004,134 @@ namespace Tsuzuri.Views
                     parts.Frame.BorderBrush = CardBorder;
                     parts.Frame.BorderThickness = new Thickness(1);
                 }
-                parts.Frame.ToolTip = next.Contains(card.Title) && !ReferenceEquals(card, _selected) ? "次に送るカード" : null;
+                parts.Frame.ToolTip = next.Contains(card.Title) && !_selection.Contains(card) ? "次に送るカード" : null;
             }
+        }
+
+        // ---------------------------------------------------------------
+        // コピー・貼り付け・複製
+        // ---------------------------------------------------------------
+
+        /// <summary>選んでいるカードを、フローのテキストにする（選んだカードどうしのつながりだけ残す）。</summary>
+        private string SelectionText()
+        {
+            var chosen = _flow.Cards.Where(card => _selection.Contains(card)).ToList();
+            var titles = new HashSet<string>(chosen.Select(card => card.Title));
+            var part = new FlowFile();
+            foreach (var card in chosen)
+            {
+                var copy = new FlowCard { Kind = card.Kind, Title = card.Title, Body = card.Body, X = card.X, Y = card.Y, HasPosition = true };
+                foreach (var edge in card.Edges.Where(edge => titles.Contains(edge.Target)))
+                    copy.Edges.Add(new FlowEdge { Target = edge.Target, Label = edge.Label });
+                part.Cards.Add(copy);
+            }
+            return part.Serialize();
+        }
+
+        private void CopySelection(bool cut)
+        {
+            if (_selection.Count == 0) return;
+            var text = SelectionText();
+            try
+            {
+                var data = new DataObject();
+                data.SetData(ClipboardFormat, text);
+                data.SetText(string.Join("\n\n", _flow.Cards.Where(card => _selection.Contains(card)).Select(card => card.Body)));
+                Clipboard.SetDataObject(data, true);
+            }
+            catch (Exception ex)
+            {
+                ShowStatus("コピーできませんでした: " + ex.Message);
+                return;
+            }
+            _pasteCount = 0;
+            if (cut) DeleteSelection();
+            else ShowStatus(_selection.Count + " 枚コピーしました");
+        }
+
+        /// <summary>
+        /// Ctrl+V。フロー図でコピーしたカードなら、少しずらして貼る（貼るたびにずらす）。ほかのアプリの文字なら、その文字の Claude のカードを作る。
+        /// </summary>
+        private void Paste()
+        {
+            string cards = null, text = null;
+            try
+            {
+                var data = Clipboard.GetDataObject();
+                if (data != null && data.GetDataPresent(ClipboardFormat)) cards = data.GetData(ClipboardFormat) as string;
+                else if (Clipboard.ContainsText()) text = Clipboard.GetText();
+            }
+            catch (Exception ex)
+            {
+                ShowStatus("クリップボードを読めませんでした: " + ex.Message);
+                return;
+            }
+
+            if (cards != null)
+            {
+                _pasteCount++;
+                Insert(cards, PasteStep * _pasteCount);
+                return;
+            }
+            if (!string.IsNullOrWhiteSpace(text))
+            {
+                Record();
+                var card = new FlowCard
+                {
+                    Kind = FlowKind.Claude,
+                    Title = _flow.NewId(),
+                    Body = text.Replace("\r\n", "\n").Trim('\n'),
+                    X = Math.Round((_scroll.HorizontalOffset / _scale.ScaleX + 40) / 10) * 10,
+                    Y = Math.Round((_scroll.VerticalOffset / _scale.ScaleY + 40) / 10) * 10,
+                    HasPosition = true,
+                };
+                _flow.Cards.Add(card);
+                AddCardElement(card);
+                UpdateExtent();
+                SelectOnly(card);
+                Changed();
+                ShowStatus("貼った文字でカードを作りました");
+            }
+        }
+
+        private void Duplicate()
+        {
+            if (_selection.Count == 0) return;
+            Insert(SelectionText(), PasteStep);
+        }
+
+        /// <summary>フローのテキストのカードを、題を付け直し、ずらして足す。足したカードを選ぶ。</summary>
+        private void Insert(string text, double offset)
+        {
+            var part = FlowFile.Parse(text);
+            if (part.Cards.Count == 0) return;
+
+            Record();
+            var names = new Dictionary<string, string>();
+            foreach (var card in part.Cards)
+            {
+                var title = _flow.NewId();
+                names[card.Title] = title;
+                card.Title = title;
+                card.X += offset;
+                card.Y += offset;
+                card.HasPosition = true;
+                _flow.Cards.Add(card);   // 次の NewId に数える
+            }
+            foreach (var card in part.Cards)
+            {
+                card.Edges.RemoveAll(edge => !names.ContainsKey(edge.Target));
+                foreach (var edge in card.Edges) edge.Target = names[edge.Target];
+                AddCardElement(card);
+            }
+
+            _selection.Clear();
+            foreach (var card in part.Cards) _selection.Add(card);
+            SelectionChanged();
+            UpdateExtent();
+            Dispatcher.BeginInvoke(new Action(RedrawEdges), DispatcherPriority.Loaded);
+            Changed();
+            ShowStatus(part.Cards.Count + " 枚足しました");
         }
 
         // ---------------------------------------------------------------
@@ -902,7 +1180,8 @@ namespace Tsuzuri.Views
             hit.MouseLeftButtonDown += (sender, e) =>
             {
                 e.Handled = true;
-                Select(owner);
+                Focus();
+                SelectOnly(owner);
             };
 
             // 先の矢じり
@@ -911,6 +1190,7 @@ namespace Tsuzuri.Views
                 Data = Geometry.Parse(string.Format(System.Globalization.CultureInfo.InvariantCulture, "M {0},{1} L {2},{3} L {0},{4} Z",
                     end.X - 8, end.Y - 4.5, end.X, end.Y, end.Y + 4.5)),
                 Fill = EdgeStroke,
+                IsHitTestVisible = false,
             };
 
             foreach (var element in new UIElement[] { line, arrow, hit })
@@ -937,7 +1217,8 @@ namespace Tsuzuri.Views
             label.MouseLeftButtonDown += (sender, e) =>
             {
                 e.Handled = true;
-                Select(owner);
+                Focus();
+                SelectOnly(owner);
             };
             label.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
             Canvas.SetLeft(label, middle.X - label.DesiredSize.Width / 2);
@@ -951,10 +1232,11 @@ namespace Tsuzuri.Views
         {
             var menu = new ContextMenu();
             var name = new MenuItem { Header = "名前を付ける・変える…" };
-            name.Click += delegate { Select(owner); };
+            name.Click += delegate { SelectOnly(owner); };
             var remove = new MenuItem { Header = "つながりを消す" };
             remove.Click += delegate
             {
+                Record();
                 owner.Edges.Remove(edge);
                 FillPanel();
                 RedrawEdges();
@@ -970,27 +1252,29 @@ namespace Tsuzuri.Views
         {
             var right = _flow.Cards.Count == 0 ? 0 : _flow.Cards.Max(card => card.X + CardWidth);
             var bottom = _flow.Cards.Count == 0 ? 0 : _flow.Cards.Max(card => card.Y + 160);
-            _canvas.Width = Math.Max(right + CanvasMargin, 1200);
-            _canvas.Height = Math.Max(bottom + CanvasMargin, 800);
+            _canvas.Width = Math.Max(right + CanvasMargin, 1600);
+            _canvas.Height = Math.Max(bottom + CanvasMargin, 1000);
         }
 
         // ---------------------------------------------------------------
         // マウス
         // ---------------------------------------------------------------
 
-        private void StartDrag(FlowCard card, MouseButtonEventArgs e)
+        private void StartMove(MouseButtonEventArgs e)
         {
-            _dragCard = card;
+            _drag = DragMode.Move;
             _dragStart = e.GetPosition(_canvas);
-            _dragX = card.X;
-            _dragY = card.Y;
+            _dragOrigins = _selection.ToDictionary(card => card, card => new Point(card.X, card.Y));
             _dragMoved = false;
+            _dragRecorded = false;
             _canvas.CaptureMouse();
         }
 
         private void StartConnect(FlowCard card, MouseButtonEventArgs e)
         {
-            Select(card);
+            Focus();
+            SelectOnly(card);
+            _drag = DragMode.Connect;
             _connectFrom = card;
             _connectLine = new Path { Stroke = Resource("AccentBrush"), StrokeThickness = 1.6, StrokeDashArray = new DoubleCollection { 4, 3 }, IsHitTestVisible = false };
             Panel.SetZIndex(_connectLine, 20);
@@ -1010,90 +1294,166 @@ namespace Tsuzuri.Views
             _connectLine.Data = new PathGeometry(new[] { figure });
         }
 
+        /// <summary>何も無いところを押した: 範囲で選ぶ（Shift・Ctrl なら今の選びに足す）。</summary>
         private void Canvas_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
         {
-            // 何も無いところ: 選びを外し、図全体を動かす
-            Select(null);
             Focus();
-            _panning = true;
-            _panStart = e.GetPosition(_scroll);
-            _panX = _scroll.HorizontalOffset;
-            _panY = _scroll.VerticalOffset;
-            _canvas.Cursor = Cursors.ScrollAll;
-            _canvas.CaptureMouse();
             e.Handled = true;
+            if ((Keyboard.Modifiers & (ModifierKeys.Shift | ModifierKeys.Control)) == 0 && _selection.Count > 0)
+            {
+                _selection.Clear();
+                SelectionChanged();
+            }
+
+            _drag = DragMode.Band;
+            _dragStart = e.GetPosition(_canvas);
+            _band = new Rectangle { Stroke = Resource("AccentBrush"), StrokeThickness = 1, StrokeDashArray = new DoubleCollection { 3, 2 }, Fill = BandFill, IsHitTestVisible = false };
+            Panel.SetZIndex(_band, 30);
+            Canvas.SetLeft(_band, _dragStart.X);
+            Canvas.SetTop(_band, _dragStart.Y);
+            _canvas.Children.Add(_band);
+            _canvas.CaptureMouse();
         }
 
         private void Canvas_MouseMove(object sender, MouseEventArgs e)
         {
-            if (_panning)
-            {
-                var point = e.GetPosition(_scroll);
-                _scroll.ScrollToHorizontalOffset(_panX - (point.X - _panStart.X));
-                _scroll.ScrollToVerticalOffset(_panY - (point.Y - _panStart.Y));
-                return;
-            }
-
-            if (_connectFrom != null)
-            {
-                UpdateConnectLine(e.GetPosition(_canvas));
-                return;
-            }
-
-            if (_dragCard == null) return;
-
             var now = e.GetPosition(_canvas);
-            var dx = now.X - _dragStart.X;
-            var dy = now.Y - _dragStart.Y;
-            if (!_dragMoved && Math.Abs(dx) < 3 && Math.Abs(dy) < 3) return;
-            _dragMoved = true;
+            switch (_drag)
+            {
+                case DragMode.Connect:
+                    UpdateConnectLine(now);
+                    return;
 
-            // 10 ずつに吸い付ける（並べやすく）
-            _dragCard.X = Math.Max(10, Math.Round((_dragX + dx) / 10) * 10);
-            _dragCard.Y = Math.Max(10, Math.Round((_dragY + dy) / 10) * 10);
-            _dragCard.HasPosition = true;
-            var parts = _cards[_dragCard];
-            Canvas.SetLeft(parts.Root, _dragCard.X - PortSize / 2);
-            Canvas.SetTop(parts.Root, _dragCard.Y);
-            RedrawEdges();
+                case DragMode.Band:
+                    Canvas.SetLeft(_band, Math.Min(now.X, _dragStart.X));
+                    Canvas.SetTop(_band, Math.Min(now.Y, _dragStart.Y));
+                    _band.Width = Math.Abs(now.X - _dragStart.X);
+                    _band.Height = Math.Abs(now.Y - _dragStart.Y);
+                    return;
+
+                case DragMode.Move:
+                    var dx = now.X - _dragStart.X;
+                    var dy = now.Y - _dragStart.Y;
+                    if (!_dragMoved && Math.Abs(dx) < 3 && Math.Abs(dy) < 3) return;
+                    if (!_dragRecorded)
+                    {
+                        // 動かす前の形を覚える（位置はまだ変えていない）
+                        Record();
+                        _dragRecorded = true;
+                    }
+                    _dragMoved = true;
+
+                    // Shift で縦か横だけ（大きく動いた向き）
+                    if ((Keyboard.Modifiers & ModifierKeys.Shift) != 0)
+                    {
+                        if (Math.Abs(dx) >= Math.Abs(dy)) dy = 0;
+                        else dx = 0;
+                    }
+
+                    foreach (var pair in _dragOrigins)
+                    {
+                        // 10 ずつに吸い付ける（並べやすく）
+                        pair.Key.X = Math.Max(10, Math.Round((pair.Value.X + dx) / 10) * 10);
+                        pair.Key.Y = Math.Max(10, Math.Round((pair.Value.Y + dy) / 10) * 10);
+                        pair.Key.HasPosition = true;
+                        PlaceCard(pair.Key);
+                    }
+                    RedrawEdges();
+                    return;
+            }
         }
 
         private void Canvas_MouseLeftButtonUp(object sender, MouseButtonEventArgs e)
         {
-            if (_connectFrom != null)
+            var now = e.GetPosition(_canvas);
+            switch (_drag)
             {
-                var from = _connectFrom;
-                var target = CardAt(e.GetPosition(_canvas));
-                EndDrag();
-                if (target != null && !ReferenceEquals(target, from) && from.Edges.All(edge => edge.Target != target.Title))
+                case DragMode.Connect:
                 {
-                    from.Edges.Add(new FlowEdge { Target = target.Title });
-                    FillPanel();
-                    RedrawEdges();
-                    RefreshMarks();
-                    Changed();
+                    var from = _connectFrom;
+                    var target = CardAt(now);
+                    EndDrag(false);
+                    if (target != null && !ReferenceEquals(target, from) && from.Edges.All(edge => edge.Target != target.Title))
+                    {
+                        Record();
+                        from.Edges.Add(new FlowEdge { Target = target.Title });
+                        FillPanel();
+                        RedrawEdges();
+                        RefreshMarks();
+                        Changed();
+                    }
+                    return;
                 }
-                return;
-            }
 
-            var moved = _dragCard != null && _dragMoved;
-            EndDrag();
-            if (moved)
-            {
-                UpdateExtent();
-                Changed();
+                case DragMode.Band:
+                {
+                    // 範囲に収まるカードを選ぶ
+                    var area = new Rect(_dragStart, now);
+                    EndDrag(false);
+                    if (area.Width < 3 && area.Height < 3) return;
+                    foreach (var pair in _cards)
+                    {
+                        var box = new Rect(pair.Key.X, pair.Key.Y, CardWidth, pair.Value.Root.ActualHeight);
+                        if (area.Contains(box)) _selection.Add(pair.Key);
+                    }
+                    SelectionChanged();
+                    return;
+                }
+
+                case DragMode.Move:
+                {
+                    var moved = _dragMoved;
+                    var pressed = _pressedCard;
+                    EndDrag(false);
+                    if (moved)
+                    {
+                        UpdateExtent();
+                        Changed();
+                    }
+                    else if (pressed != null && _selection.Count > 1)
+                    {
+                        SelectOnly(pressed);   // 動かさずに離した: そのカードだけを選ぶ
+                    }
+                    return;
+                }
             }
         }
 
-        private void EndDrag()
+        /// <summary>つかむのをやめる。cancel なら、動かしていたカードを元の位置に戻す（Esc）。</summary>
+        private void EndDrag(bool cancel)
         {
-            _dragCard = null;
-            _panning = false;
-            _canvas.Cursor = null;
+            if (cancel && _drag == DragMode.Move && _dragMoved && _dragOrigins != null)
+            {
+                foreach (var pair in _dragOrigins)
+                {
+                    pair.Key.X = pair.Value.X;
+                    pair.Key.Y = pair.Value.Y;
+                    PlaceCard(pair.Key);
+                }
+                RedrawEdges();
+                if (_dragRecorded && _undo.Count > 0) _undo.RemoveAt(_undo.Count - 1);
+            }
+
+            var wasPan = _drag == DragMode.Pan;
+            _drag = DragMode.None;
+            _dragOrigins = null;
+            _pressedCard = null;
             if (_connectLine != null) _canvas.Children.Remove(_connectLine);
             _connectLine = null;
             _connectFrom = null;
+            if (_band != null) _canvas.Children.Remove(_band);
+            _band = null;
+            if (wasPan) _scroll.Cursor = null;
             if (_canvas.IsMouseCaptured) _canvas.ReleaseMouseCapture();
+            if (_scroll.IsMouseCaptured) _scroll.ReleaseMouseCapture();
+        }
+
+        private void PlaceCard(FlowCard card)
+        {
+            CardParts parts;
+            if (!_cards.TryGetValue(card, out parts)) return;
+            Canvas.SetLeft(parts.Root, card.X - PortSize / 2);
+            Canvas.SetTop(parts.Root, card.Y);
         }
 
         private FlowCard CardAt(Point point)
@@ -1108,30 +1468,168 @@ namespace Tsuzuri.Views
             return null;
         }
 
+        /// <summary>真ん中のボタンのドラッグで、図全体を動かす。</summary>
+        private void Scroll_PreviewMouseDown(object sender, MouseButtonEventArgs e)
+        {
+            if (e.ChangedButton != MouseButton.Middle) return;
+            e.Handled = true;
+            EndDrag(false);
+            Focus();
+            _drag = DragMode.Pan;
+            _dragStart = e.GetPosition(_scroll);
+            _panX = _scroll.HorizontalOffset;
+            _panY = _scroll.VerticalOffset;
+            _scroll.Cursor = Cursors.ScrollAll;
+            _scroll.CaptureMouse();
+        }
+
+        private void Scroll_PreviewMouseMove(object sender, MouseEventArgs e)
+        {
+            if (_drag != DragMode.Pan) return;
+            var point = e.GetPosition(_scroll);
+            _scroll.ScrollToHorizontalOffset(_panX - (point.X - _dragStart.X));
+            _scroll.ScrollToVerticalOffset(_panY - (point.Y - _dragStart.Y));
+        }
+
+        private void Scroll_PreviewMouseUp(object sender, MouseButtonEventArgs e)
+        {
+            if (e.ChangedButton != MouseButton.Middle || _drag != DragMode.Pan) return;
+            e.Handled = true;
+            EndDrag(false);
+        }
+
+        /// <summary>ホイールで拡大・縮小（カーソルの所を中心に）。Shift+ホイールで左右、Ctrl+ホイールで上下に動かす（図エディタと同じ）。</summary>
         private void Scroll_PreviewMouseWheel(object sender, MouseWheelEventArgs e)
         {
-            if ((Keyboard.Modifiers & ModifierKeys.Control) == 0) return;
             e.Handled = true;
-            var scale = Math.Max(0.4, Math.Min(1.6, Math.Round((_scale.ScaleX + (e.Delta > 0 ? 0.1 : -0.1)) * 10) / 10));
+            var modifiers = Keyboard.Modifiers;
+            if ((modifiers & ModifierKeys.Shift) != 0)
+            {
+                _scroll.ScrollToHorizontalOffset(_scroll.HorizontalOffset - e.Delta);
+                return;
+            }
+            if ((modifiers & ModifierKeys.Control) != 0)
+            {
+                _scroll.ScrollToVerticalOffset(_scroll.VerticalOffset - e.Delta);
+                return;
+            }
+
+            var old = _scale.ScaleX;
+            var scale = Math.Max(0.25, Math.Min(3.0, old * (e.Delta > 0 ? 1.15 : 1 / 1.15)));
+            if (Math.Abs(scale - old) < 0.001) return;
+
+            var mouse = e.GetPosition(_scroll);
+            var anchor = new Point((_scroll.HorizontalOffset + mouse.X) / old, (_scroll.VerticalOffset + mouse.Y) / old);
             _scale.ScaleX = scale;
             _scale.ScaleY = scale;
+            _scroll.UpdateLayout();
+            _scroll.ScrollToHorizontalOffset(anchor.X * scale - mouse.X);
+            _scroll.ScrollToVerticalOffset(anchor.Y * scale - mouse.Y);
             ShowStatus("拡大 " + Math.Round(scale * 100) + "%");
         }
 
+        // ---------------------------------------------------------------
+        // キー
+        // ---------------------------------------------------------------
+
         private void View_PreviewKeyDown(object sender, KeyEventArgs e)
         {
-            if (Keyboard.FocusedElement is TextBox) return;   // 打っている欄のキーは欄に任せる
+            var control = (Keyboard.Modifiers & ModifierKeys.Control) != 0;
+            var shift = (Keyboard.Modifiers & ModifierKeys.Shift) != 0;
 
-            if (e.Key == Key.Escape)
+            // 打っている欄では、Esc でフロー図へ戻るだけ（ほかのキーは欄に任せる。元に戻すも欄の中の分）
+            if (Keyboard.FocusedElement is TextBox)
             {
-                e.Handled = true;
-                if (CloseRequested != null) CloseRequested();
+                if (e.Key == Key.Escape)
+                {
+                    e.Handled = true;
+                    Focus();
+                }
+                return;
             }
-            else if (e.Key == Key.Delete && _selected != null)
+
+            var key = e.Key == Key.System ? e.SystemKey : e.Key;
+            switch (key)
             {
-                e.Handled = true;
-                RemoveCard(_selected);
+                case Key.Escape:
+                    if (_drag != DragMode.None) EndDrag(true);
+                    else if (_selection.Count > 0)
+                    {
+                        _selection.Clear();
+                        SelectionChanged();
+                    }
+                    break;
+                case Key.Delete:
+                    DeleteSelection();
+                    break;
+                case Key.F2:
+                    if (Single != null) _bodyBox.Focus();
+                    break;
+                case Key.A:
+                    if (!control) return;
+                    _selection.Clear();
+                    foreach (var card in _cards.Keys) _selection.Add(card);
+                    SelectionChanged();
+                    break;
+                case Key.C:
+                    if (!control) return;
+                    CopySelection(false);
+                    break;
+                case Key.X:
+                    if (!control) return;
+                    CopySelection(true);
+                    break;
+                case Key.V:
+                    if (!control) return;
+                    Paste();
+                    break;
+                case Key.D:
+                    if (!control) return;
+                    Duplicate();
+                    break;
+                case Key.Z:
+                    if (!control) return;
+                    if (shift) Redo();
+                    else Undo();
+                    break;
+                case Key.Y:
+                    if (!control) return;
+                    Redo();
+                    break;
+                case Key.S:
+                    if (!control) return;
+                    Flush();
+                    ShowStatus("書きました");
+                    break;
+                case Key.Left:
+                case Key.Right:
+                case Key.Up:
+                case Key.Down:
+                    if (_selection.Count == 0) return;
+                    Nudge(key, shift ? 50 : control ? 1 : 10);
+                    break;
+                default:
+                    return;
             }
+            e.Handled = true;
+        }
+
+        /// <summary>矢印キーで選んでいるカードを動かす（10。Shift で 50、Ctrl で 1）。</summary>
+        private void Nudge(Key key, double step)
+        {
+            Record();
+            var dx = key == Key.Left ? -step : key == Key.Right ? step : 0;
+            var dy = key == Key.Up ? -step : key == Key.Down ? step : 0;
+            foreach (var card in _selection)
+            {
+                card.X = Math.Max(10, card.X + dx);
+                card.Y = Math.Max(10, card.Y + dy);
+                card.HasPosition = true;
+                PlaceCard(card);
+            }
+            RedrawEdges();
+            UpdateExtent();
+            Changed();
         }
 
         private static bool IsInButton(DependencyObject node)

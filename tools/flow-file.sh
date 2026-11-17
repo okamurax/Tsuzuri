@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # フローのテキスト（Tsuzuri/Markdown/FlowFile.cs。フローのサブページ）の確かめ（2026-11-17）。
 # 読んで書き直しても同じになるか、カード・位置・つながり・線の名前・``` の中を正しく読むかを見る。
-# NG が1つでもあれば終了コード 1。FlowFile.cs を変えたら回す。
+# 結果のカード（FlowResults.cs）の、送るテキストの組み立て・印の間の取り出しも見る。
+# NG が1つでもあれば終了コード 1。FlowFile.cs・FlowResults.cs を変えたら回す。
 #
 #   bash tools/flow-file.sh
 set -euo pipefail
@@ -15,7 +16,7 @@ work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
 mkdir -p "$work/tools/flow-file" "$work/Tsuzuri/Markdown"
 cp "$root/tools/flow-file/"*.cs "$root/tools/flow-file/FlowFileCheck.csproj" "$work/tools/flow-file/"
-cp "$root/Tsuzuri/Markdown/FlowFile.cs" "$work/Tsuzuri/Markdown/"
+cp "$root/Tsuzuri/Markdown/FlowFile.cs" "$root/Tsuzuri/Markdown/FlowResults.cs" "$work/Tsuzuri/Markdown/"
 
 export DOTNET_CLI_TELEMETRY_OPTOUT=1 DOTNET_NOLOGO=1
 "$dotnet" build "$work/tools/flow-file/FlowFileCheck.csproj" -c Release -nologo -v q -clp:ErrorsOnly >/dev/null

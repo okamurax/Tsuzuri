@@ -25,6 +25,11 @@ namespace Tsuzuri.Markdown
     ///   → 2                            … つながり。最後に並べる。→ [名前] 題 で、線に名前を付ける
     ///   → [失敗] 3
     ///
+    ///   ## [結果] 5                    … 結果のカード（2026-11-17）。つながる前の Claude のカードの答えのうち、印で囲ませた部分を受け取る。
+    ///   ```                             … 中身は ``` で囲む（答えに ## や → の行があっても崩れないように。答えの ``` より長い印にする）
+    ///   受け取った答え
+    ///   ```
+    ///
     /// 送るテキストの中には、`## [Claude] ` などで始まる行を書けない（次のカードになる）。最後の `添付:`・`→ ` で始まる行は、添付・つながりになる。
     /// </summary>
     public sealed class FlowFile
@@ -64,12 +69,24 @@ namespace Tsuzuri.Markdown
             var value = (name ?? string.Empty).Trim();
             if (value.Equals("Claude", StringComparison.OrdinalIgnoreCase) || value.Equals("AI", StringComparison.OrdinalIgnoreCase)) return FlowKind.Claude;
             if (value.Equals("PowerShell", StringComparison.OrdinalIgnoreCase) || value.Equals("PS", StringComparison.OrdinalIgnoreCase)) return FlowKind.PowerShell;
+            if (value == ResultWord || value.Equals("Result", StringComparison.OrdinalIgnoreCase)) return FlowKind.Result;
             return null;
         }
 
+        /// <summary>結果のカードの種類の名前。</summary>
+        public const string ResultWord = "結果";
+
         public static string NameOf(FlowKind kind)
         {
-            return kind == FlowKind.PowerShell ? "PowerShell" : "Claude";
+            switch (kind)
+            {
+                case FlowKind.PowerShell:
+                    return "PowerShell";
+                case FlowKind.Result:
+                    return ResultWord;
+                default:
+                    return "Claude";
+            }
         }
 
         public static FlowFile Parse(string text)
@@ -80,15 +97,24 @@ namespace Tsuzuri.Markdown
             var preamble = new List<string>();
             FlowCard card = null;
             var body = new List<string>();
-            var inFence = false;
+            var fence = string.Empty;   // 開いている ``` の印（無ければ空）
 
             foreach (var line in lines)
             {
-                // ``` の中は見出しと見なさない（送るテキストにコードを書けるように）
-                var trimmed = line.TrimStart();
-                if (trimmed.StartsWith("```", StringComparison.Ordinal) || trimmed.StartsWith("~~~", StringComparison.Ordinal)) inFence = !inFence;
+                // ``` の中は見出しと見なさない（送るテキストにコードを書けるように）。閉じるのは、同じ文字で同じ長さ以上の印だけの行
+                // （2026-11-17。前は ``` で始まる行ごとに開け閉めしていて、```` の中の ``` で閉じたと見なした）
+                var inFence = fence.Length > 0;
+                var run = FenceRun(line);
+                if (fence.Length == 0)
+                {
+                    if (run.Length > 0) fence = run;
+                }
+                else if (run.Length >= fence.Length && run[0] == fence[0] && line.Trim() == run)
+                {
+                    fence = string.Empty;
+                }
 
-                var match = inFence ? Match.Empty : CardLine.Match(line);
+                var match = inFence || fence.Length > 0 ? Match.Empty : CardLine.Match(line);
                 var words = match.Success ? match.Groups["kind"].Value.Split(new[] { ' ', '\t', '　' }, StringSplitOptions.RemoveEmptyEntries) : new string[0];
                 FlowKind? kind = words.Length > 0 ? KindOf(words[0]) : null;
                 if (kind != null)
@@ -108,6 +134,41 @@ namespace Tsuzuri.Markdown
             flow.Preamble = string.Join("\n", TrimBlank(preamble));
             flow.MakeTitlesUnique();
             return flow;
+        }
+
+        /// <summary>行の頭の ``` か ~~~（3つ以上）。無ければ空。</summary>
+        private static string FenceRun(string line)
+        {
+            var trimmed = line.TrimStart(' ');
+            if (line.Length - trimmed.Length > 3 || trimmed.Length < 3 || (trimmed[0] != '`' && trimmed[0] != '~')) return string.Empty;
+            var n = 0;
+            while (n < trimmed.Length && trimmed[n] == trimmed[0]) n++;
+            return n >= 3 ? trimmed.Substring(0, n) : string.Empty;
+        }
+
+        /// <summary>結果のカードの中身を ``` で囲む（中の ` の並びより長い印で）。空なら空のまま。</summary>
+        private static string WrapResult(string body)
+        {
+            if (body.Length == 0) return body;
+            var longest = 0;
+            var current = 0;
+            foreach (var c in body)
+            {
+                current = c == '`' ? current + 1 : 0;
+                if (current > longest) longest = current;
+            }
+            var fence = new string('`', Math.Max(3, longest + 1));
+            return fence + "\n" + body + "\n" + fence;
+        }
+
+        /// <summary>結果のカードの中身の囲みを1つ外す（最初の行が印だけで、最後の行が同じ印）。</summary>
+        private static string UnwrapResult(string body)
+        {
+            var lines = body.Split('\n');
+            if (lines.Length < 2) return body;
+            var run = FenceRun(lines[0]);
+            if (run.Length == 0 || run[0] != '`' || lines[0].Trim() != run || lines[lines.Length - 1].Trim() != run) return body;
+            return string.Join("\n", lines.Skip(1).Take(lines.Length - 2));
         }
 
         private static void Finish(FlowCard card, List<string> lines)
@@ -151,6 +212,7 @@ namespace Tsuzuri.Markdown
             }
 
             card.Body = string.Join("\n", TrimBlank(lines.Take(edgeStart)));
+            if (card.Kind == FlowKind.Result) card.Body = UnwrapResult(card.Body);
         }
 
         private static bool IsEdge(string line)
@@ -186,6 +248,7 @@ namespace Tsuzuri.Markdown
                 }
 
                 var body = string.Join("\n", TrimBlank(card.Body.Replace("\r\n", "\n").Replace('\r', '\n').Split('\n')));
+                if (card.Kind == FlowKind.Result) body = WrapResult(body);
                 if (body.Length > 0) text.Append('\n').Append(body).Append('\n');
 
                 if (card.Attachments.Count > 0)
@@ -296,6 +359,9 @@ namespace Tsuzuri.Markdown
     {
         Claude,
         PowerShell,
+
+        /// <summary>結果（2026-11-17）。送らない。前の Claude のカードの答えを受け取り、次のカードに渡す。</summary>
+        Result,
     }
 
     public sealed class FlowCard

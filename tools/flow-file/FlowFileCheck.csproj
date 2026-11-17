@@ -9,5 +9,6 @@
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="../../Tsuzuri/Markdown/FlowFile.cs" />
+    <Compile Include="../../Tsuzuri/Markdown/FlowResults.cs" />
   </ItemGroup>
 </Project>

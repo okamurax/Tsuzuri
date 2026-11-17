@@ -247,7 +247,16 @@ namespace Tsuzuri
         /// <summary>カードのテキストをターミナルに入れる（enter: Enter まで押す）。入れられたらカードに ✓ を付ける。</summary>
         private void SendFlowCard(FlowView view, FlowCard card, bool enter)
         {
-            var text = CleanForTerminal(card.Body);
+            if (card.Kind == FlowKind.Result) return;
+
+            string problem;
+            var text = FlowResults.Compose(view.Flow, card, out problem);
+            if (problem != null)
+            {
+                view.ShowStatus(problem);
+                return;
+            }
+            text = CleanForTerminal(text);
             if (text.Trim().Length == 0)
             {
                 view.ShowStatus("送るテキストがありません");
@@ -257,6 +266,7 @@ namespace Tsuzuri
             if (card.Kind == FlowKind.Claude) SendFlowToClaude(view, card, text, enter);
             else SendFlowToShell(view, card, text, enter, 0);
         }
+
 
         /// <summary>
         /// このカードを送る会話を始めるカード。「新しい会話」の印のカードか、さかのぼって行き着く最初のカード（どこからもつながっていない）。
@@ -279,6 +289,9 @@ namespace Tsuzuri
 
         private void SendFlowToClaude(FlowView view, FlowCard card, string text, bool enter)
         {
+            var wants = FlowResults.WantsOf(view.Flow, card);
+            if (wants.Count > 0) text += FlowResults.Instruction(wants);
+
             // 添付は、場所を書き添えて Claude に読ませる（Claude Code はパスのファイルを読める。画像も）
             if (card.Attachments.Count > 0)
             {
@@ -303,7 +316,7 @@ namespace Tsuzuri
             {
                 if (AiPane.Visibility != Visibility.Visible) ShowAiPane();
                 if (!ReferenceEquals(_aiTab, tab)) SelectAiTab(tab);
-                WriteFlowToClaude(view, card, tab, text, enter);
+                WriteFlowToClaude(view, card, tab, text, enter, wants);
                 return;
             }
 
@@ -339,14 +352,14 @@ namespace Tsuzuri
                 settle.Tick += delegate
                 {
                     settle.Stop();
-                    WriteFlowToClaude(view, card, tab, text, enter);
+                    WriteFlowToClaude(view, card, tab, text, enter, wants);
                 };
                 settle.Start();
             };
             timer.Start();
         }
 
-        private void WriteFlowToClaude(FlowView view, FlowCard card, AiTab tab, string text, bool enter)
+        private void WriteFlowToClaude(FlowView view, FlowCard card, AiTab tab, string text, bool enter, List<FlowWant> wants)
         {
             var terminal = tab.View;
             if (terminal == null || !terminal.IsRunning)
@@ -358,11 +371,13 @@ namespace Tsuzuri
             // 複数行は貼り付けの印で囲む（中の改行で送らないため。Claude Code は受け付ける）。改行は CR で送る（xterm の貼り付けと同じ）。
             // 1行は印を付けずに打つ（2026-11-17。印を付けると、続けて送った Enter が貼り付けの続きと見なされ、送信されなかった）
             var data = text.IndexOf('\n') < 0 ? text.Replace("\t", "    ") : "\x1b[200~" + text.Replace("\n", "\r") + "\x1b[201~";
+            var watch = wants.Count > 0 ? PrepareFlowWatch(view, tab, wants) : null;
             if (!terminal.WriteInput(data))
             {
                 view.ShowStatus("会話のタブに書けませんでした");
                 return;
             }
+            if (watch != null) StartFlowWatch(view, watch);
 
             AfterFlowWrite(view, card, terminal, enter, tab.Name ?? "会話");
         }

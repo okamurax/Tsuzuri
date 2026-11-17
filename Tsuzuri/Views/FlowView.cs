@@ -50,6 +50,7 @@ namespace Tsuzuri.Views
         private static readonly Brush DoneFill = Freeze(Color.FromRgb(0x2E, 0x9E, 0x6F));
         private static readonly Brush ClaudeFill = Freeze(Color.FromRgb(0xD9, 0x77, 0x57));
         private static readonly Brush ShellFill = Freeze(Color.FromRgb(0x2F, 0x6F, 0xD0));
+        private static readonly Brush ResultFill = Freeze(Color.FromRgb(0x8A, 0x6C, 0xD8));
         private static readonly Brush EdgeStroke = Freeze(Color.FromRgb(0x5A, 0x63, 0x78));
         private static readonly Brush LabelFill = Freeze(Color.FromRgb(0x22, 0x2B, 0x3F));
         private static readonly Brush SurfaceFill = Freeze(Color.FromRgb(0x10, 0x18, 0x27));
@@ -80,6 +81,8 @@ namespace Tsuzuri.Views
         private readonly TextBox _bodyBox = new TextBox();
         private readonly Button _claudeKind = new Button();
         private readonly Button _shellKind = new Button();
+        private readonly Button _resultKind = new Button();
+        private readonly TextBlock _bodyCaption = new TextBlock();
         private readonly StackPanel _edgeList = new StackPanel();
         private readonly CheckBox _newSession = new CheckBox();
         private readonly StackPanel _attachmentPart = new StackPanel();
@@ -87,6 +90,9 @@ namespace Tsuzuri.Views
 
         /// <summary>送った先（会話の名前など）。ファイルとページごと（アプリを閉じるまで）。</summary>
         private static readonly Dictionary<string, Dictionary<string, string>> SentWhereByFile = new Dictionary<string, Dictionary<string, string>>(StringComparer.OrdinalIgnoreCase);
+
+        /// <summary>答えを待っている結果のカードの題。ファイルとページごと（アプリを閉じるまで。2026-11-17）。</summary>
+        private static readonly Dictionary<string, HashSet<string>> WaitingByFile = new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase);
         private bool _filling;
 
         private readonly DispatcherTimer _saveDelay = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(300) };
@@ -130,6 +136,7 @@ namespace Tsuzuri.Views
             public Border Done;
             public Border Badge;
             public TextBlock Files;
+            public Button Send;
         }
 
         /// <summary>カードを送る（enter: Enter まで押す）。送れたら持ち主が MarkSent を呼ぶ。</summary>
@@ -374,6 +381,8 @@ namespace Tsuzuri.Views
             addClaude.Click += delegate { AddCard(FlowKind.Claude); };
             var addShell = ToolButton("＋ PowerShell", "共通ターミナル（PowerShell）に送るカードを足す");
             addShell.Click += delegate { AddCard(FlowKind.PowerShell); };
+            var addResult = ToolButton("＋ 結果", "前の Claude のカードの答えを受け取るカードを足す（選んでいるカードからつなぐ）");
+            addResult.Click += delegate { AddCard(FlowKind.Result); };
             var delete = ToolButton("削除 (Del)", "選んでいるカードを消す（Ctrl+Z で戻る）");
             delete.Click += delegate { DeleteSelection(); };
             var clear = ToolButton("印を消す", "送ったカードの ✓ を全部消す");
@@ -387,6 +396,7 @@ namespace Tsuzuri.Views
             };
             buttons.Children.Add(addClaude);
             buttons.Children.Add(addShell);
+            buttons.Children.Add(addResult);
             buttons.Children.Add(delete);
             buttons.Children.Add(Separator());
             buttons.Children.Add(clear);
@@ -431,10 +441,18 @@ namespace Tsuzuri.Views
             var kinds = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 0, 8) };
             SetupKind(_claudeKind, "Claude", FlowKind.Claude);
             SetupKind(_shellKind, "PowerShell", FlowKind.PowerShell);
+            SetupKind(_resultKind, FlowFile.ResultWord, FlowKind.Result);
             kinds.Children.Add(_claudeKind);
             kinds.Children.Add(_shellKind);
+            kinds.Children.Add(_resultKind);
             top.Children.Add(kinds);
-            top.Children.Add(Caption("送るテキスト"));
+            var caption = Caption("送るテキスト");
+            _bodyCaption.Text = caption.Text;
+            _bodyCaption.Foreground = caption.Foreground;
+            _bodyCaption.FontSize = caption.FontSize;
+            _bodyCaption.Margin = caption.Margin;
+            _bodyCaption.TextWrapping = TextWrapping.Wrap;
+            top.Children.Add(_bodyCaption);
             DockPanel.SetDock(top, Dock.Top);
             stack.Children.Add(top);
 
@@ -572,6 +590,10 @@ namespace Tsuzuri.Views
 
                 _claudeKind.BorderBrush = card.Kind == FlowKind.Claude ? Resource("AccentBrush") : Brushes.Transparent;
                 _shellKind.BorderBrush = card.Kind == FlowKind.PowerShell ? Resource("AccentBrush") : Brushes.Transparent;
+                _resultKind.BorderBrush = card.Kind == FlowKind.Result ? Resource("AccentBrush") : Brushes.Transparent;
+                _bodyCaption.Text = card.Kind == FlowKind.Result
+                    ? "受け取った結果（前の Claude のカードを送ると、答えのうち印で囲ませた部分が入る。直してもよい。次のカードには、本文の {{" + card.Title + "}} に入れるか、Claude のカードなら後ろに付けて渡す）"
+                    : "送るテキスト（結果のカードの中身は {{番号}} で入れられる。カードの番号は、カードの見出しにマウスを載せると出る）";
 
                 _edgeList.Children.Clear();
                 if (card.Edges.Count == 0)
@@ -766,6 +788,7 @@ namespace Tsuzuri.Views
             send.FontSize = 12;
             send.Padding = new Thickness(8, 1, 8, 1);
             send.Click += delegate { RequestSend(card, true); };
+            parts.Send = send;
             send.MouseRightButtonUp += (sender, e) =>
             {
                 e.Handled = true;
@@ -893,7 +916,7 @@ namespace Tsuzuri.Views
         {
             if (card == null) return "（無いカード）";
             var first = card.Body.Split('\n').Select(line => line.Trim()).FirstOrDefault(line => line.Length > 0);
-            return (card.Kind == FlowKind.PowerShell ? "PowerShell: " : "Claude: ") + (first ?? "（空）");
+            return FlowFile.NameOf(card.Kind) + " " + card.Title + ": " + (first ?? "（空）");
         }
 
         private void UpdateCard(FlowCard card)
@@ -901,13 +924,18 @@ namespace Tsuzuri.Views
             CardParts parts;
             if (!_cards.TryGetValue(card, out parts)) return;
 
-            parts.Title.Text = card.Kind == FlowKind.PowerShell ? "PowerShell" : "Claude";
+            var result = card.Kind == FlowKind.Result;
+            var waiting = result && WaitingSet().Contains(card.Title);
+            parts.Title.Text = FlowFile.NameOf(card.Kind) + (waiting ? " — 答えを待っています…" : string.Empty);
+            parts.Title.ToolTip = "カード " + card.Title + (result ? "（次のカードの本文に {{" + card.Title + "}} と書くと、ここの中身が入る）" : string.Empty);
             var lines = card.Body.Split('\n').Where(line => line.Trim().Length > 0).Take(6).ToList();
-            parts.Preview.Text = lines.Count == 0 ? "（送るテキストが無い）" : string.Join("\n", lines);
+            parts.Preview.Text = lines.Count > 0 ? string.Join("\n", lines)
+                : result ? "（まだ受け取っていない）" : "（送るテキストが無い）";
             parts.Preview.FontFamily = card.Kind == FlowKind.PowerShell ? Theme.CodeFont : Theme.BodyFont;
-            parts.Icon.Background = card.Kind == FlowKind.PowerShell ? ShellFill : ClaudeFill;
-            parts.IconText.Text = card.Kind == FlowKind.PowerShell ? ">_" : "AI";
-            parts.IconText.FontSize = card.Kind == FlowKind.PowerShell ? 11 : 10;
+            parts.Icon.Background = card.Kind == FlowKind.PowerShell ? ShellFill : result ? ResultFill : ClaudeFill;
+            parts.IconText.Text = card.Kind == FlowKind.PowerShell ? ">_" : result ? "=" : "AI";
+            parts.IconText.FontSize = card.Kind == FlowKind.Claude ? 10 : 12;
+            parts.Send.Visibility = result ? Visibility.Collapsed : Visibility.Visible;
             var claude = card.Kind == FlowKind.Claude;
             parts.Badge.Visibility = claude && card.NewSession ? Visibility.Visible : Visibility.Collapsed;
             parts.Files.Visibility = claude && card.Attachments.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
@@ -1049,6 +1077,11 @@ namespace Tsuzuri.Views
         private void RequestSend(FlowCard card, bool enter)
         {
             if (card == null) return;
+            if (card.Kind == FlowKind.Result)
+            {
+                ShowStatus("結果のカードは送りません（次のカードに渡します）");
+                return;
+            }
             if (card.Body.Trim().Length == 0)
             {
                 ShowStatus("送るテキストがありません");
@@ -1070,6 +1103,51 @@ namespace Tsuzuri.Views
             places[card.Title] = where;
             LastSentByFile[_key] = card.Title;
             RefreshMarks();
+        }
+
+        private HashSet<string> WaitingSet()
+        {
+            HashSet<string> waiting;
+            if (!WaitingByFile.TryGetValue(_key, out waiting))
+            {
+                waiting = new HashSet<string>();
+                WaitingByFile[_key] = waiting;
+            }
+            return waiting;
+        }
+
+        /// <summary>結果のカードが答えを待っているかを付け外しする（持ち主が呼ぶ。開いていないフローでも覚えておく）。</summary>
+        public static void SetWaiting(string key, string title, bool waiting)
+        {
+            HashSet<string> set;
+            if (!WaitingByFile.TryGetValue(key, out set))
+            {
+                set = new HashSet<string>();
+                WaitingByFile[key] = set;
+            }
+            if (waiting) set.Add(title);
+            else set.Remove(title);
+        }
+
+        /// <summary>待っている印を付け直す（SetWaiting のあと）。</summary>
+        public void RefreshWaiting()
+        {
+            foreach (var card in _flow.Cards.Where(card => card.Kind == FlowKind.Result)) UpdateCard(card);
+        }
+
+        /// <summary>
+        /// 結果のカードに答えを入れる（持ち主が呼ぶ）。元に戻せる。書くのは少し後（Changed）。カードが無ければ false。
+        /// </summary>
+        public bool SetResult(string title, string text)
+        {
+            var card = _flow.Find(title);
+            if (card == null || card.Kind != FlowKind.Result) return false;
+            Record();
+            card.Body = text;
+            UpdateCard(card);
+            if (ReferenceEquals(Single, card)) FillPanel();
+            Changed();
+            return true;
         }
 
         private HashSet<string> SentSet()
@@ -1100,7 +1178,16 @@ namespace Tsuzuri.Views
             var lastCard = last != null ? _flow.Find(last) : null;
 
             HashSet<string> next;
-            if (lastCard != null) next = new HashSet<string>(lastCard.Edges.Select(edge => edge.Target));
+            if (lastCard != null)
+            {
+                // 結果のカードは送らないので、その先のカードも「次」にする
+                next = new HashSet<string>(lastCard.Edges.Select(edge => edge.Target));
+                foreach (var target in next.ToList())
+                {
+                    var card = _flow.Find(target);
+                    if (card != null && card.Kind == FlowKind.Result) next.UnionWith(card.Edges.Select(edge => edge.Target));
+                }
+            }
             else
             {
                 var targets = new HashSet<string>(_flow.Cards.SelectMany(card => card.Edges).Select(edge => edge.Target));

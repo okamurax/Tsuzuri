@@ -15,7 +15,8 @@ namespace Tsuzuri
     // フローは今の文書のサブページ（図エディタの図と同じく、別のファイルを作らない。最初の行が印 FlowFile.Marker）。
     // 本文にはそのページへのリンクを置き、押すとフロー図（Views/FlowView）を本文の場所の上に重ねて出す（ページとしては開かない）。
     // ランチャーと同じ重ね方だが、ほぼフロー図で直すので、高さを多めに取る（既定 75%。仕切りで変えられ、覚える）。下の本文は見えたまま。
-    // 送り先は Claude のカードのフローの会話（下）。送るのは利用者が1枚ずつ（自動では進めない）。PowerShell のカードは無くした（2026-11-17）。
+    // 送り先はフローの会話（下）。利用者が送るのは最初のカードだけで、つながるカードは Claude の答えが終わる（Stop のフック）たびに順に送る（2026-11-17）。
+    // PowerShell のカード・途中から新しい会話にするのは無くした。
     // 結果のカード（MainWindow.FlowResult.cs）と添付のカードは送らず、つないだ先の Claude のカードに中身・ファイルの場所を渡す。
     public partial class MainWindow
     {
@@ -24,8 +25,8 @@ namespace Tsuzuri
         private string _flowPage;
 
         /// <summary>
-        /// フローの会話（2026-11-17）。最初のカードで新しい会話を始め、続くカードはその会話へ送る。「新しい会話」の印のカードで、また新しい会話を始める
-        /// （そこから続くカードはその会話へ）。見出しは「文書#ページ/会話を始めるカードの題」。この画面の会話のタブを指す（閉じた・終わったら作り直す）。
+        /// フローの会話（2026-11-17）。フローに1つ。最初に送ったときに新しい会話を始め、続くカードもその会話へ送る。
+        /// 見出しは「文書#ページ」。この画面の会話のタブを指す（閉じた・終わったら、最初のカードを送るときに作り直す）。
         /// </summary>
         private readonly Dictionary<string, AiTab> _flowSessions = new Dictionary<string, AiTab>(StringComparer.OrdinalIgnoreCase);
 
@@ -107,6 +108,7 @@ namespace Tsuzuri
             _flowView.ImportFiles = paths => ImportFlowFiles(document, paths);
             var flowView = _flowView;
             _flowView.SendRequested += (card, enter) => SendFlowCard(flowView, card, enter);
+            _flowView.StopRequested += delegate { StopFlowRun("次のカードへ進むのをやめました"); };
 
             FlowLayer.Children.Clear();
             FlowLayer.RowDefinitions.Clear();
@@ -245,31 +247,131 @@ namespace Tsuzuri
         // 送る
         // ---------------------------------------------------------------
 
-        /// <summary>カードのテキストをターミナルに入れる（enter: Enter まで押す）。入れられたらカードに ✓ を付ける。</summary>
-        private void SendFlowCard(FlowView view, FlowCard card, bool enter)
+        /// <summary>
+        /// 自動で進めている送り（2026-11-17）。最初のカードを送ったら、つながるカードを、Claude の答えが終わる（Stop のフック）たびに1枚ずつ送る。
+        /// </summary>
+        private sealed class FlowRun
         {
-            if (card.Kind != FlowKind.Claude) return;
+            public FlowView View;
+            public AiTab Tab;
+            public readonly Queue<string> Rest = new Queue<string>();
+            public string Current;
 
-            string problem;
-            var text = FlowResults.Compose(view.Flow, card, out problem);
-            if (problem != null)
-            {
-                view.ShowStatus(problem);
-                return;
-            }
-            text = CleanForTerminal(text);
-            if (text.Trim().Length == 0)
-            {
-                view.ShowStatus("送るテキストがありません");
-                return;
-            }
-
-            if (card.Kind == FlowKind.Claude) SendFlowToClaude(view, card, text, enter);
+            /// <summary>送った（Enter まで押した）カードの答えを待っている。</summary>
+            public bool Waiting;
+            public bool Stopped;
         }
 
+        private FlowRun _flowRun;
 
-        private void SendFlowToClaude(FlowView view, FlowCard card, string text, bool enter)
+        /// <summary>最初のカードの「▶ 送る」。続くカードを順に送る送りを始める。</summary>
+        private void SendFlowCard(FlowView view, FlowCard card, bool enter)
         {
+            if (!view.IsStart(card)) return;
+
+            StopFlowRun(null);
+            foreach (var watch in _flowWatches.Where(each => each.Key == view.FlowKey).ToList()) StopFlowWatch(watch);   // 前の送りの結果はもう待たない
+            var run = new FlowRun { View = view };
+            foreach (var next in FlowResults.Order(view.Flow, card)) run.Rest.Enqueue(next.Title);
+            _flowRun = run;
+            view.SetRunning(true);
+            SendFlowStep(run, card);
+        }
+
+        /// <summary>自動で進めるのをやめる（「止める」・送れなかった・フローを閉じた）。why があれば知らせる。</summary>
+        private void StopFlowRun(string why)
+        {
+            var run = _flowRun;
+            if (run == null) return;
+            _flowRun = null;
+            run.Stopped = true;
+            run.View.SetRunning(false);
+            if (why != null)
+            {
+                run.View.ShowStatus(why);
+                Status(why);
+            }
+        }
+
+        /// <summary>1枚送る。送れなければ送りをやめる。</summary>
+        private void SendFlowStep(FlowRun run, FlowCard card)
+        {
+            string problem;
+            var text = FlowResults.Compose(run.View.Flow, card, out problem);
+            if (problem == null)
+            {
+                text = CleanForTerminal(text);
+                if (text.Trim().Length == 0) problem = "送るテキストが空のカードがあるので止めました";
+            }
+            if (problem != null)
+            {
+                StopFlowRun(problem);
+                return;
+            }
+            run.Current = card.Title;
+            SendFlowToClaude(run, card, text);
+        }
+
+        /// <summary>
+        /// claude が答え終わった（Stop のフック。2026-11-17）。送りの会話なら、受け取る結果を読み切ってから、次のカードを送る。
+        /// フックはタブの番号（パイプ）か会話の番号（HTTP）で来る。
+        /// </summary>
+        private void OnAiTurnEnded(string tabId, string session)
+        {
+            var run = _flowRun;
+            if (run == null || !run.Waiting) return;
+            var tab = _aiTabs.FirstOrDefault(each => (tabId != null && each.Id == tabId) || (session != null && each.SessionId == session));
+            if (!ReferenceEquals(tab, run.Tab)) return;
+
+            run.Waiting = false;
+            AfterFlowTurn(run, 0);
+        }
+
+        /// <summary>答え終わったあと。記録が書き終わるのを少し待ち、結果を読んでから次へ。結果がまだ読めなければ、1 秒おきに 5 回まで待つ。</summary>
+        private void AfterFlowTurn(FlowRun run, int tries)
+        {
+            var timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(tries == 0 ? 800 : 1000) };
+            timer.Tick += delegate
+            {
+                timer.Stop();
+                if (run.Stopped) return;
+                foreach (var watch in _flowWatches.Where(each => ReferenceEquals(each.Tab, run.Tab)).ToList()) PollFlowWatch(watch);
+
+                if (!ReferenceEquals(_flowView, run.View))
+                {
+                    StopFlowRun("フローを閉じたので、次のカードへ進むのをやめました");
+                    return;
+                }
+                if (_flowWatches.Any(each => ReferenceEquals(each.Tab, run.Tab) && each.Key == run.View.FlowKey))
+                {
+                    if (tries < 5)
+                    {
+                        AfterFlowTurn(run, tries + 1);
+                        return;
+                    }
+                    StopFlowRun("Claude の答えに結果の印が見つからなかったので止めました（結果のカードに直接書いて、続きのカードを送り直せます）");
+                    return;
+                }
+
+                FlowCard next = null;
+                while (next == null && run.Rest.Count > 0)
+                {
+                    var card = run.View.Flow.Find(run.Rest.Dequeue());
+                    if (card != null && card.Kind == FlowKind.Claude) next = card;
+                }
+                if (next == null)
+                {
+                    StopFlowRun("フローを最後まで送りました");
+                    return;
+                }
+                SendFlowStep(run, next);
+            };
+            timer.Start();
+        }
+
+        private void SendFlowToClaude(FlowRun run, FlowCard card, string text)
+        {
+            var view = run.View;
             var wants = FlowResults.WantsOf(view.Flow, card);
             if (wants.Count > 0) text += FlowResults.Instruction(wants);
 
@@ -283,7 +385,7 @@ namespace Tsuzuri
                     var path = ResolveFlowAttachment(attachment);
                     if (path == null || !File.Exists(path))
                     {
-                        view.ShowStatus("添付のファイルが見つかりません: " + attachment.Target);
+                        StopFlowRun("添付のファイルが見つからないので止めました: " + attachment.Target);
                         return;
                     }
                     files.Append("\n- ").Append(path);
@@ -291,22 +393,32 @@ namespace Tsuzuri
                 text += "\n\n添付ファイル（読んでから答えて）:" + files;
             }
 
-            var start = FlowResults.SessionStart(view.Flow, card);
-            var key = view.FlowKey + "/" + start.Title;
+            // 会話はフローに1つ（2026-11-17。途中から新しい会話にするのは無くした）。閉じた・終わっていたら作り直す
             AiTab tab;
-            if (_flowSessions.TryGetValue(key, out tab) && _aiTabs.Contains(tab) && tab.View != null && tab.View.IsRunning)
+            if (_flowSessions.TryGetValue(view.FlowKey, out tab) && _aiTabs.Contains(tab) && tab.View != null && tab.View.IsRunning)
             {
+                run.Tab = tab;
                 if (AiPane.Visibility != Visibility.Visible) ShowAiPane();
                 if (!ReferenceEquals(_aiTab, tab)) SelectAiTab(tab);
-                WriteFlowToClaude(view, card, tab, text, enter, wants);
+                WriteFlowToClaude(run, card, tab, text, wants);
+                return;
+            }
+            if (!view.IsStart(card))   // 新しい会話を始めるのは最初のカードだけ
+            {
+                StopFlowRun("フローの会話のタブが閉じたので止めました");
                 return;
             }
 
             // 新しい会話を始めて、動き出す（claude のフックで会話の番号が届く）のを待ってから送る
-            if (!CanStartAi()) return;
+            if (!CanStartAi())
+            {
+                StopFlowRun(null);
+                return;
+            }
             AddAiTab(string.Empty);
             tab = _aiTab;
-            _flowSessions[key] = tab;
+            run.Tab = tab;
+            _flowSessions[view.FlowKey] = tab;
             if (AiPane.Visibility != Visibility.Visible) ShowAiPane();
             view.ShowStatus("新しい会話（" + tab.Name + "）を始めています…");
 
@@ -314,17 +426,22 @@ namespace Tsuzuri
             var timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(300) };
             timer.Tick += delegate
             {
+                if (run.Stopped)
+                {
+                    timer.Stop();
+                    return;
+                }
                 if (!_aiTabs.Contains(tab))
                 {
                     timer.Stop();
-                    view.ShowStatus("会話のタブが閉じられたので送りませんでした");
+                    StopFlowRun("会話のタブが閉じられたので送りませんでした");
                     return;
                 }
                 if (tab.SessionId == null)
                 {
                     if (DateTime.UtcNow - started < FlowSessionWait) return;
                     timer.Stop();
-                    view.ShowStatus("会話（" + tab.Name + "）が始まらなかったので送りませんでした。始まったら、もう一度送ってください");
+                    StopFlowRun("会話（" + tab.Name + "）が始まらなかったので送りませんでした。始まったら、もう一度送ってください");
                     return;
                 }
 
@@ -334,19 +451,20 @@ namespace Tsuzuri
                 settle.Tick += delegate
                 {
                     settle.Stop();
-                    WriteFlowToClaude(view, card, tab, text, enter, wants);
+                    if (!run.Stopped) WriteFlowToClaude(run, card, tab, text, wants);
                 };
                 settle.Start();
             };
             timer.Start();
         }
 
-        private void WriteFlowToClaude(FlowView view, FlowCard card, AiTab tab, string text, bool enter, List<FlowWant> wants)
+        private void WriteFlowToClaude(FlowRun run, FlowCard card, AiTab tab, string text, List<FlowWant> wants)
         {
+            var view = run.View;
             var terminal = tab.View;
             if (terminal == null || !terminal.IsRunning)
             {
-                view.ShowStatus("会話（" + tab.Name + "）が動いていません");
+                StopFlowRun("会話（" + tab.Name + "）が動いていないので止めました");
                 return;
             }
 
@@ -356,38 +474,29 @@ namespace Tsuzuri
             var watch = wants.Count > 0 ? PrepareFlowWatch(view, tab, wants) : null;
             if (!terminal.WriteInput(data))
             {
-                view.ShowStatus("会話のタブに書けませんでした");
+                StopFlowRun("会話のタブに書けなかったので止めました");
                 return;
             }
             if (watch != null) StartFlowWatch(view, watch);
 
-            AfterFlowWrite(view, card, terminal, enter, tab.Name ?? "会話");
-        }
-
-        /// <summary>
-        /// 書いたあと。Enter まで押すなら少し待って押す（文字の直後だと、Claude Code は貼り付けの一部と見なして送信しない。
-        /// 2026-11-17。0.15 秒では Enter が効かず、次のカードの文字が後ろにつながった。今は 0.6 秒）。
-        /// </summary>
-        private void AfterFlowWrite(FlowView view, FlowCard card, TerminalView terminal, bool enter, string where)
-        {
-            if (!enter)
-            {
-                view.MarkSent(card, where);
-                view.ShowStatus(where + " に置きました（Enter は押していません）");
-                return;
-            }
-
+            // 少し待って Enter を押す（文字の直後だと、Claude Code は貼り付けの一部と見なして送信しない。
+            // 2026-11-17。0.15 秒では Enter が効かず、次のカードの文字が後ろにつながった。今は 0.6 秒）
+            var where = tab.Name ?? "会話";
             var timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(600) };
             timer.Tick += delegate
             {
                 timer.Stop();
                 if (!terminal.WriteInput("\r"))
                 {
-                    view.ShowStatus("Enter を送れませんでした（文字は入っています）");
+                    StopFlowRun("Enter を送れなかったので止めました（文字は入っています）");
                     return;
                 }
                 view.MarkSent(card, where);
-                view.ShowStatus(where + " に送りました");
+                if (run.Stopped) return;
+                run.Waiting = true;
+                view.ShowStatus(run.Rest.Count > 0
+                    ? where + " に送りました。答えが終わったら次のカードを送ります（残り " + run.Rest.Count + " 枚以内）"
+                    : where + " に送りました（最後のカード）");
             };
             timer.Start();
         }

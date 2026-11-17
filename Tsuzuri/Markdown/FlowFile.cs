@@ -15,7 +15,6 @@ namespace Tsuzuri.Markdown
     ///   # フローの名前                 … 最初のカードより前の行は、そのまま残す（説明など）
     ///
     ///   ## [Claude] 1                  … カード。種類（Claude・結果・添付）と題（番号。つながりの目印で、画面には出さない）
-    ///   ## [Claude 新しい会話] 4       … ここから新しい会話で送る（続くカードもその会話へ）
     ///   &lt;!-- 120,40 --&gt;               … フロー図での位置（無くてもよい。無ければ並べて置く）
     ///
     ///   ログを読んで原因を調べて。      … 送るテキスト（前後の空行は除く）
@@ -44,9 +43,6 @@ namespace Tsuzuri.Markdown
 
         /// <summary>サブページがフローである印（最初の行。2026-11-17）。</summary>
         public const string Marker = "<!-- tsuzuri-flow -->";
-
-        /// <summary>新しい会話で送るカードの印（種類の後ろ）。</summary>
-        public const string NewSessionWord = "新しい会話";
 
         /// <summary>ページの中身がフローか（空行を除いた最初の行が印）。</summary>
         public static bool IsFlow(string text)
@@ -127,7 +123,7 @@ namespace Tsuzuri.Markdown
                 if (kind != null)
                 {
                     if (card != null) Finish(card, body);
-                    card = new FlowCard { Kind = kind.Value, Title = match.Groups["title"].Value, NewSession = words.Skip(1).Contains(NewSessionWord) };
+                    card = new FlowCard { Kind = kind.Value, Title = match.Groups["title"].Value };   // 種類の後ろの言葉（初めの版の「新しい会話」）は読まない
                     flow.Cards.Add(card);
                     body = new List<string>();
                     continue;
@@ -247,7 +243,7 @@ namespace Tsuzuri.Markdown
             {
                 var card = Cards[i];
                 if (i > 0) text.Append('\n');
-                text.Append("## [").Append(NameOf(card.Kind)).Append(card.NewSession ? " " + NewSessionWord : string.Empty).Append("] ").Append(card.Title).Append('\n');
+                text.Append("## [").Append(NameOf(card.Kind)).Append("] ").Append(card.Title).Append('\n');
                 if (card.HasPosition)
                 {
                     text.Append("<!-- ").Append(Math.Round(card.X).ToString(CultureInfo.InvariantCulture))
@@ -381,9 +377,6 @@ namespace Tsuzuri.Markdown
         public double X;
         public double Y;
         public bool HasPosition;
-
-        /// <summary>ここから新しい会話で送る（Claude のカード。続くカードもその会話へ）。</summary>
-        public bool NewSession;
 
         /// <summary>ファイル（添付のカードだけ）。</summary>
         public readonly List<FlowAttachment> Attachments = new List<FlowAttachment>();

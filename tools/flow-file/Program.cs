@@ -137,8 +137,8 @@ internal static class Program
         }));
         var four = session.Cards[0];
         Expect(session.Preamble == FlowFile.Marker, "印は前置きに残る");
-        Expect(four.Kind == FlowKind.Files && four.Title == "4" && !four.NewSession, "添付のカード");
-        Expect(session.Cards[1].NewSession && session.Cards[1].Kind == FlowKind.Claude, "新しい会話の印");
+        Expect(four.Kind == FlowKind.Files && four.Title == "4", "添付のカード");
+        Expect(session.Cards[1].Kind == FlowKind.Claude && session.Serialize().Contains("## [Claude] 5\n"), "初めの版の「新しい会話」の印は読まない（書くときに消える）");
         Expect(four.Body == "", "添付のカードの本文は空: " + four.Body);
         Expect(four.Attachments.Count == 3
                && four.Attachments[0].Label == "ログ" && four.Attachments[0].Target == "ログ.txt"
@@ -147,7 +147,7 @@ internal static class Program
         Expect(four.Edges.Count == 1 && four.Edges[0].Target == "5", "添付のあとのつながり");
         Expect(session.Cards[1].Attachments.Count == 0 && session.Cards[1].Body == "添付: [途中](a.txt)\n本文\n\n添付: [Claude のカードの添付は本文](b.txt)", "Claude のカードの 添付: は本文: " + session.Cards[1].Body);
         var round = FlowFile.Parse(session.Serialize());
-        Expect(round.Serialize() == session.Serialize() && round.Cards[1].NewSession && round.Cards[0].Attachments.Count == 3, "新しい会話・添付も書き直して同じ");
+        Expect(round.Serialize() == session.Serialize() && round.Cards[0].Attachments.Count == 3, "添付も書き直して同じ");
         var filesFor = FlowResults.FilesFor(session, session.Cards[1]);
         Expect(filesFor.Count == 3 && filesFor[0].Target == "ログ.txt", "つないだ添付のカードのファイルを渡す");
         Expect(FlowResults.FilesFor(session, four).Count == 0, "つないでいなければ渡さない");
@@ -207,20 +207,24 @@ internal static class Program
         Expect(wants.Count == 1 && wants[0].Title == "2" && wants[0].Label == "要約" && wants[0].Start.StartsWith("<<<結果 2 ") && wants[0].End.StartsWith("<<<ここまで 2 "), "受け取る結果と印");
         Expect(FlowResults.WantsOf(chain, chain.Find("2")).Count == 0, "結果のカードからは受け取らない");
 
-        // 会話の始まり: 添付のカードからのつながりは数えない・結果のカードはさかのぼる
-        var sessions = FlowFile.Parse(string.Join("\n", new[]
+        // 自動で送る順: 結果のカードは通り抜ける・添付のカードからのつながりは数えない・合流は前が全部済んでから・輪で止まる
+        var orderFlow = FlowFile.Parse(string.Join("\n", new[]
         {
             "## [添付] 9", "添付: [a](a.txt)", "→ 3",
-            "## [Claude] 1", "→ 2",
+            "## [Claude] 1", "→ 2", "→ 4",
             "## [結果] 2", "→ 3",
-            "## [Claude] 3",
-            "## [Claude 新しい会話] 4",
+            "## [Claude] 3", "→ 5",
+            "## [Claude] 4", "→ 5",
             "## [Claude] 5",
+            "## [Claude] 6", "→ 7",
+            "## [Claude] 7", "→ 6",
         }));
-        Expect(FlowResults.SessionStart(sessions, sessions.Find("3")).Title == "1", "添付のカードを飛ばし、結果のカードをさかのぼる");
-        Expect(FlowResults.SessionStart(sessions, sessions.Find("4")).Title == "4", "新しい会話の印");
-        sessions.Find("4").Edges.Add(new FlowEdge { Target = "5" });
-        Expect(FlowResults.SessionStart(sessions, sessions.Find("5")).Title == "4", "新しい会話のあと");
+        var order = string.Join(",", FlowResults.Order(orderFlow, orderFlow.Find("1")).Select(card => card.Title));
+        Expect(order == "3,4,5", "送る順: " + order);
+        Expect(FlowResults.Order(orderFlow, orderFlow.Find("5")).Count == 0, "先の無いカード");
+        var loop = string.Join(",", FlowResults.Order(orderFlow, orderFlow.Find("6")).Select(card => card.Title));
+        Expect(loop == "7", "輪は1周で止める（最初のカードへは戻らない）: " + loop);
+
         var instruction = FlowResults.Instruction(wants);
         Expect(instruction.Contains(wants[0].Start + "\n（ここに「要約」）\n" + wants[0].End), "頼む文に印: " + instruction);
         Expect(FlowResults.WantsOf(chain, chain.Find("1"))[0].Start != wants[0].Start, "印は送るたびに変わる");

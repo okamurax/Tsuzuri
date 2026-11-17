@@ -67,22 +67,44 @@ namespace Tsuzuri.Markdown
         }
 
         /// <summary>
-        /// このカードを送る会話を始めるカード。「新しい会話」の印のカードか、さかのぼって行き着く最初のカード（Claude・結果のカードからつながっていない）。
-        /// 添付のカードからのつながりは、会話の流れに数えない（2026-11-17）。前のカードが2枚以上あれば、ページの並びで先のほうをたどる。
+        /// 最初のカードから自動で送る順（2026-11-17）。つながりをたどって行ける Claude のカードを、前のカードが全部済んでから並べる
+        /// （結果のカードは通り抜ける。添付のカードからのつながりは数えない。分かれ道は両方送る。送れるものが並んだらページの並びの順）。最初のカードは含めない。
+        /// 輪になっていたら1周で止める（済んだカードへは戻らない。輪の中で前が済まないカードは送らない）。
         /// </summary>
-        public static FlowCard SessionStart(FlowFile flow, FlowCard card)
+        public static List<FlowCard> Order(FlowFile flow, FlowCard start)
         {
-            var seen = new HashSet<FlowCard>();
-            var current = card;
-            while (seen.Add(current))
+            // 行ける Claude・結果のカード
+            var reach = new HashSet<FlowCard> { start };
+            var stack = new Stack<FlowCard>();
+            stack.Push(start);
+            while (stack.Count > 0)
             {
-                if (current.NewSession) return current;
-                var title = current.Title;
-                var parent = flow.Cards.FirstOrDefault(other => other.Kind != FlowKind.Files && other.Edges.Any(edge => edge.Target == title));
-                if (parent == null) return current;
-                current = parent;
+                foreach (var edge in stack.Pop().Edges)
+                {
+                    var target = flow.Find(edge.Target);
+                    if (target == null || target.Kind == FlowKind.Files || !reach.Add(target)) continue;
+                    stack.Push(target);
+                }
             }
-            return current;   // 輪になっていた
+
+            // 前のカード（行けるものだけ）が全部済んだものから並べる
+            var done = new HashSet<FlowCard> { start };
+            var order = new List<FlowCard>();
+            var progressed = true;
+            while (progressed)
+            {
+                progressed = false;
+                foreach (var card in flow.Cards)
+                {
+                    if (!reach.Contains(card) || done.Contains(card)) continue;
+                    var parents = flow.Cards.Where(other => reach.Contains(other) && other.Edges.Any(edge => edge.Target == card.Title));
+                    if (!parents.All(done.Contains)) continue;
+                    done.Add(card);
+                    if (card.Kind == FlowKind.Claude) order.Add(card);
+                    progressed = true;
+                }
+            }
+            return order;
         }
 
         /// <summary>このカードの答えを受け取る結果のカードと、その印（送るたびに変える。前の答えの印と取り違えないため）。</summary>

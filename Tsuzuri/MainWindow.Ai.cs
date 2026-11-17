@@ -115,7 +115,7 @@ namespace Tsuzuri
   尋ねるときは、何をどこに描くつもりかも一言添える。Markdown の表は図ではないので、尋ねずに表で書く。
 - **フロー**（文書のサブページ。本文から `[フロー](#pN)` でリンクする）は、利用者がこの AI の欄のターミナルへ1枚ずつ流し込むテキストを、カードに並べたもの。
   頼まれたら書き・直してよい。形: ページの最初の行に `<!-- tsuzuri-flow -->`。カードは `## [Claude] 番号` の行で始め
-  （番号はつながりの目印。画面には出さない。フローの中で重ねない。`## [Claude 新しい会話] 番号` はそこから新しい会話で送る）、
+  （番号はつながりの目印。画面には出さない。フローの中で重ねない。利用者が送るのは最初のカードだけで、つながるカードは答えが終わるたびに順に送られる）、
   すぐ下に位置 `<!-- x,y -->`（無くてよい。横に 320・縦に 190 ずつ離すと重ならない）、空行のあとに送るテキスト、
   最後につながり `→ 番号` か `→ [線の名前] 番号`。
   送るテキストに `## [` で始まる行を書かない（コードブロックの中ならよい）。最初のカードより前の行は説明として残る。
@@ -998,6 +998,10 @@ namespace Tsuzuri
             var post = http != null
                 ? "{\"type\":\"http\",\"url\":\"" + http + "post\",\"timeout\":30}"
                 : "{\"type\":\"command\",\"command\":\"" + PowerShell(notify) + "\"}";
+            // 答え終わったとき（Stop。2026-11-17。フローを次のカードへ進める）
+            var stop = http != null
+                ? "{\"type\":\"http\",\"url\":\"" + http + "stop\",\"timeout\":10}"
+                : "{\"type\":\"command\",\"command\":\"" + PowerShell(SessionHook(connect, "stop")) + "\"}";
             var prompt = http != null
                 ? "{\"type\":\"http\",\"url\":\"" + http + "prompt\",\"timeout\":300}"
                 : "{\"type\":\"command\",\"timeout\":300,\"command\":\"" + PowerShell(context) + "\"}";
@@ -1006,6 +1010,7 @@ namespace Tsuzuri
                    "\"PreToolUse\":[{\"matcher\":\"Read|Edit|Write|MultiEdit|NotebookEdit|Grep|Glob|Bash|PowerShell\",\"hooks\":[" + pre + "]}]," +
                    "\"PostToolUse\":[{\"matcher\":\"Edit|Write|MultiEdit|NotebookEdit|Bash\",\"hooks\":[" + post + "]}]," +
                    "\"UserPromptSubmit\":[{\"hooks\":[" + prompt + "]}]," +
+                   "\"Stop\":[{\"hooks\":[" + stop + "]}]," +
                    "\"SessionStart\":[{\"hooks\":[{\"type\":\"command\",\"command\":\"" + PowerShell(SessionHook(connect, "session")) + "\"}]}]," +
                    "\"SessionEnd\":[{\"hooks\":[{\"type\":\"command\",\"command\":\"" + PowerShell(SessionHook(connect, "ended")) + "\"}]}]" +
                    "}}";
@@ -1206,6 +1211,13 @@ namespace Tsuzuri
                         writer.WriteLine(answer ?? "ok");
                         writer.Flush();
                         server.WaitForPipeDrain();
+                    }
+                    else if (request != null && request.StartsWith("stop\t", StringComparison.Ordinal))
+                    {
+                        // 答え終わった（フローを進める。SessionHook の形「stop→タブの番号→会話の番号→フォルダ」）
+                        var parts = request.Split('\t');
+                        if (parts.Length >= 3)
+                            Dispatcher.BeginInvoke(new Action(delegate { OnAiTurnEnded(parts[1], parts[2]); }));
                     }
                     else if (request != null && (request.StartsWith("session\t", StringComparison.Ordinal)
                                                  || request.StartsWith("ended\t", StringComparison.Ordinal)))

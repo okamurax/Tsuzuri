@@ -113,6 +113,43 @@ internal static class Program
         var arrow = FlowFile.Parse("## [Claude] a\n→ 途中\n本文\n→ b\n");
         Expect(arrow.Cards[0].Body == "→ 途中\n本文" && arrow.Cards[0].Edges.Count == 1, "途中の → は本文");
 
+        // フローの印（サブページの最初の行）
+        Expect(FlowFile.IsFlow("\n<!-- tsuzuri-flow -->\n# a\n"), "印のあるページ");
+        Expect(!FlowFile.IsFlow("# a\n<!-- tsuzuri-flow -->\n") && !FlowFile.IsFlow("") && !FlowFile.IsFlow(null), "印の無いページ");
+
+        // 新しい会話・添付
+        var session = FlowFile.Parse(string.Join("\n", new[]
+        {
+            "<!-- tsuzuri-flow -->",
+            "## [Claude 新しい会話] 4",
+            "<!-- 10,20 -->",
+            "",
+            "これを読んで",
+            "",
+            "添付: [ログ](ログ.txt)",
+            "添付：[画像 1](<画像 1.png>)",
+            "添付: [a\\]b](x(1).txt)",
+            "",
+            "→ 5",
+            "## [PowerShell] 5",
+            "添付: [途中](a.txt)",
+            "本文",
+        }));
+        var four = session.Cards[0];
+        Expect(session.Preamble == FlowFile.Marker, "印は前置きに残る");
+        Expect(four.NewSession && four.Kind == FlowKind.Claude && four.Title == "4", "新しい会話の印");
+        Expect(!session.Cards[1].NewSession, "印の無いカード");
+        Expect(four.Body == "これを読んで", "添付の前までが本文: " + four.Body);
+        Expect(four.Attachments.Count == 3
+               && four.Attachments[0].Label == "ログ" && four.Attachments[0].Target == "ログ.txt"
+               && four.Attachments[1].Label == "画像 1" && four.Attachments[1].Target == "<画像 1.png>"
+               && four.Attachments[2].Label == "a\\]b" && four.Attachments[2].Target == "x(1).txt", "添付を読む");
+        Expect(four.Edges.Count == 1 && four.Edges[0].Target == "5", "添付のあとのつながり");
+        Expect(session.Cards[1].Attachments.Count == 0 && session.Cards[1].Body == "添付: [途中](a.txt)\n本文", "本文の途中の 添付: は本文");
+        var round = FlowFile.Parse(session.Serialize());
+        Expect(round.Serialize() == session.Serialize() && round.Cards[0].NewSession && round.Cards[0].Attachments.Count == 3, "新しい会話・添付も書き直して同じ");
+        Expect(session.Serialize().StartsWith(FlowFile.Marker + "\n"), "書いても印が最初の行");
+
         Console.WriteLine(_failed == 0 ? "全部 OK" : _failed + " 個 NG");
         return _failed == 0 ? 0 : 1;
     }

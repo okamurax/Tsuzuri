@@ -17,7 +17,8 @@ namespace Tsuzuri.Views
 {
     /// <summary>
     /// フロー図（2026-11-17。SPEC 21章）。AI の欄のターミナルへ流し込むテキストを、カードとして自由に置いてつなぎ、1枚ずつ送る。
-    /// 元はテキストのファイル（`名前.flow.md`。FlowFile）。直したら少し待って書く。
+    /// 元は文書のサブページ（FlowFile。図エディタの図と同じく今の文書の中）。直したら少し待ってページに書く（文書は未保存になり、ふつうの保存で書く）。
+    /// カードにファイルをドラッグすると添付になる（取り込みは持ち主。本文へのドロップと同じ）。
     ///
     /// 操作は図エディタ（SPEC 8.4.3）にそろえる（2026-11-17）:
     /// ・押して選ぶ。Shift・Ctrl で足す・外す。何も無い所からドラッグで、範囲に収まるカードを選ぶ。Ctrl+A ですべて
@@ -55,9 +56,14 @@ namespace Tsuzuri.Views
         private static readonly Brush DotFill = Freeze(Color.FromRgb(0x23, 0x2B, 0x3D));
         private static readonly Brush BandFill = Freeze(Color.FromArgb(0x30, 0x4A, 0x7C, 0xE8));
 
-        private readonly string _path;
+        private readonly string _key;
+        private readonly string _name;
+        private readonly Func<string> _read;
+        private readonly Action<string> _write;
         private FlowFile _flow;
-        private DateTime _stamp;
+
+        /// <summary>最後に読んだ・書いたページの中身。ほかで変わったかを見る。</summary>
+        private string _known;
 
         private readonly Canvas _canvas = new Canvas();
         private readonly ScaleTransform _scale = new ScaleTransform(1, 1);
@@ -75,9 +81,15 @@ namespace Tsuzuri.Views
         private readonly Button _claudeKind = new Button();
         private readonly Button _shellKind = new Button();
         private readonly StackPanel _edgeList = new StackPanel();
+        private readonly CheckBox _newSession = new CheckBox();
+        private readonly StackPanel _attachmentPart = new StackPanel();
+        private readonly StackPanel _attachmentList = new StackPanel();
+
+        /// <summary>送った先（会話の名前など）。ファイルとページごと（アプリを閉じるまで）。</summary>
+        private static readonly Dictionary<string, Dictionary<string, string>> SentWhereByFile = new Dictionary<string, Dictionary<string, string>>(StringComparer.OrdinalIgnoreCase);
         private bool _filling;
 
-        private readonly DispatcherTimer _saveDelay = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(600) };
+        private readonly DispatcherTimer _saveDelay = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(300) };
         private bool _dirty;
 
         // 元に戻す（フローのテキストを丸ごと覚える）。欄に打つ間は、打ち始めに1回だけ覚える
@@ -116,6 +128,8 @@ namespace Tsuzuri.Views
             public Border Icon;
             public TextBlock IconText;
             public Border Done;
+            public Border Badge;
+            public TextBlock Files;
         }
 
         /// <summary>カードを送る（enter: Enter まで押す）。送れたら持ち主が MarkSent を呼ぶ。</summary>
@@ -124,9 +138,22 @@ namespace Tsuzuri.Views
         /// <summary>× で閉じる。</summary>
         public event Action CloseRequested;
 
-        public FlowView(string path)
+        /// <summary>カードにファイルを落とした。持ち主が添付フォルダに取り込み（外のファイルならコピー）、添付を返す。取り込めなければ null。</summary>
+        public Func<string[], List<FlowAttachment>> ImportFiles;
+
+        /// <summary>Ctrl+S（文書を保存する）。</summary>
+        public event Action SaveRequested;
+
+        /// <param name="key">✓ を覚える見出し（文書とページ）。</param>
+        /// <param name="name">上の段に出す名前。</param>
+        /// <param name="read">ページの中身を読む。ページが無くなっていれば null。</param>
+        /// <param name="write">ページに書く。</param>
+        public FlowView(string key, string name, Func<string> read, Action<string> write)
         {
-            _path = path;
+            _key = key;
+            _name = name;
+            _read = read;
+            _write = write;
             Background = SurfaceFill;
             Focusable = true;
             FocusVisualStyle = null;
@@ -180,9 +207,16 @@ namespace Tsuzuri.Views
             ShowStatus("ホイールで拡大・真ん中のボタンで動かす・右の丸から線を引いてつなぐ・Ctrl+Z で元に戻す");
         }
 
-        public string FilePath
+        /// <summary>このフローの見出し（文書とページ）。会話を覚える見出しに使う。</summary>
+        public string FlowKey
         {
-            get { return _path; }
+            get { return _key; }
+        }
+
+        /// <summary>今のフロー（送るときに、会話の切れ目を探すのに使う）。</summary>
+        public FlowFile Flow
+        {
+            get { return _flow; }
         }
 
         /// <summary>右の欄で直しているカード（1枚だけ選んでいるとき）。</summary>
@@ -197,18 +231,8 @@ namespace Tsuzuri.Views
 
         private void Load()
         {
-            string text;
-            try
-            {
-                text = File.Exists(_path) ? File.ReadAllText(_path, Encoding.UTF8) : string.Empty;
-                _stamp = File.Exists(_path) ? File.GetLastWriteTimeUtc(_path) : DateTime.MinValue;
-            }
-            catch (Exception ex)
-            {
-                text = string.Empty;
-                ShowStatus("読めませんでした: " + ex.Message);
-            }
-
+            var text = _read() ?? string.Empty;
+            _known = text;
             _undo.Clear();
             _redo.Clear();
             Restore(text);
@@ -231,26 +255,22 @@ namespace Tsuzuri.Views
             SelectionChanged();
         }
 
-        /// <summary>ファイルがほかで（Claude など）書き換わっていたら読み直す。直しかけ（書く前）なら、書くときに尋ねる。</summary>
+        /// <summary>ページがほかで（Claude の書き換えを読み直した・元に戻すなど）変わっていたら読み直す。直しかけ（書く前）なら、先に書く。</summary>
         public void ReloadIfChanged()
         {
-            DateTime stamp;
-            try
+            var text = _read();
+            if (text == null || text == _known) return;
+            if (_dirty)
             {
-                if (!File.Exists(_path)) return;
-                stamp = File.GetLastWriteTimeUtc(_path);
+                // 書く前に読み直すと直しかけが消える。ページのほうが変わったときは、ページを取る（文書の読み直しは未保存なら起きないので、ここに来るのはまれ）
+                _saveDelay.Stop();
+                _dirty = false;
             }
-            catch (Exception)
-            {
-                return;
-            }
-            if (stamp == _stamp || _dirty) return;
-
             Load();
-            ShowStatus("ほかで書き換わったので読み直しました");
+            ShowStatus("ページが変わったので読み直しました");
         }
 
-        /// <summary>直しかけがあれば、すぐ書く（閉じるとき）。</summary>
+        /// <summary>直しかけがあれば、すぐ書く（閉じるとき・保存の前）。</summary>
         public void Flush()
         {
             _saveDelay.Stop();
@@ -267,38 +287,10 @@ namespace Tsuzuri.Views
         private void Save()
         {
             if (!_dirty) return;
-
-            try
-            {
-                // ほかで書き換わっていたら尋ねる（黙って上書きすると、Claude の直しが消える）
-                if (File.Exists(_path) && File.GetLastWriteTimeUtc(_path) != _stamp)
-                {
-                    var answer = MessageBox.Show(Window.GetWindow(this),
-                        "フローのファイルが、ほかで（AI など）書き換わっています。" + Environment.NewLine + Environment.NewLine +
-                        "はい: ここで直した内容で上書きする（ほかでの書き換えは消える）" + Environment.NewLine +
-                        "いいえ: ここで直した分を捨て、ファイルを読み直す" + Environment.NewLine + Environment.NewLine + _path,
-                        "フロー", MessageBoxButton.YesNo, MessageBoxImage.Warning, MessageBoxResult.No);
-                    if (answer != MessageBoxResult.Yes)
-                    {
-                        _dirty = false;
-                        Load();
-                        return;
-                    }
-                }
-
-                var data = new UTF8Encoding(false).GetBytes(_flow.Serialize());
-                PageDocument.WriteAtomically(_path, data);
-                _stamp = File.GetLastWriteTimeUtc(_path);
-                _dirty = false;
-            }
-            catch (Exception ex)
-            {
-                ShowStatus("書けませんでした（直した内容は画面に残っています）: " + ex.Message);
-                _saveDelay.Interval = TimeSpan.FromSeconds(5);   // 少し待ってまた試す
-                _saveDelay.Start();
-                return;
-            }
-            _saveDelay.Interval = TimeSpan.FromMilliseconds(600);
+            var text = _flow.Serialize();
+            _write(text);
+            _known = text;
+            _dirty = false;
         }
 
         public void ShowStatus(string text)
@@ -367,7 +359,7 @@ namespace Tsuzuri.Views
 
             var name = new TextBlock
             {
-                Text = System.IO.Path.GetFileName(_path),
+                Text = _name,
                 Foreground = Resource("TextPrimary"),
                 FontSize = 13,
                 FontWeight = FontWeights.SemiBold,
@@ -386,7 +378,7 @@ namespace Tsuzuri.Views
             delete.Click += delegate { DeleteSelection(); };
             var clear = ToolButton("印を消す", "送ったカードの ✓ を全部消す");
             clear.Click += delegate { ClearMarks(); };
-            var reload = ToolButton("読み直す", "ファイルから読み直す");
+            var reload = ToolButton("読み直す", "ページから読み直す");
             reload.Click += delegate
             {
                 Flush();
@@ -453,6 +445,27 @@ namespace Tsuzuri.Views
             DockPanel.SetDock(edges, Dock.Bottom);
             stack.Children.Add(edges);
 
+            // 添付（本文の下・つながりの上）と、新しい会話
+            _attachmentPart.Margin = new Thickness(0, 8, 0, 0);
+            _attachmentPart.Children.Add(Caption("添付（ファイルをカードかこの欄へドラッグ。添付フォルダの外のものはコピーする）"));
+            _attachmentPart.Children.Add(_attachmentList);
+            _newSession.Content = "ここから新しい会話で送る（続くカードもその会話へ）";
+            _newSession.Foreground = Resource("TextPrimary");
+            _newSession.Margin = new Thickness(0, 8, 0, 0);
+            _newSession.Focusable = false;
+            _newSession.Click += delegate
+            {
+                var card = Single;
+                if (_filling || card == null) return;
+                Record();
+                card.NewSession = _newSession.IsChecked == true;
+                UpdateCard(card);
+                Changed();
+            };
+            _attachmentPart.Children.Add(_newSession);
+            DockPanel.SetDock(_attachmentPart, Dock.Bottom);
+            stack.Children.Add(_attachmentPart);
+
             StyleBox(_bodyBox);
             _bodyBox.AcceptsReturn = true;
             _bodyBox.AcceptsTab = true;
@@ -477,6 +490,9 @@ namespace Tsuzuri.Views
             _panel.BorderThickness = new Thickness(1, 0, 0, 0);
             _panel.Child = stack;
             _panel.Visibility = Visibility.Collapsed;
+            _panel.AllowDrop = true;
+            _panel.DragOver += (sender, e) => DragOverFiles(e);
+            _panel.Drop += (sender, e) => DropFiles(Single, e);
             DockPanel.SetDock(_panel, Dock.Right);
             return _panel;
         }
@@ -520,6 +536,40 @@ namespace Tsuzuri.Views
                 if (card == null) return;
 
                 if (_bodyBox.Text.Replace("\r\n", "\n") != card.Body) _bodyBox.Text = card.Body;
+                _newSession.IsChecked = card.NewSession;
+                _newSession.Visibility = card.Kind == FlowKind.Claude ? Visibility.Visible : Visibility.Collapsed;
+                _attachmentPart.Visibility = card.Kind == FlowKind.Claude ? Visibility.Visible : Visibility.Collapsed;
+                _attachmentList.Children.Clear();
+                if (card.Attachments.Count == 0)
+                    _attachmentList.Children.Add(new TextBlock { Text = "（なし）", Foreground = Resource("TextMuted"), FontSize = 12, Margin = new Thickness(2, 2, 0, 2) });
+                foreach (var attachment in card.Attachments.ToList())
+                {
+                    var row = new DockPanel { Margin = new Thickness(0, 1, 0, 1) };
+                    var remove = ToolButton("×", "この添付を外す（ファイルは消さない）");
+                    remove.Padding = new Thickness(6, 0, 6, 0);
+                    var owner = card;
+                    var item = attachment;
+                    remove.Click += delegate
+                    {
+                        Record();
+                        owner.Attachments.Remove(item);
+                        FillPanel();
+                        UpdateCard(owner);
+                        Changed();
+                    };
+                    DockPanel.SetDock(remove, Dock.Right);
+                    row.Children.Add(remove);
+                    row.Children.Add(new TextBlock
+                    {
+                        Text = "📎 " + attachment.Target.Trim('<', '>'),
+                        Foreground = Resource("TextPrimary"),
+                        FontSize = 12,
+                        VerticalAlignment = VerticalAlignment.Center,
+                        TextTrimming = TextTrimming.CharacterEllipsis,
+                    });
+                    _attachmentList.Children.Add(row);
+                }
+
                 _claudeKind.BorderBrush = card.Kind == FlowKind.Claude ? Resource("AccentBrush") : Brushes.Transparent;
                 _shellKind.BorderBrush = card.Kind == FlowKind.PowerShell ? Resource("AccentBrush") : Brushes.Transparent;
 
@@ -674,6 +724,19 @@ namespace Tsuzuri.Views
             var header = new DockPanel { LastChildFill = true };
             header.Children.Add(parts.Icon);
             header.Children.Add(parts.Done);
+            parts.Badge = new Border
+            {
+                BorderBrush = NextBorder,
+                BorderThickness = new Thickness(1),
+                CornerRadius = new CornerRadius(3),
+                Padding = new Thickness(4, 0, 4, 1),
+                Margin = new Thickness(6, 0, 0, 0),
+                VerticalAlignment = VerticalAlignment.Center,
+                Child = new TextBlock { Text = FlowFile.NewSessionWord, Foreground = NextBorder, FontSize = 10 },
+                ToolTip = "ここから新しい会話で送る（続くカードもその会話へ）",
+            };
+            DockPanel.SetDock(parts.Badge, Dock.Right);
+            header.Children.Add(parts.Badge);
             header.Children.Add(parts.Title);
             DockPanel.SetDock(header, Dock.Top);
 
@@ -687,6 +750,17 @@ namespace Tsuzuri.Views
                 Margin = new Thickness(0, 8, 0, 0),
             };
             DockPanel.SetDock(parts.Preview, Dock.Top);
+
+            parts.Files = new TextBlock
+            {
+                Foreground = Resource("TextMuted"),
+                FontSize = 11,
+                TextWrapping = TextWrapping.Wrap,
+                TextTrimming = TextTrimming.CharacterEllipsis,
+                MaxHeight = 32,
+                Margin = new Thickness(0, 6, 0, 0),
+            };
+            DockPanel.SetDock(parts.Files, Dock.Top);
 
             var send = ToolButton("▶ 送る", "ターミナルに入れて Enter を押す（右クリック: 置くだけ）");
             send.FontSize = 12;
@@ -706,6 +780,7 @@ namespace Tsuzuri.Views
             content.Children.Add(header);
             content.Children.Add(footer);
             content.Children.Add(parts.Preview);
+            content.Children.Add(parts.Files);
 
             parts.Frame = new Border
             {
@@ -754,6 +829,9 @@ namespace Tsuzuri.Views
                 CardPressed(card, e);
             };
             parts.Frame.ContextMenu = CardMenu(card);
+            parts.Frame.AllowDrop = true;
+            parts.Frame.DragOver += (sender, e) => DragOverFiles(e);
+            parts.Frame.Drop += (sender, e) => DropFiles(card, e);
             parts.Root.SizeChanged += delegate { RedrawEdges(); };
 
             Canvas.SetLeft(parts.Root, card.X - PortSize / 2);
@@ -830,6 +908,10 @@ namespace Tsuzuri.Views
             parts.Icon.Background = card.Kind == FlowKind.PowerShell ? ShellFill : ClaudeFill;
             parts.IconText.Text = card.Kind == FlowKind.PowerShell ? ">_" : "AI";
             parts.IconText.FontSize = card.Kind == FlowKind.PowerShell ? 11 : 10;
+            var claude = card.Kind == FlowKind.Claude;
+            parts.Badge.Visibility = claude && card.NewSession ? Visibility.Visible : Visibility.Collapsed;
+            parts.Files.Visibility = claude && card.Attachments.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
+            parts.Files.Text = "📎 " + string.Join("、", card.Attachments.Select(attachment => System.IO.Path.GetFileName(attachment.Target.Trim('<', '>'))));
         }
 
         private void AddCard(FlowKind kind)
@@ -926,6 +1008,41 @@ namespace Tsuzuri.Views
         }
 
         // ---------------------------------------------------------------
+        // 添付（ファイルのドロップ）
+        // ---------------------------------------------------------------
+
+        private static void DragOverFiles(DragEventArgs e)
+        {
+            e.Effects = e.Data.GetDataPresent(DataFormats.FileDrop) ? DragDropEffects.Copy : DragDropEffects.None;
+            e.Handled = true;
+        }
+
+        private void DropFiles(FlowCard card, DragEventArgs e)
+        {
+            e.Handled = true;
+            var paths = e.Data.GetData(DataFormats.FileDrop) as string[];
+            if (card == null || paths == null || paths.Length == 0 || ImportFiles == null) return;
+            if (card.Kind != FlowKind.Claude)
+            {
+                ShowStatus("添付は Claude のカードだけです");
+                return;
+            }
+
+            var added = ImportFiles(paths);
+            if (added == null || added.Count == 0) return;
+
+            Record();
+            foreach (var attachment in added)
+            {
+                if (card.Attachments.All(other => other.Target != attachment.Target)) card.Attachments.Add(attachment);
+            }
+            SelectOnly(card);
+            UpdateCard(card);
+            Changed();
+            ShowStatus(added.Count + " 件添付しました");
+        }
+
+        // ---------------------------------------------------------------
         // 送る・印
         // ---------------------------------------------------------------
 
@@ -941,20 +1058,27 @@ namespace Tsuzuri.Views
         }
 
         /// <summary>送れた（持ち主が呼ぶ）。✓ を付け、そこからつながる先を「次」にする。</summary>
-        public void MarkSent(FlowCard card)
+        public void MarkSent(FlowCard card, string where)
         {
             SentSet().Add(card.Title);
-            LastSentByFile[_path] = card.Title;
+            Dictionary<string, string> places;
+            if (!SentWhereByFile.TryGetValue(_key, out places))
+            {
+                places = new Dictionary<string, string>();
+                SentWhereByFile[_key] = places;
+            }
+            places[card.Title] = where;
+            LastSentByFile[_key] = card.Title;
             RefreshMarks();
         }
 
         private HashSet<string> SentSet()
         {
             HashSet<string> sent;
-            if (!SentByFile.TryGetValue(_path, out sent))
+            if (!SentByFile.TryGetValue(_key, out sent))
             {
                 sent = new HashSet<string>();
-                SentByFile[_path] = sent;
+                SentByFile[_key] = sent;
             }
             return sent;
         }
@@ -962,7 +1086,7 @@ namespace Tsuzuri.Views
         private void ClearMarks()
         {
             SentSet().Clear();
-            LastSentByFile.Remove(_path);
+            LastSentByFile.Remove(_key);
             RefreshMarks();
             ShowStatus("印を消しました");
         }
@@ -972,7 +1096,7 @@ namespace Tsuzuri.Views
         {
             var sent = SentSet();
             string last;
-            LastSentByFile.TryGetValue(_path, out last);
+            LastSentByFile.TryGetValue(_key, out last);
             var lastCard = last != null ? _flow.Find(last) : null;
 
             HashSet<string> next;
@@ -988,6 +1112,11 @@ namespace Tsuzuri.Views
                 var card = pair.Key;
                 var parts = pair.Value;
                 parts.Done.Visibility = sent.Contains(card.Title) ? Visibility.Visible : Visibility.Collapsed;
+                Dictionary<string, string> places;
+                string where;
+                parts.Done.ToolTip = SentWhereByFile.TryGetValue(_key, out places) && places.TryGetValue(card.Title, out where) && where != null
+                    ? where + " に送った"
+                    : "送った";
 
                 if (_selection.Contains(card))
                 {
@@ -1020,7 +1149,8 @@ namespace Tsuzuri.Views
             var part = new FlowFile();
             foreach (var card in chosen)
             {
-                var copy = new FlowCard { Kind = card.Kind, Title = card.Title, Body = card.Body, X = card.X, Y = card.Y, HasPosition = true };
+                var copy = new FlowCard { Kind = card.Kind, Title = card.Title, Body = card.Body, X = card.X, Y = card.Y, HasPosition = true, NewSession = card.NewSession };
+                foreach (var attachment in card.Attachments) copy.Attachments.Add(new FlowAttachment { Label = attachment.Label, Target = attachment.Target });
                 foreach (var edge in card.Edges.Where(edge => titles.Contains(edge.Target)))
                     copy.Edges.Add(new FlowEdge { Target = edge.Target, Label = edge.Label });
                 part.Cards.Add(copy);
@@ -1599,7 +1729,7 @@ namespace Tsuzuri.Views
                 case Key.S:
                     if (!control) return;
                     Flush();
-                    ShowStatus("書きました");
+                    if (SaveRequested != null) SaveRequested();
                     break;
                 case Key.Left:
                 case Key.Right:

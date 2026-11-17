@@ -113,9 +113,11 @@ namespace Tsuzuri
   - 罫線（┌─┐│）の図: 本文に文字で描く。コードブロックに入れる
   - Mermaid: 本文に Mermaid のコードブロックで書く（Tsuzuri の画面では図にならず、コードのまま見える）
   尋ねるときは、何をどこに描くつもりかも一言添える。Markdown の表は図ではないので、尋ねずに表で書く。
-- **フロー**（`名前.flow.md`。添付フォルダに置き、本文からリンクする）は、利用者がこの AI の欄のターミナルへ1枚ずつ流し込むテキストを、カードに並べたもの。
-  頼まれたら書き・直してよい。形: カードは `## [Claude] 番号` か `## [PowerShell] 番号` の行で始め（番号はつながりの目印。画面には出さない。フローの中で重ねない）、
-  すぐ下に位置 `<!-- x,y -->`（無くてよい。横に 320・縦に 190 ずつ離すと重ならない）、空行のあとに送るテキスト、最後につながり `→ 題` か `→ [線の名前] 題`。
+- **フロー**（文書のサブページ。本文から `[フロー](#pN)` でリンクする）は、利用者がこの AI の欄のターミナルへ1枚ずつ流し込むテキストを、カードに並べたもの。
+  頼まれたら書き・直してよい。形: ページの最初の行に `<!-- tsuzuri-flow -->`。カードは `## [Claude] 番号` か `## [PowerShell] 番号` の行で始め
+  （番号はつながりの目印。画面には出さない。フローの中で重ねない。`## [Claude 新しい会話] 番号` はそこから新しい会話で送る）、
+  すぐ下に位置 `<!-- x,y -->`（無くてよい。横に 320・縦に 190 ずつ離すと重ならない）、空行のあとに送るテキスト、
+  そのあとに添付 `添付: [名前](リンク)`（本文のリンクと同じ書き方）、最後につながり `→ 番号` か `→ [線の名前] 番号`。
   送るテキストに `## [` で始まる行を書かない（コードブロックの中ならよい）。最初のカードより前の行は説明として残る。
 - 利用者が話しかけるたびに、エディタの今の状態（開いているファイル・見ているページ・カーソルの行・選んでいる文字）が付いてくる。
   ほかの画面や休止している画面で開いている文書の場所も「ほかに開いている文書」として付いてくる。利用者が見ていない文書の名前やタブの名前で話したら、その一覧から探す。
@@ -1141,7 +1143,6 @@ namespace Tsuzuri
             }
 
             Dispatcher.BeginInvoke(new Action(ReloadChangedDocuments), DispatcherPriority.Background);
-            Dispatcher.BeginInvoke(new Action(ReloadFlowIfChanged), DispatcherPriority.Background);   // 開いているフロー図（SPEC 21章）
             return problem;
         }
 
@@ -1533,6 +1534,7 @@ namespace Tsuzuri
         /// </summary>
         private void SaveForAi()
         {
+            FlushFlow();   // 直しかけのフローをページに書いてから（SPEC 21章）
             if (_stack.Any(view => view.IsDirty)) SaveAll();
         }
 
@@ -1972,6 +1974,7 @@ namespace Tsuzuri
             }
 
             if (reloaded.Count == 0) return;
+            Dispatcher.BeginInvoke(new Action(ReloadFlowIfChanged), DispatcherPriority.Background);   // 開いているフロー図（SPEC 21章）
 
             // 無くなったページから右は閉じる。ルートはいつもあるので、先頭は残る。
             // 右には別のファイルのページもありうる。閉じるとそのファイルの未保存の編集が消えるので、そこにしか無い文書に

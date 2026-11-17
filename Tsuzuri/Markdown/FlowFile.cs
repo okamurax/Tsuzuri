@@ -9,19 +9,23 @@ namespace Tsuzuri.Markdown
 {
     /// <summary>
     /// フロー（2026-11-17。SPEC 21章）。AI の欄のターミナルへ流し込むテキストを、カードとして並べてつないだもの。
-    /// 元はテキストのファイル（`名前.flow.md`）。人が読んでも、Claude が読み書きしても分かる形にする:
+    /// 文書のサブページ（図エディタの図と同じく今の文書の中。最初の行が印 Marker）。人が読んでも、Claude が読み書きしても分かる形にする:
     ///
+    ///   &lt;!-- tsuzuri-flow --&gt;          … フローの印（最初の行）
     ///   # フローの名前                 … 最初のカードより前の行は、そのまま残す（説明など）
     ///
-    ///   ## [Claude] 原因を調べる       … カード。[Claude] か [PowerShell]。題はフローの中で重ねない
+    ///   ## [Claude] 1                  … カード。[Claude] か [PowerShell] と題（番号。つながりの目印で、画面には出さない）
+    ///   ## [Claude 新しい会話] 4       … ここから新しい会話で送る（続くカードもその会話へ）
     ///   &lt;!-- 120,40 --&gt;               … フロー図での位置（無くてもよい。無ければ並べて置く）
     ///
     ///   ログを読んで原因を調べて。      … 送るテキスト（前後の空行は除く）
     ///
-    ///   → 直す                         … つながり。最後に並べる。→ [名前] 題 で、線に名前を付ける
-    ///   → [失敗] 原因を調べる
+    ///   添付: [ログ](ログ.txt)          … 添付のファイル（文書と同じリンクの書き方）
     ///
-    /// 送るテキストの中には、`## [Claude] ` などで始まる行を書けない（次のカードになる）。最後の `→ ` で始まる行は、つながりになる。
+    ///   → 2                            … つながり。最後に並べる。→ [名前] 題 で、線に名前を付ける
+    ///   → [失敗] 3
+    ///
+    /// 送るテキストの中には、`## [Claude] ` などで始まる行を書けない（次のカードになる）。最後の `添付:`・`→ ` で始まる行は、添付・つながりになる。
     /// </summary>
     public sealed class FlowFile
     {
@@ -30,8 +34,28 @@ namespace Tsuzuri.Markdown
 
         public readonly List<FlowCard> Cards = new List<FlowCard>();
 
+        /// <summary>サブページがフローである印（最初の行。2026-11-17）。</summary>
+        public const string Marker = "<!-- tsuzuri-flow -->";
+
+        /// <summary>新しい会話で送るカードの印（種類の後ろ）。</summary>
+        public const string NewSessionWord = "新しい会話";
+
+        /// <summary>ページの中身がフローか（空行を除いた最初の行が印）。</summary>
+        public static bool IsFlow(string text)
+        {
+            if (string.IsNullOrEmpty(text)) return false;
+            foreach (var line in text.Split('\n'))
+            {
+                var trimmed = line.Trim();
+                if (trimmed.Length == 0) continue;
+                return trimmed == Marker;
+            }
+            return false;
+        }
+
         private static readonly Regex CardLine = new Regex(@"^##[ \t]+\[(?<kind>[^\]]+)\][ \t]*(?<title>.*?)[ \t]*$");
         private static readonly Regex PositionLine = new Regex(@"^<!--[ \t]*(?<x>-?\d+(?:\.\d+)?)[ \t]*,[ \t]*(?<y>-?\d+(?:\.\d+)?)[ \t]*-->[ \t]*$");
+        private static readonly Regex AttachmentLine = new Regex(@"^添付[:：][ \t]*\[(?<label>(?:\\.|[^\]\\])*)\]\((?<target>.*)\)[ \t]*$");
         private static readonly Regex EdgeLine = new Regex(@"^(?:→|->)[ \t]*(?:\[(?<label>[^\]]*)\][ \t]*)?(?<target>.*?)[ \t]*$");
 
         /// <summary>カードの種類の名前を読む。知らない名前は null。</summary>
@@ -65,11 +89,12 @@ namespace Tsuzuri.Markdown
                 if (trimmed.StartsWith("```", StringComparison.Ordinal) || trimmed.StartsWith("~~~", StringComparison.Ordinal)) inFence = !inFence;
 
                 var match = inFence ? Match.Empty : CardLine.Match(line);
-                FlowKind? kind = match.Success ? KindOf(match.Groups["kind"].Value) : null;
+                var words = match.Success ? match.Groups["kind"].Value.Split(new[] { ' ', '\t', '　' }, StringSplitOptions.RemoveEmptyEntries) : new string[0];
+                FlowKind? kind = words.Length > 0 ? KindOf(words[0]) : null;
                 if (kind != null)
                 {
                     if (card != null) Finish(card, body);
-                    card = new FlowCard { Kind = kind.Value, Title = match.Groups["title"].Value };
+                    card = new FlowCard { Kind = kind.Value, Title = match.Groups["title"].Value, NewSession = words.Skip(1).Contains(NewSessionWord) };
                     flow.Cards.Add(card);
                     body = new List<string>();
                     continue;
@@ -100,19 +125,25 @@ namespace Tsuzuri.Markdown
                 }
             }
 
-            // 末尾のつながりの行（空行は挟んでよい）
+            // 末尾の添付・つながりの行（空行は挟んでよい）
             var end = lines.Count;
             while (end > 0 && lines[end - 1].Trim().Length == 0) end--;
             var edgeStart = end;
             while (edgeStart > 0)
             {
                 var line = lines[edgeStart - 1];
-                if (line.Trim().Length == 0 || EdgeLine.IsMatch(line) && IsEdge(line)) edgeStart--;
+                if (line.Trim().Length == 0 || IsEdge(line) || AttachmentLine.IsMatch(line)) edgeStart--;
                 else break;
             }
             for (var i = edgeStart; i < end; i++)
             {
                 if (lines[i].Trim().Length == 0) continue;
+                var attachment = AttachmentLine.Match(lines[i]);
+                if (attachment.Success)
+                {
+                    card.Attachments.Add(new FlowAttachment { Label = attachment.Groups["label"].Value, Target = attachment.Groups["target"].Value.Trim() });
+                    continue;
+                }
                 var match = EdgeLine.Match(lines[i]);
                 var target = match.Groups["target"].Value;
                 if (target.Length == 0) continue;
@@ -147,7 +178,7 @@ namespace Tsuzuri.Markdown
             {
                 var card = Cards[i];
                 if (i > 0) text.Append('\n');
-                text.Append("## [").Append(NameOf(card.Kind)).Append("] ").Append(card.Title).Append('\n');
+                text.Append("## [").Append(NameOf(card.Kind)).Append(card.NewSession ? " " + NewSessionWord : string.Empty).Append("] ").Append(card.Title).Append('\n');
                 if (card.HasPosition)
                 {
                     text.Append("<!-- ").Append(Math.Round(card.X).ToString(CultureInfo.InvariantCulture))
@@ -156,6 +187,13 @@ namespace Tsuzuri.Markdown
 
                 var body = string.Join("\n", TrimBlank(card.Body.Replace("\r\n", "\n").Replace('\r', '\n').Split('\n')));
                 if (body.Length > 0) text.Append('\n').Append(body).Append('\n');
+
+                if (card.Attachments.Count > 0)
+                {
+                    text.Append('\n');
+                    foreach (var attachment in card.Attachments)
+                        text.Append("添付: [").Append(attachment.Label).Append("](").Append(attachment.Target).Append(")\n");
+                }
 
                 if (card.Edges.Count > 0)
                 {
@@ -268,7 +306,22 @@ namespace Tsuzuri.Markdown
         public double X;
         public double Y;
         public bool HasPosition;
+
+        /// <summary>ここから新しい会話で送る（Claude のカード。続くカードもその会話へ）。</summary>
+        public bool NewSession;
+
+        public readonly List<FlowAttachment> Attachments = new List<FlowAttachment>();
         public readonly List<FlowEdge> Edges = new List<FlowEdge>();
+    }
+
+    /// <summary>カードに付けたファイル。リンクは文書の本文と同じ書き方（添付フォルダの中なら名前だけ）。</summary>
+    public sealed class FlowAttachment
+    {
+        /// <summary>表示名（[ ] の中。記法の文字は \ で逃がしたまま）。</summary>
+        public string Label = string.Empty;
+
+        /// <summary>リンク先（( ) の中。空白などを含むときは &lt; &gt; で囲んだまま）。</summary>
+        public string Target = string.Empty;
     }
 
     public sealed class FlowEdge

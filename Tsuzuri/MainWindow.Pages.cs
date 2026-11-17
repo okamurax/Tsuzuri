@@ -672,6 +672,7 @@ namespace Tsuzuri
         /// </summary>
         private bool SaveAll()
         {
+            FlushFlow();   // 直しかけのフローをページに書いてから（SPEC 21章）
             return SaveDocuments(_stack.Select(view => view.Owner).Where(owner => owner != null && owner.IsDirty).Distinct().ToList());
         }
 

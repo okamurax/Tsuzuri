@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# フローのテキスト（Tsuzuri/Markdown/FlowFile.cs。名前.flow.md）の確かめ（2026-11-17）。
+# フローのテキスト（Tsuzuri/Markdown/FlowFile.cs。フローのサブページ）の確かめ（2026-11-17）。
 # 読んで書き直しても同じになるか、カード・位置・つながり・線の名前・``` の中を正しく読むかを見る。
 # NG が1つでもあれば終了コード 1。FlowFile.cs を変えたら回す。
 #

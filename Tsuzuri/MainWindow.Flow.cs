@@ -1,11 +1,10 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text;
 using System.Windows;
 using System.Windows.Controls;
-using System.Windows.Controls.Primitives;
-using System.Windows.Input;
 using System.Windows.Threading;
 using Tsuzuri.Markdown;
 using Tsuzuri.Views;
@@ -13,84 +12,71 @@ using Tsuzuri.Views;
 namespace Tsuzuri
 {
     // MainWindow の一部: フロー（2026-11-17。SPEC 21章）。AI の欄のターミナルへ流し込むテキストを、カードとして並べてつなぎ、1枚ずつ送る。
-    // 元は文書の添付フォルダの `名前.flow.md`（テキスト）。本文にはそのリンクを置き、押すとフロー図（Views/FlowView）を本文の場所の上に重ねて出す。
+    // フローは今の文書のサブページ（図エディタの図と同じく、別のファイルを作らない。最初の行が印 FlowFile.Marker）。
+    // 本文にはそのページへのリンクを置き、押すとフロー図（Views/FlowView）を本文の場所の上に重ねて出す（ページとしては開かない）。
     // ランチャーと同じ重ね方だが、ほぼフロー図で直すので、高さを多めに取る（既定 75%。仕切りで変えられ、覚える）。下の本文は見えたまま。
-    // 送り先: Claude のカードは選んでいる会話のタブ、PowerShell のカードは共通ターミナル。送るのは利用者が1枚ずつ（自動では進めない）。
+    // 送り先: Claude のカードはフローの会話（下）、PowerShell のカードは共通ターミナル。送るのは利用者が1枚ずつ（自動では進めない）。
     public partial class MainWindow
     {
         private FlowView _flowView;
+        private PageDocument _flowDocument;
+        private string _flowPage;
+
+        /// <summary>
+        /// フローの会話（2026-11-17）。最初のカードで新しい会話を始め、続くカードはその会話へ送る。「新しい会話」の印のカードで、また新しい会話を始める
+        /// （そこから続くカードはその会話へ）。見出しは「文書#ページ/会話を始めるカードの題」。この画面の会話のタブを指す（閉じた・終わったら作り直す）。
+        /// </summary>
+        private readonly Dictionary<string, AiTab> _flowSessions = new Dictionary<string, AiTab>(StringComparer.OrdinalIgnoreCase);
 
         /// <summary>フロー図の高さの割合の既定（仕切りのダブルクリックで戻す）。</summary>
         private const double DefaultFlowSplit = 0.75;
 
-        /// <summary>フローのファイルか（名前が .flow.md で終わる）。</summary>
-        internal static bool IsFlowFile(string path)
-        {
-            return path != null && path.EndsWith(".flow.md", StringComparison.OrdinalIgnoreCase);
-        }
+        /// <summary>新しい会話が動き出すのを待つ上限（claude の起動。初めてのフォルダでは信頼の確認を待つことがある）。</summary>
+        private static readonly TimeSpan FlowSessionWait = TimeSpan.FromSeconds(90);
 
-        /// <summary>ツールバーの「フローを追加」。添付フォルダにフローのファイルを作り、カーソルの位置にリンクを入れて開く。</summary>
+        /// <summary>ツールバーの「フローを追加」。今の文書にフローのサブページを作り、カーソルの位置にリンクを入れて開く。</summary>
         private void InsertFlow_Click(object sender, RoutedEventArgs e)
         {
             var view = Active;
-            if (!CanInsertInto(view) || !HasAttachmentFolder(view, "フローを足せません")) return;
+            if (!CanInsertInto(view) || view.Owner == null) return;
 
-            string path;
-            try
-            {
-                var folder = Attachments.FolderOf(view.FilePath);
-                var stem = "フロー " + DateTime.Now.ToString("yyyy-MM-dd HHmmss");
-                path = Path.Combine(folder, stem + ".flow.md");
-                for (var n = 2; File.Exists(path); n++) path = Path.Combine(folder, stem + " (" + n + ").flow.md");
+            var flow = new FlowFile { Preamble = FlowFile.Marker };
+            flow.Cards.Add(new FlowCard { Kind = FlowKind.Claude, Title = "1", X = 40, Y = 40, HasPosition = true });
 
-                var flow = new FlowFile { Preamble = "# " + Path.GetFileName(path).Replace(".flow.md", string.Empty) };
-                flow.Cards.Add(new FlowCard { Kind = FlowKind.Claude, Title = "1", X = 40, Y = 40, HasPosition = true });
-                PageDocument.WriteAtomically(path, new UTF8Encoding(false).GetBytes(flow.Serialize()));
-            }
-            catch (Exception ex)
+            var document = view.Owner;
+            var id = document.AddPage(flow.Serialize());
+            var page = document.PageOf(id);
+            var at = document.IndexOf(id);
+
+            // ページの追加とリンクを、元に戻す1回の操作にする（サブページ作成と同じ。MainWindow.Pages.cs）
+            var replaced = view.ReplaceRange(view.CaretOffset, 0, "[フロー](#" + id + ")",
+                () => document.RestorePage(page, at),
+                () => document.RemovePage(id));
+            if (!replaced)
             {
-                MessageBox.Show(this, "フローのファイルを作れませんでした。" + Environment.NewLine + ex.Message, "フロー", MessageBoxButton.OK, MessageBoxImage.Warning);
+                document.RemovePage(id);
+                Status("リンクを入れられなかったので、フローを作るのをやめました。");
                 return;
             }
 
-            var name = Path.GetFileName(path);
-            view.InsertAtCaret("[" + EscapeLabel(name.Substring(0, name.Length - ".flow.md".Length)) + "](" + ToLinkTarget(name) + ")");
-            Status("フローを入れました: " + name);
-            OpenFlow(path);
+            UpdateChrome();
+            Status("フローを作りました（保存で文書に書きます）");
+            OpenFlow(document, id);
         }
 
-        /// <summary>本文のリンクがフローのファイルなら、フロー図で開く。無ければ作るか尋ねる。フローでなければ false。</summary>
-        private bool TryOpenFlow(string path)
+        /// <summary>本文のリンクの先がフローのページなら、フロー図で開く。フローでなければ false。</summary>
+        private bool TryOpenFlow(PageDocument document, string id)
         {
-            if (!IsFlowFile(path)) return false;
-
-            if (!File.Exists(path))
-            {
-                var answer = MessageBox.Show(this, "フローのファイルがありません。作りますか？" + Environment.NewLine + path,
-                    "フロー", MessageBoxButton.YesNo, MessageBoxImage.Question);
-                if (answer != MessageBoxResult.Yes) return true;
-                try
-                {
-                    var folder = Path.GetDirectoryName(path);
-                    if (!string.IsNullOrEmpty(folder)) Directory.CreateDirectory(folder);
-                    PageDocument.WriteAtomically(path, new byte[0]);
-                }
-                catch (Exception ex)
-                {
-                    Status("作れませんでした: " + ex.Message);
-                    return true;
-                }
-            }
-
-            OpenFlow(path);
+            if (document == null || !document.Contains(id) || !FlowFile.IsFlow(document.TextOf(id))) return false;
+            OpenFlow(document, id);
             return true;
         }
 
-        private void OpenFlow(string path)
+        private void OpenFlow(PageDocument document, string id)
         {
             if (_launcher != null) CloseLauncher();
 
-            if (_flowView != null && string.Equals(_flowView.FilePath, path, StringComparison.OrdinalIgnoreCase))
+            if (_flowView != null && ReferenceEquals(_flowDocument, document) && _flowPage == id)
             {
                 _flowView.ReloadIfChanged();
                 _flowView.Focus();
@@ -98,9 +84,28 @@ namespace Tsuzuri
             }
             CloseFlow();
 
-            _flowView = new FlowView(path);
+            _flowDocument = document;
+            _flowPage = id;
+            var name = "フロー — " + Path.GetFileName(document.FilePath);
+            _flowView = new FlowView(
+                document.FilePath + "#" + id,
+                name,
+                () => document.TextOf(id),
+                text =>
+                {
+                    if (!document.SetText(id, text))
+                    {
+                        Status("フローのページが文書にありません（消えた・読み直した）。閉じます");
+                        Dispatcher.BeginInvoke(new Action(CloseFlow));
+                        return;
+                    }
+                    UpdateChrome();   // 未保存の印
+                });
             _flowView.CloseRequested += CloseFlow;
-            _flowView.SendRequested += (card, enter) => SendFlowCard(_flowView, card, enter);
+            _flowView.SaveRequested += delegate { Save_Click(this, new RoutedEventArgs()); };
+            _flowView.ImportFiles = paths => ImportFlowFiles(document, paths);
+            var flowView = _flowView;
+            _flowView.SendRequested += (card, enter) => SendFlowCard(flowView, card, enter);
 
             FlowLayer.Children.Clear();
             FlowLayer.RowDefinitions.Clear();
@@ -165,15 +170,74 @@ namespace Tsuzuri
             var hadFocus = _flowView.IsKeyboardFocusWithin;
             _flowView.Flush();
             _flowView = null;
+            _flowDocument = null;
+            _flowPage = null;
             FlowLayer.Children.Clear();
             FlowLayer.Visibility = Visibility.Collapsed;
             if (hadFocus && Active != null) Active.TextArea.Focus();
         }
 
-        /// <summary>Claude がファイルを書き換えたあと（フック）。開いているフローなら読み直す。</summary>
+        /// <summary>
+        /// 文書を読み直した・ページの並びが変わったあと。フローの文書がもう画面に無い・ページが消えたなら閉じ、ページが変わっていれば読み直す。
+        /// </summary>
         private void ReloadFlowIfChanged()
         {
-            if (_flowView != null) _flowView.ReloadIfChanged();
+            if (_flowView == null) return;
+
+            if (!_stack.Any(view => ReferenceEquals(view.Owner, _flowDocument)) || !_flowDocument.Contains(_flowPage))
+            {
+                CloseFlow();
+                return;
+            }
+            _flowView.ReloadIfChanged();
+        }
+
+        /// <summary>保存の前。直しかけのフローをページに書く。</summary>
+        private void FlushFlow()
+        {
+            if (_flowView != null) _flowView.Flush();
+        }
+
+        // ---------------------------------------------------------------
+        // 添付
+        // ---------------------------------------------------------------
+
+        /// <summary>
+        /// カードに落としたファイルを添付にする。本文へのドロップと同じく、添付フォルダの中のものはそのまま、外のものは添付フォルダにコピーする（Localize）。
+        /// 1つでも取り込めなければ、何も添付しない。
+        /// </summary>
+        private List<FlowAttachment> ImportFlowFiles(PageDocument document, string[] paths)
+        {
+            var result = new List<FlowAttachment>();
+            try
+            {
+                foreach (var path in paths)
+                {
+                    if (Directory.Exists(path)) throw new InvalidOperationException("フォルダは添付できません: " + path);
+                    var target = Localize(document.FilePath, path);
+                    result.Add(new FlowAttachment
+                    {
+                        Label = EscapeLabel(Path.GetFileNameWithoutExtension(path)),
+                        Target = ToLinkTarget(target),
+                    });
+                }
+            }
+            catch (Exception ex)
+            {
+                Status("添付できませんでした: " + ex.Message);
+                return null;
+            }
+            return result;
+        }
+
+        /// <summary>添付のリンクを、ファイルの場所にする（文書のページと同じ解き方）。解けなければ null。</summary>
+        private string ResolveFlowAttachment(FlowAttachment attachment)
+        {
+            var view = _stack.FirstOrDefault(each => ReferenceEquals(each.Owner, _flowDocument));
+            if (view == null) return null;
+            var target = attachment.Target.Trim();
+            if (target.StartsWith("<", StringComparison.Ordinal) && target.EndsWith(">", StringComparison.Ordinal)) target = target.Substring(1, target.Length - 2);
+            return view.ResolvePath(target);
         }
 
         // ---------------------------------------------------------------
@@ -194,18 +258,105 @@ namespace Tsuzuri
             else SendFlowToShell(view, card, text, enter, 0);
         }
 
+        /// <summary>
+        /// このカードを送る会話を始めるカード。「新しい会話」の印のカードか、さかのぼって行き着く最初のカード（どこからもつながっていない）。
+        /// 前のカードが2枚以上あれば、ページの並びで先のほうをたどる。
+        /// </summary>
+        private static FlowCard SessionStartOf(FlowFile flow, FlowCard card)
+        {
+            var seen = new HashSet<FlowCard>();
+            var current = card;
+            while (seen.Add(current))
+            {
+                if (current.NewSession) return current;
+                var title = current.Title;
+                var parent = flow.Cards.FirstOrDefault(other => other.Edges.Any(edge => edge.Target == title));
+                if (parent == null) return current;
+                current = parent;
+            }
+            return current;   // 輪になっていた
+        }
+
         private void SendFlowToClaude(FlowView view, FlowCard card, string text, bool enter)
         {
-            if (_aiTab == null || _aiTab.View == null || !_aiTab.View.IsRunning)
+            // 添付は、場所を書き添えて Claude に読ませる（Claude Code はパスのファイルを読める。画像も）
+            if (card.Attachments.Count > 0)
             {
-                view.ShowStatus("AI の欄で会話を始めてから送ってください（ツールバーの「AI」）");
+                var files = new StringBuilder();
+                foreach (var attachment in card.Attachments)
+                {
+                    var path = ResolveFlowAttachment(attachment);
+                    if (path == null || !File.Exists(path))
+                    {
+                        view.ShowStatus("添付のファイルが見つかりません: " + attachment.Target);
+                        return;
+                    }
+                    files.Append("\n- ").Append(path);
+                }
+                text += "\n\n添付ファイル（読んでから答えて）:" + files;
+            }
+
+            var start = SessionStartOf(view.Flow, card);
+            var key = view.FlowKey + "/" + start.Title;
+            AiTab tab;
+            if (_flowSessions.TryGetValue(key, out tab) && _aiTabs.Contains(tab) && tab.View != null && tab.View.IsRunning)
+            {
+                if (AiPane.Visibility != Visibility.Visible) ShowAiPane();
+                if (!ReferenceEquals(_aiTab, tab)) SelectAiTab(tab);
+                WriteFlowToClaude(view, card, tab, text, enter);
                 return;
             }
+
+            // 新しい会話を始めて、動き出す（claude のフックで会話の番号が届く）のを待ってから送る
+            if (!CanStartAi()) return;
+            AddAiTab(string.Empty);
+            tab = _aiTab;
+            _flowSessions[key] = tab;
             if (AiPane.Visibility != Visibility.Visible) ShowAiPane();
+            view.ShowStatus("新しい会話（" + tab.Name + "）を始めています…");
+
+            var started = DateTime.UtcNow;
+            var timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(300) };
+            timer.Tick += delegate
+            {
+                if (!_aiTabs.Contains(tab))
+                {
+                    timer.Stop();
+                    view.ShowStatus("会話のタブが閉じられたので送りませんでした");
+                    return;
+                }
+                if (tab.SessionId == null)
+                {
+                    if (DateTime.UtcNow - started < FlowSessionWait) return;
+                    timer.Stop();
+                    view.ShowStatus("会話（" + tab.Name + "）が始まらなかったので送りませんでした。始まったら、もう一度送ってください");
+                    return;
+                }
+
+                // 番号が届いてから入力欄が出るまで、少し待つ
+                timer.Stop();
+                var settle = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(1500) };
+                settle.Tick += delegate
+                {
+                    settle.Stop();
+                    WriteFlowToClaude(view, card, tab, text, enter);
+                };
+                settle.Start();
+            };
+            timer.Start();
+        }
+
+        private void WriteFlowToClaude(FlowView view, FlowCard card, AiTab tab, string text, bool enter)
+        {
+            var terminal = tab.View;
+            if (terminal == null || !terminal.IsRunning)
+            {
+                view.ShowStatus("会話（" + tab.Name + "）が動いていません");
+                return;
+            }
 
             // 複数行は貼り付けの印で囲む（中の改行で送らないため。Claude Code は受け付ける）。改行は CR で送る（xterm の貼り付けと同じ）。
             // 1行は印を付けずに打つ（2026-11-17。印を付けると、続けて送った Enter が貼り付けの続きと見なされ、送信されなかった）
-            var terminal = _aiTab.View;
             var data = text.IndexOf('\n') < 0 ? text.Replace("\t", "    ") : "\x1b[200~" + text.Replace("\n", "\r") + "\x1b[201~";
             if (!terminal.WriteInput(data))
             {
@@ -213,7 +364,7 @@ namespace Tsuzuri
                 return;
             }
 
-            AfterFlowWrite(view, card, terminal, enter, "Claude（" + (_aiTab.Name ?? "会話") + "）");
+            AfterFlowWrite(view, card, terminal, enter, tab.Name ?? "会話");
         }
 
         private void SendFlowToShell(FlowView view, FlowCard card, string text, bool enter, int tries)
@@ -287,8 +438,8 @@ namespace Tsuzuri
         {
             if (!enter)
             {
-                view.MarkSent(card);
-                view.ShowStatus(where + "に置きました（Enter は押していません）");
+                view.MarkSent(card, where);
+                view.ShowStatus(where + " に置きました（Enter は押していません）");
                 return;
             }
 
@@ -301,8 +452,8 @@ namespace Tsuzuri
                     view.ShowStatus("Enter を送れませんでした（文字は入っています）");
                     return;
                 }
-                view.MarkSent(card);
-                view.ShowStatus(where + "に送りました");
+                view.MarkSent(card, where);
+                view.ShowStatus(where + " に送りました");
             };
             timer.Start();
         }

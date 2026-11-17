@@ -72,6 +72,13 @@ namespace Tsuzuri.Views
         private readonly Canvas _canvas = new Canvas();
         private readonly ScaleTransform _scale = new ScaleTransform(1, 1);
         private readonly ScrollViewer _scroll = new ScrollViewer();
+
+        /// <summary>
+        /// 図のまわりの余白（2026-11-17。画面の大きさの 9 割。拡大に関わらず画面の点で）。端のカードも画面の真ん中まで動かせるように
+        /// （前は図の左上がスクロールの端で、左上のカードを真ん中に持ってこられなかった）。スクロールの位置から図の座標へは (位置 - 余白) / 倍率。
+        /// </summary>
+        private readonly Border _holder = new Border();
+        private double _padX, _padY;
         private readonly TextBlock _status = new TextBlock();
         private readonly Dictionary<FlowCard, CardParts> _cards = new Dictionary<FlowCard, CardParts>();
         private readonly List<UIElement> _edgeElements = new List<UIElement>();
@@ -201,7 +208,9 @@ namespace Tsuzuri.Views
             _canvas.LayoutTransform = _scale;
             _canvas.ClipToBounds = true;
 
-            _scroll.Content = _canvas;
+            _holder.Child = _canvas;
+            _scroll.Content = _holder;
+            _scroll.SizeChanged += delegate { UpdatePadding(); };
             _scroll.HorizontalScrollBarVisibility = ScrollBarVisibility.Auto;
             _scroll.VerticalScrollBarVisibility = ScrollBarVisibility.Auto;
             _scroll.Focusable = false;
@@ -901,7 +910,7 @@ namespace Tsuzuri.Views
             Point point;
             if (feeds) point = new Point(Math.Max(20, from.X - CardWidth - 80), from.Y);
             else if (from != null) point = new Point(from.X + CardWidth + 80, from.Y);
-            else point = new Point(_scroll.HorizontalOffset / _scale.ScaleX + 40, _scroll.VerticalOffset / _scale.ScaleY + 40);
+            else point = new Point(Math.Max(0, (_scroll.HorizontalOffset - _padX) / _scale.ScaleX) + 40, Math.Max(0, (_scroll.VerticalOffset - _padY) / _scale.ScaleY) + 40);
             while (_flow.Cards.Any(other => Math.Abs(other.X - point.X) < CardWidth && Math.Abs(other.Y - point.Y) < 120)) point.Y += 140;
             card.X = Math.Round(point.X / 10) * 10;
             card.Y = Math.Round(point.Y / 10) * 10;
@@ -1304,8 +1313,8 @@ namespace Tsuzuri.Views
                     Kind = FlowKind.Claude,
                     Title = _flow.NewId(),
                     Body = text.Replace("\r\n", "\n").Trim('\n'),
-                    X = Math.Round((_scroll.HorizontalOffset / _scale.ScaleX + 40) / 10) * 10,
-                    Y = Math.Round((_scroll.VerticalOffset / _scale.ScaleY + 40) / 10) * 10,
+                    X = Math.Round((Math.Max(0, (_scroll.HorizontalOffset - _padX) / _scale.ScaleX) + 40) / 10) * 10,
+                    Y = Math.Round((Math.Max(0, (_scroll.VerticalOffset - _padY) / _scale.ScaleY) + 40) / 10) * 10,
                     HasPosition = true,
                 };
                 _flow.Cards.Add(card);
@@ -1518,6 +1527,24 @@ namespace Tsuzuri.Views
         public void SetRunning(bool running)
         {
             _stopButton.Visibility = running ? Visibility.Visible : Visibility.Collapsed;
+        }
+
+        /// <summary>画面の大きさが変わったら余白を合わせる。見えている所は動かさない（初めは図の左上が画面の左上）。</summary>
+        private void UpdatePadding()
+        {
+            var x = Math.Round(Math.Max(0, _scroll.ActualWidth * 0.9));
+            var y = Math.Round(Math.Max(0, _scroll.ActualHeight * 0.9));
+            if (Math.Abs(x - _padX) < 1 && Math.Abs(y - _padY) < 1) return;
+            var dx = x - _padX;
+            var dy = y - _padY;
+            var left = _scroll.HorizontalOffset;
+            var top = _scroll.VerticalOffset;
+            _padX = x;
+            _padY = y;
+            _holder.Padding = new Thickness(x, y, x, y);
+            _scroll.UpdateLayout();
+            _scroll.ScrollToHorizontalOffset(left + dx);
+            _scroll.ScrollToVerticalOffset(top + dy);
         }
 
         private void UpdateExtent()
@@ -1790,12 +1817,12 @@ namespace Tsuzuri.Views
             if (Math.Abs(scale - old) < 0.001) return;
 
             var mouse = e.GetPosition(_scroll);
-            var anchor = new Point((_scroll.HorizontalOffset + mouse.X) / old, (_scroll.VerticalOffset + mouse.Y) / old);
+            var anchor = new Point((_scroll.HorizontalOffset + mouse.X - _padX) / old, (_scroll.VerticalOffset + mouse.Y - _padY) / old);
             _scale.ScaleX = scale;
             _scale.ScaleY = scale;
             _scroll.UpdateLayout();
-            _scroll.ScrollToHorizontalOffset(anchor.X * scale - mouse.X);
-            _scroll.ScrollToVerticalOffset(anchor.Y * scale - mouse.Y);
+            _scroll.ScrollToHorizontalOffset(anchor.X * scale + _padX - mouse.X);
+            _scroll.ScrollToVerticalOffset(anchor.Y * scale + _padY - mouse.Y);
             ShowStatus("拡大 " + Math.Round(scale * 100) + "%");
         }
 

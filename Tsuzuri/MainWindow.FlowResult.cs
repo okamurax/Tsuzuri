@@ -12,11 +12,12 @@ using Tsuzuri.Views;
 
 namespace Tsuzuri
 {
-    // MainWindow の一部: フローの結果のカードに答えを受け取る（2026-11-17。SPEC 21章）。
-    // Claude のカードを送るとき、つながる結果のカードごとに印（<<<結果 番号 合言葉>>> … <<<ここまで 番号 合言葉>>>）で囲んで書くよう頼み、
+    // MainWindow の一部: フローの分かれ道で、Claude が選んだ行き先を答えから読む（2026-11-17。SPEC 21章）。
+    // 分かれ道の Claude のカードを送るとき、行き先を印（<<<行き先 合言葉>>> … <<<ここまで 行き先 合言葉>>>）で囲んで書くよう頼み、
     // その会話の記録（%USERPROFILE%\.claude\projects\フォルダの名前\会話の番号.jsonl）に Claude の答えが足されるのを見て、印の間だけを取り出す。
     // 画面（ターミナルの文字）は読まない（折り返し・色の制御・描き直しで崩れるため）。記録は Claude Code が書く JSON の行で、答えの文字がそのまま入っている。
     // 見るのは送った時点より後に足された行の、Claude の答え（type: assistant の text）だけ（頼んだ文には印がそのまま入っているので、それを拾わないため）。
+    // 初めは結果のカード（答えの一部を受け取って次のカードに渡す）にも使っていたが、結果のカードは無くした（2026-11-18）。
     public partial class MainWindow
     {
         /// <summary>答えを待っている送り（送るたびに1つ）。</summary>
@@ -26,7 +27,7 @@ namespace Tsuzuri
         private static readonly TimeSpan FlowWatchLimit = TimeSpan.FromHours(3);
 
         /// <summary>
-        /// 次に話しかけたときのフック（UserPromptSubmit）で Claude に渡す、結果を印で囲む頼み。会話の番号ごと。
+        /// 次に話しかけたときのフック（UserPromptSubmit）で Claude に渡す、行き先を印で囲んで書く頼み。会話の番号ごと。
         /// フックは HTTP のスレッドから読むので、lock で守る。
         /// </summary>
         private readonly Dictionary<string, string> _flowPrompts = new Dictionary<string, string>(StringComparer.Ordinal);
@@ -58,8 +59,6 @@ namespace Tsuzuri
         private sealed class FlowWatch
         {
             public string Key;
-            public PageDocument Document;
-            public string Page;
             public AiTab Tab;
             public string Session;
             public string Transcript;
@@ -75,19 +74,13 @@ namespace Tsuzuri
         {
             if (tab.SessionId == null)
             {
-                view.ShowStatus("会話の番号が分からないので、結果は受け取れません（送るだけ送ります）");
+                view.ShowStatus("会話の番号が分からないので、行き先を読めません（送るだけ送ります）");
                 return null;
             }
 
-            // 新しい会話を待つ間にフローを閉じることもあるので、文書は見出し（ファイル#ページ）から探す
-            var page = view.FlowKey.Substring(view.FlowKey.LastIndexOf('#') + 1);
-            var document = _stack.Select(each => each.Owner)
-                                 .FirstOrDefault(owner => owner != null && owner.FilePath + "#" + page == view.FlowKey);
             var watch = new FlowWatch
             {
                 Key = view.FlowKey,
-                Document = document,
-                Page = page,
                 Tab = tab,
                 Session = tab.SessionId,
                 Wants = wants,
@@ -98,18 +91,15 @@ namespace Tsuzuri
             return watch;
         }
 
-        private void StartFlowWatch(FlowView view, FlowWatch watch)
+        private void StartFlowWatch(FlowWatch watch)
         {
-            // 同じ結果のカードを待っている前の送りは、もう待たない（送り直した）
+            // 同じカードの行き先を待っている前の送りは、もう待たない（送り直した）
             foreach (var other in _flowWatches.ToList())
             {
                 if (other.Key != watch.Key) continue;
-                other.Wants.RemoveAll(want => watch.Wants.Any(mine => mine.Title == want.Title && (mine.Options == null) == (want.Options == null)));
+                other.Wants.RemoveAll(want => watch.Wants.Any(mine => mine.Title == want.Title));
                 if (other.Wants.Count == 0) StopFlowWatch(other);
             }
-
-            foreach (var want in watch.Wants.Where(want => want.Options == null)) FlowView.SetWaiting(watch.Key, want.Title, true);
-            view.RefreshWaiting();
 
             _flowWatches.Add(watch);
             watch.Timer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
@@ -121,21 +111,19 @@ namespace Tsuzuri
         {
             if (watch.Timer != null) watch.Timer.Stop();
             _flowWatches.Remove(watch);
-            foreach (var want in watch.Wants.Where(want => want.Options == null)) FlowView.SetWaiting(watch.Key, want.Title, false);
-            if (_flowView != null && _flowView.FlowKey == watch.Key) _flowView.RefreshWaiting();
         }
 
         private void PollFlowWatch(FlowWatch watch)
         {
             if (!_aiTabs.Contains(watch.Tab) || watch.Tab.View == null || !watch.Tab.View.IsRunning)
             {
-                Status("フローの結果を待っていた会話（" + watch.Tab.Name + "）が閉じたので、待つのをやめました");
+                Status("フローの行き先を待っていた会話（" + watch.Tab.Name + "）が閉じたので、待つのをやめました");
                 StopFlowWatch(watch);
                 return;
             }
             if (DateTime.UtcNow - watch.Started > FlowWatchLimit)
             {
-                Status("フローの結果が " + FlowWatchLimit.TotalHours + " 時間届かなかったので、待つのをやめました");
+                Status("フローの行き先が " + FlowWatchLimit.TotalHours + " 時間届かなかったので、待つのをやめました");
                 StopFlowWatch(watch);
                 return;
             }
@@ -161,15 +149,10 @@ namespace Tsuzuri
                 var value = FlowResults.Extract(answer, want.Start, want.End);
                 if (value == null) continue;
                 watch.Wants.Remove(want);
-                if (want.Options != null)
-                {
-                    // 行き先（2026-11-17）。送りの段取りに渡す（合わせるのは答えが終わったとき。AfterFlowTurn）
-                    var run = _flowRun;
-                    if (run != null && ReferenceEquals(run.Tab, watch.Tab) && run.View.FlowKey == watch.Key && run.Current == want.Title) run.Choice = value;
-                    continue;
-                }
-                FlowView.SetWaiting(watch.Key, want.Title, false);
-                DeliverFlowResult(watch, want.Title, value);
+
+                // 送りの段取りに渡す（線の名前に合わせるのは答えが終わったとき。AfterFlowTurn）
+                var run = _flowRun;
+                if (run != null && ReferenceEquals(run.Tab, watch.Tab) && run.View.FlowKey == watch.Key && run.Current == want.Title) run.Choice = value;
             }
             if (watch.Wants.Count == 0) StopFlowWatch(watch);
         }
@@ -250,47 +233,6 @@ namespace Tsuzuri
         {
             object value;
             return values.TryGetValue(key, out value) ? value : null;
-        }
-
-        /// <summary>受け取った答えを結果のカードに入れる。開いているフローなら画面で（元に戻せる）、閉じていれば文書のページに直接書く。</summary>
-        private void DeliverFlowResult(FlowWatch watch, string title, string value)
-        {
-            if (_flowView != null && _flowView.FlowKey == watch.Key)
-            {
-                if (_flowView.SetResult(title, value))
-                {
-                    _flowView.ShowStatus("結果のカード " + title + " に答えを受け取りました");
-                    Status("フローの結果（カード " + title + "）を受け取りました");
-                    return;
-                }
-            }
-            else if (watch.Document != null && watch.Document.Contains(watch.Page)
-                     && _stack.Any(view => ReferenceEquals(view.Owner, watch.Document)))
-            {
-                var flow = FlowFile.Parse(watch.Document.TextOf(watch.Page));
-                var card = flow.Find(title);
-                if (card != null && card.Kind == FlowKind.Result)
-                {
-                    card.Body = value;
-                    if (watch.Document.SetText(watch.Page, flow.Serialize()))
-                    {
-                        UpdateChrome();
-                        Status("フローの結果（カード " + title + "）を受け取りました（保存で文書に書きます）");
-                        return;
-                    }
-                }
-            }
-
-            // 入れる先が無くなった（カードを消した・文書を閉じた）。答えはクリップボードに置く
-            try
-            {
-                Clipboard.SetText(value);
-                Status("フローの結果（カード " + title + "）の入れ先が無いので、クリップボードに置きました");
-            }
-            catch (Exception)
-            {
-                Status("フローの結果（カード " + title + "）の入れ先がありませんでした");
-            }
         }
 
         /// <summary>

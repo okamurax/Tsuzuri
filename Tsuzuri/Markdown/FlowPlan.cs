@@ -8,10 +8,10 @@ namespace Tsuzuri.Markdown
     /// 自動で送るときの段取り（2026-11-17。SPEC 21章）。送り始めたカードから、つながりをたどって次に送るカードを1枚ずつ決める。
     /// 画面やターミナルに触らない部分（tools/flow-file で確かめる）。送るのは MainWindow.Flow.cs。
     ///
-    /// ・行けるカード: 送り始めたカードから線をたどって行ける Claude・結果・確認のカード（添付のカードへの線はたどらない）
+    /// ・行けるカード: 送り始めたカードから線をたどって行ける Claude・確認のカード（添付のカードへの線はたどらない）
     /// ・戻る線: 送り始めたカードから深さ優先でたどったとき、たどっている途中のカードへ戻る線（繰り返し）。それ以外の線は前へ進む線
     /// ・カードは、前へ進む線で入ってくる線（行けるカードからのもの）が全部決まったら（進んだ・進まなかった）決まる。
-    ///   1本でも進んだら送る（結果のカードは送らずに通り抜ける）。どれも進まなかったら飛ばす（その先の線も進まない）
+    ///   1本でも進んだら送る。どれも進まなかったら飛ばす（その先の線も進まない）
     /// ・済んだカードの線: 分かれ道（FlowResults.Choices）なら、選んだ名前の線と名前の無い線だけ進む。そうでなければ全部進む
     /// ・戻る線が進んだら、戻り先から前へ進む線で行けるカードを、まだ済んでいないことにして戻り先から送り直す。戻るのは1つの戻り先につき LoopLimit 回まで
     /// ・送れるカードが2枚以上あれば、ページの並びの順
@@ -136,7 +136,7 @@ namespace Tsuzuri.Markdown
         /// <summary>まだ送るかもしれないカード（Claude・確認）の数（「残り N 枚以内」）。</summary>
         public int Remaining
         {
-            get { return _order.Count(node => (node.State == State.Waiting || node.State == State.Ready) && node.Kind != FlowKind.Result); }
+            get { return _order.Count(node => (node.State == State.Waiting || node.State == State.Ready)); }
         }
 
         /// <summary>そのカードの行き先の名前（分かれ道でなければ空）。</summary>
@@ -211,15 +211,7 @@ namespace Tsuzuri.Markdown
                 if (node.State != State.Running) node.State = State.Waiting;
                 foreach (var link in node.Out.Where(link => !link.Back)) link.Fired = null;
             }
-            if (target.Kind == FlowKind.Result)
-            {
-                target.State = State.Done;   // 結果のカードへ戻ったら、送らずに通り抜ける
-                Leave(target, null);
-            }
-            else
-            {
-                target.State = State.Ready;
-            }
+            target.State = State.Ready;
         }
 
         /// <summary>入ってくる線が全部決まったカードを、送る・通り抜ける・飛ばすに決める。変わらなくなるまで。</summary>
@@ -237,11 +229,6 @@ namespace Tsuzuri.Markdown
                     {
                         node.State = State.Skipped;
                         foreach (var link in node.Out.Where(link => !link.Back)) link.Fired = false;
-                    }
-                    else if (node.Kind == FlowKind.Result)
-                    {
-                        node.State = State.Done;   // 結果のカードは送らない。中身は前のカードの答えから入る
-                        Leave(node, null);
                     }
                     else
                     {

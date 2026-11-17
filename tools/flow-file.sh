@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # フローのテキスト（Tsuzuri/Markdown/FlowFile.cs。フローのサブページ）の確かめ（2026-11-17）。
 # 読んで書き直しても同じになるか、カード・位置・つながり・線の名前・``` の中を正しく読むかを見る。
-# 結果のカード（FlowResults.cs）の、送るテキストの組み立て・印の間の取り出し、自動で送る段取り（FlowPlan.cs。分かれ道・繰り返し）も見る。
+# FlowResults.cs の添付の渡し方・行き先の頼み方・印の間の取り出し、自動で送る段取り（FlowPlan.cs。分かれ道・確認・繰り返し）も見る。
 # NG が1つでもあれば終了コード 1。FlowFile.cs・FlowResults.cs・FlowPlan.cs を変えたら回す。
 #
 #   bash tools/flow-file.sh

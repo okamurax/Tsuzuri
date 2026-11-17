@@ -18,7 +18,8 @@ namespace Tsuzuri
     // 送り先はフローの会話（下）。利用者が送るのは最初のカード（か「ここから送る」のカード）だけで、つながるカードは Claude の答えが終わる（Stop のフック）たびに順に送る（2026-11-17）。
     // 次に送るカードは FlowPlan が決める（分かれ道は Claude が選び、確認のカードでは止まって利用者を待ち、戻る線で繰り返す）。
     // PowerShell のカード・途中から新しい会話にするのは無くした。
-    // 結果のカード（MainWindow.FlowResult.cs）と添付のカードは送らず、つないだ先の Claude のカードに中身・ファイルの場所を渡す。
+    // 添付のカードは送らず、つないだ先の Claude のカードにファイルの場所を渡す。結果のカードは無くした（2026-11-18）。
+    // 確認のカードで止まっている間は、利用者がターミナルで Claude と話してよい。その答えが終わったら次へ進む（2026-11-18）。
     public partial class MainWindow
     {
         private FlowView _flowView;
@@ -288,7 +289,7 @@ namespace Tsuzuri
             if (card.Kind != FlowKind.Claude) return;
 
             StopFlowRun(null);
-            foreach (var watch in _flowWatches.Where(each => each.Key == view.FlowKey).ToList()) StopFlowWatch(watch);   // 前の送りの結果はもう待たない
+            foreach (var watch in _flowWatches.Where(each => each.Key == view.FlowKey).ToList()) StopFlowWatch(watch);   // 前の送りの行き先はもう待たない
             var run = new FlowRun { View = view, Plan = new FlowPlan(view.Flow, card), Begin = card.Title };
             _flowRun = run;
             view.SetRunning(true);
@@ -319,7 +320,9 @@ namespace Tsuzuri
                 run.Paused = card.Title;
                 var choices = run.Plan.ChoicesOf(card.Title);
                 run.View.SetPaused(card.Title, choices);
-                var why = choices.Count > 0 ? "確認のカードで止まっています。行き先のボタンを押すと続けます" : "確認のカードで止まっています。「続ける」を押すと次へ進みます";
+                var why = choices.Count > 0
+                    ? "確認のカードで止まっています。ターミナルで Claude と話してもよく、行き先のボタンを押すと続けます"
+                    : "確認のカードで止まっています。ターミナルで Claude と話すと、その答えが終わったら次へ進みます（「続ける」でもすぐ進みます）";
                 run.View.ShowStatus(why);
                 Status("フロー: " + why);
                 return;
@@ -362,37 +365,46 @@ namespace Tsuzuri
         /// <summary>1枚送る。送れなければ送りをやめる。</summary>
         private void SendFlowStep(FlowRun run, FlowCard card)
         {
-            string problem;
-            var text = FlowResults.Compose(run.View.Flow, card, out problem);
-            if (problem == null)
+            var text = CleanForTerminal(card.Body);
+            if (text.Trim().Length == 0)
             {
-                text = CleanForTerminal(text);
-                if (text.Trim().Length == 0) problem = "送るテキストが空のカードがあるので止めました";
-            }
-            if (problem != null)
-            {
-                StopFlowRun(problem);
+                StopFlowRun("送るテキストが空のカードがあるので止めました");
                 return;
             }
             SendFlowToClaude(run, card, text);
         }
 
         /// <summary>
-        /// claude が答え終わった（Stop のフック。2026-11-17）。送りの会話なら、受け取る結果を読み切ってから、次のカードを送る。
+        /// claude が答え終わった（Stop のフック。2026-11-17）。送りの会話なら、行き先を読み切ってから、次のカードを送る。
+        /// 確認のカードで止まっている間に、利用者がターミナルで話した答えが終わったときも、次へ進む（2026-11-18。分かれ道ならボタンを待つ）。
         /// フックはタブの番号（パイプ）か会話の番号（HTTP）で来る。
         /// </summary>
         private void OnAiTurnEnded(string tabId, string session)
         {
             var run = _flowRun;
-            if (run == null || !run.Waiting) return;
+            if (run == null || (!run.Waiting && run.Paused == null)) return;
             var tab = _aiTabs.FirstOrDefault(each => (tabId != null && each.Id == tabId) || (session != null && each.SessionId == session));
             if (!ReferenceEquals(tab, run.Tab)) return;
+
+            if (run.Paused != null)
+            {
+                var paused = run.View.Flow.Find(run.Paused);
+                if (paused == null) return;
+                if (run.Plan.ChoicesOf(paused.Title).Count > 0)
+                {
+                    run.View.ShowStatus("Claude の答えが終わりました。行き先のボタンを押すと続けます");
+                    return;
+                }
+                run.View.ShowStatus("ターミナルでの答えが終わったので、次へ進みます");
+                ContinueFlow(run.View, paused, null);
+                return;
+            }
 
             run.Waiting = false;
             AfterFlowTurn(run, 0);
         }
 
-        /// <summary>答え終わったあと。記録が書き終わるのを少し待ち、結果を読んでから次へ。結果がまだ読めなければ、1 秒おきに 5 回まで待つ。</summary>
+        /// <summary>答え終わったあと。記録が書き終わるのを少し待ち、行き先を読んでから次へ。まだ読めなければ、1 秒おきに 5 回まで待つ。</summary>
         private void AfterFlowTurn(FlowRun run, int tries)
         {
             var timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(tries == 0 ? 800 : 1000) };
@@ -414,7 +426,7 @@ namespace Tsuzuri
                         AfterFlowTurn(run, tries + 1);
                         return;
                     }
-                    StopFlowRun("Claude の答えに結果・行き先の印が見つからなかったので止めました（結果のカードに直接書いて、続きのカードを「ここから送る」で送り直せます）");
+                    StopFlowRun("Claude の答えに行き先の印が見つからなかったので止めました（進む先のカードを「ここから送る」で送り直せます）");
                     return;
                 }
 
@@ -445,7 +457,7 @@ namespace Tsuzuri
         private void SendFlowToClaude(FlowRun run, FlowCard card, string text)
         {
             var view = run.View;
-            var wants = FlowResults.WantsOf(view.Flow, card);   // 結果の頼みは書くときに付ける（WriteFlowToClaude）
+            var wants = FlowResults.WantsOf(view.Flow, card);   // 行き先の頼みは書くときに付ける（WriteFlowToClaude）
 
             // つないだ添付のカードのファイルは、場所を書き添えて Claude に読ませる（Claude Code はパスのファイルを読める。画像も）
             var attachments = FlowResults.FilesFor(view.Flow, card);
@@ -540,7 +552,7 @@ namespace Tsuzuri
                 return;
             }
 
-            // 結果を印で囲む頼みは、話しかけたときのフック（HTTP）で文脈として渡し、画面には出さない（2026-11-17。利用者が「見えるのは嫌」）。
+            // 行き先を印で囲んで書く頼みは、話しかけたときのフック（HTTP）で文脈として渡し、画面には出さない（2026-11-17。利用者が「見えるのは嫌」）。
             // HTTP の口が無い・会話の番号が分からないときだけ、今までどおり送るテキストの後ろに付ける
             string hidden = null;
             if (wants.Count > 0)
@@ -558,7 +570,7 @@ namespace Tsuzuri
                 StopFlowRun("会話のタブに書けなかったので止めました");
                 return;
             }
-            if (watch != null) StartFlowWatch(view, watch);
+            if (watch != null) StartFlowWatch(watch);
 
             // 少し待って Enter を押す（文字の直後だと、Claude Code は貼り付けの一部と見なして送信しない。
             // 2026-11-17。0.15 秒では Enter が効かず、次のカードの文字が後ろにつながった。今は 0.6 秒）

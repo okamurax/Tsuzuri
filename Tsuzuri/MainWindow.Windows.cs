@@ -341,8 +341,10 @@ namespace Tsuzuri
 
             // ダイアログを出している画面は見えなくしない（起動のとき、戻している画面が「フォルダを作りますか」などを尋ねている最中に、
             // 最初の画面を前に出すことがある。見えなくすると、尋ねている窓が見えなくなる。2026-11-02）。後ろに重なって残るだけ。
-            foreach (var other in OpenWindows.Where(each => !ReferenceEquals(each, this) && each.IsOnScreen && !each.IsShowingDialog()).ToList())
+            // 隠しているつもりの画面も隠し直す（2026-11-17。Windows の側で隠れが外れ、全部の画面が重なって見えていたことがある）
+            foreach (var other in OpenWindows.Where(each => !ReferenceEquals(each, this) && each.IsVisible && !each.IsShowingDialog()).ToList())
                 other.SetCloaked(true);
+            WatchCloaks();
             PerfLog.Step("入れ替え", started);
 
             if (measuring)
@@ -429,7 +431,7 @@ namespace Tsuzuri
                 ++_switchToken;   // 待っている切り替えはやめる
                 SetCloaked(false);
                 _frontWindow = this;
-                foreach (var other in OpenWindows.Where(each => !ReferenceEquals(each, this) && each.IsOnScreen && !each.IsShowingDialog()).ToList())
+                foreach (var other in OpenWindows.Where(each => !ReferenceEquals(each, this) && each.IsVisible && !each.IsShowingDialog()).ToList())
                     other.SetCloaked(true);
             };
             timer.Start();
@@ -447,6 +449,55 @@ namespace Tsuzuri
             }, IntPtr.Zero);
             return found;
         }
+
+        /// <summary>
+        /// 隠しているつもりの画面が、本当に隠れているかを 2 秒ごとに確かめ、外れていたら隠し直す（2026-11-17）。
+        /// Visual Studio で動かしている最中に、5 つの画面の隠れ（DWM の cloak）がどれも外れ、同じ位置に重なって全部見えていた
+        /// （Parallels のコヒーレンスでは、Mac のタスクバーにも全部が並んだ）。Tsuzuri は隠したつもりのままなので、切り替えても直らなかった。
+        /// 外れた原因は分かっていない（止めたときの「応答なし」の差し替え・画面の構成の変化などを疑っている）。
+        /// 確かめるのは窓の数だけの軽い問い合わせ。外れていたら下端の知らせに出す（いつ起きるかを突き止めるため）。
+        /// </summary>
+        private static void WatchCloaks()
+        {
+            if (_cloakWatch != null) return;
+
+            _cloakWatch = new DispatcherTimer(DispatcherPriority.Background) { Interval = TimeSpan.FromSeconds(2) };
+            _cloakWatch.Tick += delegate
+            {
+                if (OpenWindows.Count == 0)
+                {
+                    _cloakWatch.Stop();
+                    _cloakWatch = null;
+                    return;
+                }
+
+                var fixedCount = 0;
+                foreach (var window in OpenWindows.ToList())
+                {
+                    if (!window._cloaked || !window.IsVisible) continue;
+
+                    var handle = new WindowInteropHelper(window).Handle;
+                    int cloaked;
+                    if (handle == IntPtr.Zero || DwmGetWindowAttribute(handle, DwmaCloaked, out cloaked, sizeof(int)) != 0) continue;
+                    if (cloaked != 0) continue;
+
+                    window.SetCloaked(true);
+                    fixedCount++;
+                }
+
+                if (fixedCount == 0) return;
+                var front = FrontWindow();
+                if (front != null) front.Status("隠していた画面が " + fixedCount + " つ見えていたので、隠し直しました");
+            };
+            _cloakWatch.Start();
+        }
+
+        private static DispatcherTimer _cloakWatch;
+
+        private const int DwmaCloaked = 14;   // DWMWA_CLOAKED（隠れているか。0 なら見えている）
+
+        [DllImport("dwmapi.dll")]
+        private static extern int DwmGetWindowAttribute(IntPtr window, int attribute, out int value, int size);
 
         /// <summary>窓を作ったら（SourceInitialized）呼ぶ。ダイアログの見張り（WatchDialogs）を付ける。</summary>
         private void HookWindowMessages()

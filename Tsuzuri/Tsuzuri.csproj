@@ -161,6 +161,9 @@
     <Compile Include="MainWindow.AiHttp.cs">
       <DependentUpon>MainWindow.xaml</DependentUpon>
     </Compile>
+    <Compile Include="MainWindow.Flow.cs">
+      <DependentUpon>MainWindow.xaml</DependentUpon>
+    </Compile>
     <Compile Include="MainWindow.AiShell.cs">
       <DependentUpon>MainWindow.xaml</DependentUpon>
     </Compile>
@@ -181,6 +184,7 @@
     <Compile Include="Export\DocxBuilder.cs" />
     <Compile Include="Export\DocxExporter.cs" />
     <Compile Include="Markdown\AiGuard.cs" />
+    <Compile Include="Markdown\FlowFile.cs" />
     <Compile Include="Markdown\Attachments.cs" />
     <Compile Include="Markdown\DocumentModel.cs" />
     <Compile Include="Markdown\DocumentHistory.cs" />
@@ -213,6 +217,7 @@
       <DependentUpon>MarkdownView.cs</DependentUpon>
     </Compile>
     <Compile Include="Views\LauncherView.cs" />
+    <Compile Include="Views\FlowView.cs" />
     <Compile Include="Views\ShellIcons.cs" />
     <Compile Include="Views\ShellActions.cs" />
     <Compile Include="Views\PseudoConsole.cs" />

@@ -39,6 +39,8 @@
                             ToolTip="添付フォルダのファイルのうち、本文のどこからもリンクされていないものを探す" />
                     <Button Content="図を追加(_D)" Style="{StaticResource ToolButton}" Click="InsertDrawing_Click"
                             ToolTip="図エディタで直線・四角・丸・文字・寸法線を描き、カーソルの位置に図として入れる。入れた図は押すと描き直せる" />
+                    <Button Content="フローを追加(_F)" Style="{StaticResource ToolButton}" Click="InsertFlow_Click"
+                            ToolTip="AI の欄のターミナルへ流し込むテキストをカードにして並べる「フロー」を作り、カーソルの位置にリンクを入れる。リンクを押すとフロー図で開く" />
                     <Button Content="WordPress(_P)" Style="{StaticResource ToolButton}" Click="WordPress_Click"
                             ToolTip="WordPress の記事を選んで開く・開いている .md を新しい記事にする。WordPress への反映は、このメニューの「アップロード」だけ（保存では送らない）" />
                     <Button Content="エクスポート(_W)" Style="{StaticResource ToolButton}" Click="Export_Click"
@@ -238,6 +240,9 @@
                             <Border x:Name="FilerHost" Grid.Column="2" />
                         </Grid>
                     </Border>
+
+                    <!-- フロー図（SPEC 21章。2026-11-17。MainWindow.Flow.cs）。本文の場所の上の大部分（既定 75%）に重ねて出す。中は開くときにコードで組む -->
+                    <Grid x:Name="FlowLayer" Grid.RowSpan="2" Visibility="Collapsed" />
                 </Grid>
             </Border>
 

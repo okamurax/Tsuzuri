@@ -100,6 +100,9 @@ namespace Tsuzuri
             // 図（同じ名前の .json がある画像）は、図エディタで描き直す（SPEC 8.4.3）。
             if (File.Exists(path) && TryEditDrawing(path)) return;
 
+            // フロー（名前.flow.md）は、ページとして開かずにフロー図で開く（SPEC 21章。2026-11-17）。
+            if (TryOpenFlow(path)) return;
+
             var isMarkdown = IsMarkdown(path);
 
             if (!File.Exists(path))

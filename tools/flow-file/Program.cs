@@ -93,6 +93,11 @@ internal static class Program
         flow.Remove(build);
         Expect(fix.Edges.Count == 0 && flow.Cards.Count == 4, "消したカードへのつながりは消える");
 
+        // 新しいカードの番号は、今ある番号の次
+        var numbered = FlowFile.Parse("## [Claude] 1\n## [Claude] 7\n## [Claude] 題\n");
+        Expect(numbered.NewId() == "8", "新しい番号: " + numbered.NewId());
+        Expect(FlowFile.Parse("").NewId() == "1", "最初の番号");
+
         // 題の掃除
         Expect(FlowFile.CleanTitle(" a\tb\nc ") == "abc", "題から制御の文字を除く");
         Expect(flow.UniqueTitle("", null) == "カード", "空の題");

@@ -59,7 +59,6 @@ namespace Tsuzuri.Views
 
         // 右の欄（選んだカードを直す）
         private readonly Border _panel = new Border();
-        private readonly TextBox _titleBox = new TextBox();
         private readonly TextBox _bodyBox = new TextBox();
         private readonly Button _claudeKind = new Button();
         private readonly Button _shellKind = new Button();
@@ -89,7 +88,6 @@ namespace Tsuzuri.Views
             public TextBlock Preview;
             public Border Icon;
             public TextBlock IconText;
-            public TextBlock KindText;
             public Border Done;
         }
 
@@ -330,16 +328,10 @@ namespace Tsuzuri.Views
         {
             var stack = new DockPanel { LastChildFill = true, Margin = new Thickness(14, 10, 14, 12) };
 
-            // 下: 送る・置くだけ・消す
+            // 下: 消す（送るのはカードの「▶ 送る」。直している間は送らない。2026-11-17）
             var actions = new DockPanel { LastChildFill = false, Margin = new Thickness(0, 10, 0, 0) };
-            var send = new Button { Content = "送る（Enter まで）", Style = (Style)Application.Current.FindResource("AccentButton"), ToolTip = "ターミナルに入れて Enter を押す" };
-            send.Click += delegate { RequestSend(_selected, true); };
-            var place = ToolButton("置くだけ", "ターミナルに入れるだけ（Enter は押さない）");
-            place.Click += delegate { RequestSend(_selected, false); };
             var remove = ToolButton("カードを消す", "このカードと、このカードへのつながりを消す");
             remove.Click += delegate { RemoveCard(_selected); };
-            actions.Children.Add(send);
-            actions.Children.Add(place);
             DockPanel.SetDock(remove, Dock.Right);
             actions.Children.Add(remove);
             DockPanel.SetDock(actions, Dock.Bottom);
@@ -354,16 +346,6 @@ namespace Tsuzuri.Views
             kinds.Children.Add(_shellKind);
             top.Children.Add(kinds);
 
-            top.Children.Add(Caption("題"));
-            StyleBox(_titleBox);
-            _titleBox.LostKeyboardFocus += delegate { CommitTitle(); };
-            _titleBox.KeyDown += (sender, e) =>
-            {
-                if (e.Key != Key.Enter) return;
-                e.Handled = true;
-                CommitTitle();
-            };
-            top.Children.Add(_titleBox);
             top.Children.Add(Caption("送るテキスト"));
             DockPanel.SetDock(top, Dock.Top);
             stack.Children.Add(top);
@@ -418,22 +400,6 @@ namespace Tsuzuri.Views
             };
         }
 
-        private void CommitTitle()
-        {
-            if (_filling || _selected == null) return;
-            var before = _selected.Title;
-            _flow.Rename(_selected, _titleBox.Text);
-            if (_selected.Title == before)
-            {
-                if (_titleBox.Text != before) FillPanel();   // 空など、使えない題は戻す
-                return;
-            }
-            FillPanel();
-            UpdateCard(_selected);
-            RedrawEdges();
-            Changed();
-        }
-
         private void FillPanel()
         {
             _filling = true;
@@ -442,7 +408,6 @@ namespace Tsuzuri.Views
                 _panel.Visibility = _selected == null ? Visibility.Collapsed : Visibility.Visible;
                 if (_selected == null) return;
 
-                _titleBox.Text = _selected.Title;
                 if (_bodyBox.Text.Replace("\r\n", "\n") != _selected.Body) _bodyBox.Text = _selected.Body;
                 _claudeKind.BorderBrush = _selected.Kind == FlowKind.Claude ? Resource("AccentBrush") : Brushes.Transparent;
                 _shellKind.BorderBrush = _selected.Kind == FlowKind.PowerShell ? Resource("AccentBrush") : Brushes.Transparent;
@@ -486,7 +451,7 @@ namespace Tsuzuri.Views
 
                     row.Children.Add(new TextBlock
                     {
-                        Text = "→ " + edge.Target + (_flow.Find(edge.Target) == null ? "（無いカード）" : string.Empty),
+                        Text = "→ " + Describe(_flow.Find(edge.Target)),
                         Foreground = Resource("TextPrimary"),
                         FontSize = 12,
                         VerticalAlignment = VerticalAlignment.Center,
@@ -580,10 +545,11 @@ namespace Tsuzuri.Views
             };
             DockPanel.SetDock(parts.Done, Dock.Right);
 
+            // 見出しは種類（題は見せない。2026-11-17）
             parts.Title = new TextBlock
             {
-                Foreground = Resource("TextPrimary"),
-                FontSize = 13,
+                Foreground = Resource("TextMuted"),
+                FontSize = 12,
                 FontWeight = FontWeights.SemiBold,
                 VerticalAlignment = VerticalAlignment.Center,
                 TextTrimming = TextTrimming.CharacterEllipsis,
@@ -597,25 +563,15 @@ namespace Tsuzuri.Views
 
             parts.Preview = new TextBlock
             {
-                Foreground = Resource("TextMuted"),
-                FontSize = 12,
+                Foreground = Resource("TextPrimary"),
+                FontSize = 13,
                 TextWrapping = TextWrapping.Wrap,
                 TextTrimming = TextTrimming.CharacterEllipsis,
-                MaxHeight = 52,
-                Margin = new Thickness(32, 6, 0, 0),
+                MaxHeight = 120,
+                Margin = new Thickness(0, 8, 0, 0),
             };
             DockPanel.SetDock(parts.Preview, Dock.Top);
 
-            parts.KindText = new TextBlock { Foreground = Resource("TextMuted"), FontSize = 10, VerticalAlignment = VerticalAlignment.Center };
-            var kindTag = new Border
-            {
-                BorderBrush = Resource("BorderBrushSoft"),
-                BorderThickness = new Thickness(1),
-                CornerRadius = new CornerRadius(3),
-                Padding = new Thickness(4, 0, 4, 1),
-                VerticalAlignment = VerticalAlignment.Center,
-                Child = parts.KindText,
-            };
             var send = ToolButton("▶ 送る", "ターミナルに入れて Enter を押す（右クリック: 置くだけ）");
             send.FontSize = 12;
             send.Padding = new Thickness(8, 1, 8, 1);
@@ -626,9 +582,8 @@ namespace Tsuzuri.Views
                 RequestSend(card, false);
             };
             DockPanel.SetDock(send, Dock.Right);
-            var footer = new DockPanel { LastChildFill = false, Margin = new Thickness(32, 8, 0, 0) };
+            var footer = new DockPanel { LastChildFill = false, Margin = new Thickness(0, 6, 0, 0) };
             footer.Children.Add(send);
-            footer.Children.Add(kindTag);
             DockPanel.SetDock(footer, Dock.Bottom);
 
             var content = new DockPanel { LastChildFill = false };
@@ -737,19 +692,26 @@ namespace Tsuzuri.Views
             return menu;
         }
 
+        /// <summary>カードを1行で言う（つながりの一覧）。題は見せないので、送るテキストの最初の行。</summary>
+        private static string Describe(FlowCard card)
+        {
+            if (card == null) return "（無いカード）";
+            var first = card.Body.Split('\n').Select(line => line.Trim()).FirstOrDefault(line => line.Length > 0);
+            return (card.Kind == FlowKind.PowerShell ? "PowerShell: " : "Claude: ") + (first ?? "（空）");
+        }
+
         private void UpdateCard(FlowCard card)
         {
             CardParts parts;
             if (!_cards.TryGetValue(card, out parts)) return;
 
-            parts.Title.Text = card.Title;
-            var lines = card.Body.Split('\n').Where(line => line.Trim().Length > 0).Take(3).ToList();
+            parts.Title.Text = card.Kind == FlowKind.PowerShell ? "PowerShell" : "Claude";
+            var lines = card.Body.Split('\n').Where(line => line.Trim().Length > 0).Take(6).ToList();
             parts.Preview.Text = lines.Count == 0 ? "（送るテキストが無い）" : string.Join("\n", lines);
             parts.Preview.FontFamily = card.Kind == FlowKind.PowerShell ? Theme.CodeFont : Theme.BodyFont;
             parts.Icon.Background = card.Kind == FlowKind.PowerShell ? ShellFill : ClaudeFill;
             parts.IconText.Text = card.Kind == FlowKind.PowerShell ? ">_" : "AI";
             parts.IconText.FontSize = card.Kind == FlowKind.PowerShell ? 11 : 10;
-            parts.KindText.Text = card.Kind == FlowKind.PowerShell ? "POWERSHELL" : "CLAUDE";
         }
 
         private void AddCard(FlowKind kind)
@@ -757,7 +719,7 @@ namespace Tsuzuri.Views
             var card = new FlowCard
             {
                 Kind = kind,
-                Title = _flow.UniqueTitle(kind == FlowKind.PowerShell ? "コマンド" : "頼む", null),
+                Title = _flow.NewId(),
                 HasPosition = true,
             };
 
@@ -780,8 +742,7 @@ namespace Tsuzuri.Views
             Dispatcher.BeginInvoke(new Action(RedrawEdges), DispatcherPriority.Loaded);
             Changed();
 
-            _titleBox.Focus();
-            _titleBox.SelectAll();
+            Dispatcher.BeginInvoke(new Action(() => _bodyBox.Focus()), DispatcherPriority.Loaded);   // すぐ打てるように
         }
 
         private void RemoveCard(FlowCard card)
@@ -789,7 +750,7 @@ namespace Tsuzuri.Views
             if (card == null) return;
             if (card.Body.Trim().Length > 0)
             {
-                var answer = MessageBox.Show(Window.GetWindow(this), "カード「" + card.Title + "」を消しますか。", "フロー",
+                var answer = MessageBox.Show(Window.GetWindow(this), "このカードを消しますか。" + Environment.NewLine + Environment.NewLine + Describe(card), "フロー",
                     MessageBoxButton.YesNo, MessageBoxImage.Question, MessageBoxResult.No);
                 if (answer != MessageBoxResult.Yes) return;
             }
@@ -807,7 +768,6 @@ namespace Tsuzuri.Views
 
         private void Select(FlowCard card)
         {
-            if (_selected != null && !ReferenceEquals(_selected, card)) CommitTitle();
             _selected = card != null && _cards.ContainsKey(card) ? card : null;
             FillPanel();
             RefreshMarks();
@@ -822,7 +782,7 @@ namespace Tsuzuri.Views
             if (card == null) return;
             if (card.Body.Trim().Length == 0)
             {
-                ShowStatus("送るテキストがありません: " + card.Title);
+                ShowStatus("送るテキストがありません");
                 return;
             }
             if (SendRequested != null) SendRequested(card, enter);

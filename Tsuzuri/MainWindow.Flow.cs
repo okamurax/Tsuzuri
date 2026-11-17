@@ -44,7 +44,7 @@ namespace Tsuzuri
                 for (var n = 2; File.Exists(path); n++) path = Path.Combine(folder, stem + " (" + n + ").flow.md");
 
                 var flow = new FlowFile { Preamble = "# " + Path.GetFileName(path).Replace(".flow.md", string.Empty) };
-                flow.Cards.Add(new FlowCard { Kind = FlowKind.Claude, Title = "頼む", X = 40, Y = 40, HasPosition = true });
+                flow.Cards.Add(new FlowCard { Kind = FlowKind.Claude, Title = "1", X = 40, Y = 40, HasPosition = true });
                 PageDocument.WriteAtomically(path, new UTF8Encoding(false).GetBytes(flow.Serialize()));
             }
             catch (Exception ex)
@@ -288,7 +288,7 @@ namespace Tsuzuri
             if (!enter)
             {
                 view.MarkSent(card);
-                view.ShowStatus("「" + card.Title + "」を" + where + "に置きました（Enter は押していません）");
+                view.ShowStatus(where + "に置きました（Enter は押していません）");
                 return;
             }
 
@@ -302,7 +302,7 @@ namespace Tsuzuri
                     return;
                 }
                 view.MarkSent(card);
-                view.ShowStatus("「" + card.Title + "」を" + where + "に送りました");
+                view.ShowStatus(where + "に送りました");
             };
             timer.Start();
         }

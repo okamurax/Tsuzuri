@@ -188,6 +188,20 @@ namespace Tsuzuri.Markdown
             return candidate;
         }
 
+        /// <summary>
+        /// 新しいカードの題（番号。2026-11-17）。題は画面に出さず、つながりの目印にだけ使うので、今ある番号の次にする。
+        /// </summary>
+        public string NewId()
+        {
+            var max = 0;
+            foreach (var card in Cards)
+            {
+                int number;
+                if (int.TryParse(card.Title, NumberStyles.None, CultureInfo.InvariantCulture, out number) && number > max) max = number;
+            }
+            return UniqueTitle((max + 1).ToString(CultureInfo.InvariantCulture), null);
+        }
+
         /// <summary>題に使えない文字（改行・制御の文字）を除く。</summary>
         public static string CleanTitle(string title)
         {

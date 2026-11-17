@@ -285,6 +285,7 @@ namespace Tsuzuri
             if (run == null) return;
             _flowRun = null;
             run.Stopped = true;
+            if (run.Tab != null && run.Tab.SessionId != null) SetFlowPrompt(run.Tab.SessionId, null);
             run.View.SetRunning(false);
             if (why != null)
             {
@@ -372,8 +373,7 @@ namespace Tsuzuri
         private void SendFlowToClaude(FlowRun run, FlowCard card, string text)
         {
             var view = run.View;
-            var wants = FlowResults.WantsOf(view.Flow, card);
-            if (wants.Count > 0) text += FlowResults.Instruction(wants);
+            var wants = FlowResults.WantsOf(view.Flow, card);   // 結果の頼みは書くときに付ける（WriteFlowToClaude）
 
             // つないだ添付のカードのファイルは、場所を書き添えて Claude に読ませる（Claude Code はパスのファイルを読める。画像も）
             var attachments = FlowResults.FilesFor(view.Flow, card);
@@ -468,6 +468,15 @@ namespace Tsuzuri
                 return;
             }
 
+            // 結果を印で囲む頼みは、話しかけたときのフック（HTTP）で文脈として渡し、画面には出さない（2026-11-17。利用者が「見えるのは嫌」）。
+            // HTTP の口が無い・会話の番号が分からないときだけ、今までどおり送るテキストの後ろに付ける
+            string hidden = null;
+            if (wants.Count > 0)
+            {
+                if (_aiHttp != null && tab.SessionId != null) hidden = FlowResults.Instruction(wants).Trim();
+                else text += FlowResults.Instruction(wants);
+            }
+
             // 複数行は貼り付けの印で囲む（中の改行で送らないため。Claude Code は受け付ける）。改行は CR で送る（xterm の貼り付けと同じ）。
             // 1行は印を付けずに打つ（2026-11-17。印を付けると、続けて送った Enter が貼り付けの続きと見なされ、送信されなかった）
             var data = text.IndexOf('\n') < 0 ? text.Replace("\t", "    ") : "\x1b[200~" + text.Replace("\n", "\r") + "\x1b[201~";
@@ -486,8 +495,10 @@ namespace Tsuzuri
             timer.Tick += delegate
             {
                 timer.Stop();
+                if (hidden != null) SetFlowPrompt(tab.SessionId, hidden);
                 if (!terminal.WriteInput("\r"))
                 {
+                    if (hidden != null) SetFlowPrompt(tab.SessionId, null);
                     StopFlowRun("Enter を送れなかったので止めました（文字は入っています）");
                     return;
                 }

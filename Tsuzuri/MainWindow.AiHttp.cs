@@ -151,7 +151,7 @@ namespace Tsuzuri
                             answer = AiHttpPostToolUse(input);
                             break;
                         case "prompt":
-                            answer = AiHttpPrompt();
+                            answer = AiHttpPrompt(Text(input, "session_id"));
                             break;
                         case "stop":
                         {
@@ -221,9 +221,14 @@ namespace Tsuzuri
             };
         }
 
-        /// <summary>話しかけたとき。保存して今の状態を書き出し、それを Claude への文脈として返す（additionalContext）。</summary>
-        private object AiHttpPrompt()
+        /// <summary>
+        /// 話しかけたとき。保存して今の状態を書き出し、それを Claude への文脈として返す（additionalContext）。
+        /// フローが送ったカードなら、結果を印で囲む頼みも文脈に足す（画面には出ない。MainWindow.FlowResult.cs）。
+        /// </summary>
+        private object AiHttpPrompt(string session)
         {
+            var flow = TakeFlowPrompt(session);
+
             try
             {
                 PrepareAiPrompt();
@@ -242,6 +247,7 @@ namespace Tsuzuri
             catch (Exception)
             {
             }
+            if (flow != null) context = string.IsNullOrEmpty(context) ? flow : context.TrimEnd() + "\n\n" + flow;
             if (string.IsNullOrEmpty(context)) return null;
 
             return new Dictionary<string, object>

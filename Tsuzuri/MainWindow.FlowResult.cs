@@ -25,6 +25,36 @@ namespace Tsuzuri
         /// <summary>答えを待つ上限（長い作業もあるので長め）。</summary>
         private static readonly TimeSpan FlowWatchLimit = TimeSpan.FromHours(3);
 
+        /// <summary>
+        /// 次に話しかけたときのフック（UserPromptSubmit）で Claude に渡す、結果を印で囲む頼み。会話の番号ごと。
+        /// フックは HTTP のスレッドから読むので、lock で守る。
+        /// </summary>
+        private readonly Dictionary<string, string> _flowPrompts = new Dictionary<string, string>(StringComparer.Ordinal);
+
+        /// <summary>会話の次の話しかけに付ける頼みを置く（null で消す）。</summary>
+        private void SetFlowPrompt(string session, string instruction)
+        {
+            if (session == null) return;
+            lock (_flowPrompts)
+            {
+                if (instruction == null) _flowPrompts.Remove(session);
+                else _flowPrompts[session] = instruction;
+            }
+        }
+
+        /// <summary>この会話に渡す頼みがあれば取り出す（1回だけ渡す）。無ければ null。HTTP のスレッドから呼ぶ。</summary>
+        private string TakeFlowPrompt(string session)
+        {
+            if (session == null) return null;
+            lock (_flowPrompts)
+            {
+                string instruction;
+                if (!_flowPrompts.TryGetValue(session, out instruction)) return null;
+                _flowPrompts.Remove(session);
+                return instruction;
+            }
+        }
+
         private sealed class FlowWatch
         {
             public string Key;

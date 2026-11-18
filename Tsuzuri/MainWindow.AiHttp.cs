@@ -223,7 +223,7 @@ namespace Tsuzuri
 
         /// <summary>
         /// 話しかけたとき。保存して今の状態を書き出し、それを Claude への文脈として返す（additionalContext）。
-        /// フローが送ったカードなら、結果を印で囲む頼みも文脈に足す（画面には出ない。MainWindow.FlowResult.cs）。
+        /// フローが送ったカードなら、行き先（分かれ道の線の名前）を印で書く頼みも文脈に足す（画面には出ない。MainWindow.FlowResult.cs）。
         /// </summary>
         private object AiHttpPrompt(string session)
         {

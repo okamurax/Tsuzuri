@@ -84,6 +84,15 @@ namespace Tsuzuri.Views
         // 選んでいるカード
         private readonly HashSet<FlowCard> _selection = new HashSet<FlowCard>();
 
+        // ボード（2026-11-18。右の欄。フローでできたものの置き場。ページの `## [ボード]`）
+        private readonly DockPanel _boardPanel = new DockPanel();
+        private readonly TextBox _boardEditor = new TextBox();
+        private readonly TextBlock _boardHint = new TextBlock();
+
+        /// <summary>ボードの欄の幅と、出しているか（アプリを閉じるまで覚える）。</summary>
+        private static double _boardWidth = 380;
+        private static bool _boardShown = true;
+
         // 上の段の「止める」（自動で進めている間だけ出す）
         private Button _stopButton;
 
@@ -174,6 +183,7 @@ namespace Tsuzuri.Views
             };
 
             Children.Add(BuildBar());
+            Children.Add(BuildBoard());
 
             var dots = new DrawingBrush
             {
@@ -260,6 +270,7 @@ namespace Tsuzuri.Views
             _flow = FlowFile.Parse(text);
             PlaceUnplaced();
             Rebuild();
+            UpdateBoard();
             foreach (var title in selected)
             {
                 var card = _flow.Find(title);
@@ -408,6 +419,14 @@ namespace Tsuzuri.Views
             buttons.Children.Add(clear);
             buttons.Children.Add(_stopButton);
             buttons.Children.Add(reload);
+            var boardToggle = ToolButton("ボード", "右のボード（フローでできたものの置き場）を出す・隠す");
+            boardToggle.Click += delegate
+            {
+                _boardShown = !_boardShown;
+                _boardPanel.Visibility = _boardShown ? Visibility.Visible : Visibility.Collapsed;
+            };
+            buttons.Children.Add(Separator());
+            buttons.Children.Add(boardToggle);
             DockPanel.SetDock(buttons, Dock.Left);
             bar.Children.Add(buttons);
 
@@ -428,6 +447,97 @@ namespace Tsuzuri.Views
             };
             DockPanel.SetDock(border, Dock.Top);
             return border;
+        }
+
+        /// <summary>
+        /// 右のボードの欄（2026-11-18）。中身はページの `## [ボード]` の下（FlowFile.Board）。利用者も打てる。Claude が書き換えたら読み直して出す。
+        /// 左の縁をドラッグで幅を変える。
+        /// </summary>
+        private UIElement BuildBoard()
+        {
+            var line = new FrameworkElementFactory(typeof(Border));
+            line.SetValue(Border.BackgroundProperty, Resource("BorderBrushSoft"));
+            var edge = new Thumb
+            {
+                Width = 5,
+                Cursor = Cursors.SizeWE,
+                Template = new ControlTemplate(typeof(Thumb)) { VisualTree = line },
+                ToolTip = "ドラッグで幅を変える",
+            };
+            edge.DragDelta += (sender, e) =>
+            {
+                var limit = Math.Max(220, ActualWidth * 0.75);
+                _boardWidth = Math.Max(200, Math.Min(limit, _boardPanel.Width - e.HorizontalChange));
+                _boardPanel.Width = _boardWidth;
+            };
+            DockPanel.SetDock(edge, Dock.Left);
+            _boardPanel.Children.Add(edge);
+
+            var title = new TextBlock
+            {
+                Text = "ボード",
+                Foreground = Resource("TextPrimary"),
+                FontSize = 13,
+                FontWeight = FontWeights.SemiBold,
+                Margin = new Thickness(12, 8, 12, 2),
+                ToolTip = "フローでできたものの置き場（このフローのページの中に持つ）。Claude のカードに「ボードの『要約』に書いて」「ボードの『要約』を読んで」と頼む",
+            };
+            DockPanel.SetDock(title, Dock.Top);
+            _boardPanel.Children.Add(title);
+
+            _boardEditor.AcceptsReturn = true;
+            _boardEditor.AcceptsTab = true;
+            _boardEditor.TextWrapping = TextWrapping.Wrap;
+            _boardEditor.VerticalScrollBarVisibility = ScrollBarVisibility.Auto;
+            _boardEditor.Background = Brushes.Transparent;
+            _boardEditor.BorderThickness = new Thickness(0);
+            _boardEditor.Padding = new Thickness(0);
+            _boardEditor.Foreground = Resource("TextPrimary");
+            _boardEditor.CaretBrush = Resource("TextPrimary");
+            _boardEditor.FontFamily = Theme.BodyFont;
+            _boardEditor.FontSize = 13;
+            _boardEditor.GotKeyboardFocus += delegate { _typingRecorded = false; };
+            _boardEditor.TextChanged += delegate
+            {
+                if (_filling) return;
+                var text = _boardEditor.Text.Replace("\r\n", "\n");
+                if (text == _flow.Board) return;
+                RecordTyping();
+                _flow.Board = text;
+                _boardHint.Visibility = text.Length == 0 ? Visibility.Visible : Visibility.Collapsed;
+                Changed();
+            };
+            _boardHint.Text = "フローでできたものの置き場。カードに「ボードの『要約』に書いて」と頼むと、Claude がここに書く（### の見出しで置き場を分ける）。ここに打ってもよい";
+            _boardHint.Foreground = Resource("TextMuted");
+            _boardHint.FontSize = 13;
+            _boardHint.TextWrapping = TextWrapping.Wrap;
+            _boardHint.IsHitTestVisible = false;
+            var body = new Grid { Margin = new Thickness(12, 4, 8, 8) };
+            body.Children.Add(_boardHint);
+            body.Children.Add(_boardEditor);
+            _boardPanel.Children.Add(body);
+
+            _boardPanel.Width = _boardWidth;
+            _boardPanel.Background = Resource("SidebarBackground");
+            _boardPanel.Visibility = _boardShown ? Visibility.Visible : Visibility.Collapsed;
+            DockPanel.SetDock(_boardPanel, Dock.Right);
+            return _boardPanel;
+        }
+
+        /// <summary>ボードの欄をフローの中身に合わせる（読んだとき・元に戻すとき）。打っている途中なら、打つ位置をなるべく残す。</summary>
+        private void UpdateBoard()
+        {
+            var text = _flow.Board ?? string.Empty;
+            if (_boardEditor.Text.Replace("\r\n", "\n") != text)
+            {
+                var caret = _boardEditor.CaretIndex;
+                var filling = _filling;
+                _filling = true;
+                _boardEditor.Text = text;
+                _boardEditor.CaretIndex = Math.Min(caret, _boardEditor.Text.Length);
+                _filling = filling;
+            }
+            _boardHint.Visibility = text.Length == 0 ? Visibility.Visible : Visibility.Collapsed;
         }
 
         /// <summary>カードに打ち始めたときに1回だけ、打つ前の形を覚える（1字ごとに覚えると、元に戻すが1字ずつになる）。</summary>

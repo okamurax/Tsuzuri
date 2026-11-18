@@ -26,6 +26,10 @@ namespace Tsuzuri.Markdown
     ///   添付: [ログ](ログ.txt)          … ファイル（文書と同じリンクの書き方）
     ///   → 1
     ///
+    ///   ## [ボード]                    … ボード（2026-11-18）。フローでできたものの置き場。カードではない（題・位置・つながりは無い）。書くときはいつも最後
+    ///   ### 要約                       … 中は自由な Markdown（`## [` で始まる行は書けない。置き場は ### の見出しで分ける）
+    ///   …
+    ///
     /// 送るテキストの中には、`## [Claude] ` などで始まる行を書けない（次のカードになる）。最後の `→ ` で始まる行（添付のカードは `添付:` も）は、つながり・添付になる。
     /// PowerShell のカード（初めの版）は無くした（2026-11-17）。`## [PowerShell]` は Claude のカードとして読む（テキストを失わないため）。
     /// 結果のカードも無くした（2026-11-18。利用者の判断。会話は1つで Claude が前の答えを覚えているので、受け渡しの意味が薄かった）。`## [結果]` も Claude のカードとして読む。
@@ -37,6 +41,47 @@ namespace Tsuzuri.Markdown
         public string Preamble = string.Empty;
 
         public readonly List<FlowCard> Cards = new List<FlowCard>();
+
+        /// <summary>ボード（2026-11-18。フローでできたものの置き場）の中身。前後の空行は除く。無ければ空。</summary>
+        public string Board = string.Empty;
+
+        /// <summary>ボードの区画の名前（`## [ボード]`）。</summary>
+        public const string BoardWord = "ボード";
+
+        /// <summary>フローのテキストで、ボードの区画の行（`## [ボード]`。``` の中は見ない）が何行目か（0 から）。無ければ -1。</summary>
+        public static int BoardLine(string text)
+        {
+            var lines = (text ?? string.Empty).Replace("\r\n", "\n").Replace('\r', '\n').Split('\n');
+            var fence = string.Empty;
+            for (var i = 0; i < lines.Length; i++)
+            {
+                var run = FenceRun(lines[i]);
+                if (fence.Length == 0)
+                {
+                    if (run.Length > 0)
+                    {
+                        fence = run;
+                        continue;
+                    }
+                }
+                else
+                {
+                    if (run.Length >= fence.Length && run[0] == fence[0] && lines[i].Trim() == run) fence = string.Empty;
+                    continue;
+                }
+                var match = CardLine.Match(lines[i]);
+                if (!match.Success) continue;
+                var words = match.Groups["kind"].Value.Split(new[] { ' ', '\t', '　' }, StringSplitOptions.RemoveEmptyEntries);
+                if (words.Length > 0 && IsBoardWord(words[0])) return i;
+            }
+            return -1;
+        }
+
+        /// <summary>`## [ボード]` の行か（[Board] も読む）。</summary>
+        private static bool IsBoardWord(string word)
+        {
+            return word == BoardWord || word.Equals("Board", StringComparison.OrdinalIgnoreCase);
+        }
 
         /// <summary>サブページがフローである印（最初の行。2026-11-17）。</summary>
         public const string Marker = "<!-- tsuzuri-flow -->";
@@ -93,6 +138,8 @@ namespace Tsuzuri.Markdown
             var preamble = new List<string>();
             FlowCard card = null;
             var body = new List<string>();
+            List<string> board = null;   // ボードの区画を読んでいる間の行（次のカードまで）
+            var boards = new List<string>();
             var fence = string.Empty;   // 開いている ``` の印（無ければ空）
 
             foreach (var line in lines)
@@ -112,20 +159,33 @@ namespace Tsuzuri.Markdown
 
                 var match = inFence || fence.Length > 0 ? Match.Empty : CardLine.Match(line);
                 var words = match.Success ? match.Groups["kind"].Value.Split(new[] { ' ', '\t', '　' }, StringSplitOptions.RemoveEmptyEntries) : new string[0];
+                if (words.Length > 0 && IsBoardWord(words[0]))
+                {
+                    if (card != null) Finish(card, body);
+                    card = null;
+                    if (board != null) boards.Add(string.Join("\n", TrimBlank(board)));
+                    board = new List<string>();
+                    continue;
+                }
                 FlowKind? kind = words.Length > 0 ? KindOf(words[0]) : null;
                 if (kind != null)
                 {
                     if (card != null) Finish(card, body);
+                    if (board != null) boards.Add(string.Join("\n", TrimBlank(board)));
+                    board = null;
                     card = new FlowCard { Kind = kind.Value, Title = match.Groups["title"].Value };   // 種類の後ろの言葉（初めの版の「新しい会話」）は読まない
                     flow.Cards.Add(card);
                     body = new List<string>();
                     continue;
                 }
 
-                if (card == null) preamble.Add(line);
+                if (board != null) board.Add(line);
+                else if (card == null) preamble.Add(line);
                 else body.Add(line);
             }
             if (card != null) Finish(card, body);
+            if (board != null) boards.Add(string.Join("\n", TrimBlank(board)));
+            flow.Board = string.Join("\n\n", boards.Where(each => each.Length > 0));   // 2つあれば1つにまとめる
 
             flow.Preamble = string.Join("\n", TrimBlank(preamble));
             flow.MakeTitlesUnique();
@@ -237,6 +297,14 @@ namespace Tsuzuri.Markdown
                         text.Append(edge.Target).Append('\n');
                     }
                 }
+            }
+
+            // ボードはいつも最後（カードの本文と見分けやすいように）
+            var boardText = string.Join("\n", TrimBlank((Board ?? string.Empty).Replace("\r\n", "\n").Replace('\r', '\n').Split('\n')));
+            if (boardText.Length > 0)
+            {
+                if (Cards.Count > 0) text.Append('\n');
+                text.Append("## [").Append(BoardWord).Append("]\n\n").Append(boardText).Append('\n');
             }
 
             return text.ToString();

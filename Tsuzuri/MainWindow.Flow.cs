@@ -197,6 +197,26 @@ namespace Tsuzuri
             _flowView.ReloadIfChanged();
         }
 
+        /// <summary>
+        /// 話しかけたときの今の状態に、開いているフローのボード（2026-11-18。フローでできたものの置き場）の場所を書く。
+        /// 「ボードの『要約』に書いて」と頼まれたときに、Claude がファイルのどこを書き換えるか分かるように。
+        /// </summary>
+        private void AppendFlowBoard(StringBuilder text)
+        {
+            if (_flowView == null || _flowDocument == null || AiGuard.IsGuarded(_flowDocument.FilePath)) return;
+            int first, last;
+            bool toEnd;
+            if (!_flowDocument.LineRangeOf(_flowPage, out first, out last, out toEnd)) return;
+
+            text.Append("開いているフロー: ファイル ").Append(_flowDocument.FilePath).Append(" のページ ").Append(_flowPage)
+                .Append("（中身はファイルの ").Append(first).Append("〜").Append(last).Append(" 行目）。");
+            var line = FlowFile.BoardLine(_flowDocument.TextOf(_flowPage));
+            if (line >= 0)
+                text.Append("ボードは ").Append(first + line).Append(" 行目の `## [").Append(FlowFile.BoardWord).Append("]` から、このページの終わりまで。\n");
+            else
+                text.Append("ボードはまだ無い（書くときは、このページの終わりに `## [").Append(FlowFile.BoardWord).Append("]` の行と空行を足し、その下に書く）。\n");
+        }
+
         /// <summary>保存の前。直しかけのフローをページに書く。</summary>
         private void FlushFlow()
         {

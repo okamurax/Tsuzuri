@@ -248,6 +248,27 @@ internal static class Program
         var oldConfirm = FlowFile.Parse("## [確認] 1\n見て\n→ 2\n## [Confirm] 2\n");
         Expect(oldConfirm.Cards.All(card => card.Kind == FlowKind.Claude) && oldConfirm.Cards[0].Body == "見て" && oldConfirm.Serialize().Contains("## [Claude] 1\n"),
                "確認のカードは Claude のカードとして読む");
+
+        // ボード（2026-11-18）: カードではない区画。中は自由な Markdown。書くときはいつも最後
+        var boarded = FlowFile.Parse(string.Join("\n", new[]
+        {
+            "<!-- tsuzuri-flow -->", "",
+            "## [Claude] 1", "書いて", "", "→ 2", "",
+            "## [ボード]", "", "### 要約", "- まだ", "", "```", "## [Claude] 9", "```", "",
+            "## [Claude] 2", "仕上げて",
+        }));
+        Expect(boarded.Cards.Count == 2 && boarded.Cards[0].Edges.Count == 1 && boarded.Cards[1].Body == "仕上げて", "ボードはカードにならない: " + boarded.Cards.Count);
+        Expect(boarded.Board == "### 要約\n- まだ\n\n```\n## [Claude] 9\n```", "ボードの中身（コードの中の見出しも）: " + boarded.Board);
+        var boardText = boarded.Serialize();
+        Expect(boardText.EndsWith("## [ボード]\n\n### 要約\n- まだ\n\n```\n## [Claude] 9\n```\n") && FlowFile.Parse(boardText).Serialize() == boardText,
+               "ボードは最後に書き、読み書きで変わらない: " + boardText);
+        Expect(!FlowFile.Parse("## [Claude] 1\n本文\n").Serialize().Contains("ボード"), "空のボードは書かない");
+        var onlyBoard = FlowFile.Parse("<!-- tsuzuri-flow -->\n\n## [Board]\nメモ\n");
+        Expect(onlyBoard.Cards.Count == 0 && onlyBoard.Board == "メモ" && FlowFile.Parse(onlyBoard.Serialize()).Serialize() == onlyBoard.Serialize(),
+               "カードの無いボード・[Board] も読む: " + onlyBoard.Serialize());
+        Expect(FlowFile.Parse("## [ボード]\nA\n## [Claude] 1\n## [ボード]\nB\n").Board == "A\n\nB", "ボードが2つあれば1つにまとめる");
+        Expect(FlowFile.BoardLine(boardText) == boardText.Split('\n').ToList().IndexOf("## [ボード]") && FlowFile.BoardLine("```\n## [ボード]\n```\n") == -1
+               && FlowFile.BoardLine("## [Claude] 1\n") == -1, "ボードの行を探す（コードの中は見ない）");
         var twice = Run(loopFlow, "1", "3=直す", "3=直す", "3=OK");
         Expect(twice == "1,3,5,3,5,3,4", "直すを2回選んでから OK: " + twice);
         var forever = Run(loopFlow, "1", "3=直す", "3=直す", "3=直す", "3=直す", "3=直す", "3=直す", "3=直す");

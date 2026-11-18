@@ -14,7 +14,7 @@ namespace Tsuzuri.Markdown
     ///   &lt;!-- tsuzuri-flow --&gt;          … フローの印（最初の行）
     ///   # フローの名前                 … 最初のカードより前の行は、そのまま残す（説明など）
     ///
-    ///   ## [Claude] 1                  … カード。種類（Claude・添付・確認）と題（番号。つながりの目印で、画面には出さない）
+    ///   ## [Claude] 1                  … カード。種類（Claude・添付）と題（番号。つながりの目印で、画面には出さない）
     ///   &lt;!-- 120,40 --&gt;               … フロー図での位置（無くてもよい。無ければ並べて置く）
     ///
     ///   ログを読んで原因を調べて。      … 送るテキスト（前後の空行は除く）
@@ -26,14 +26,10 @@ namespace Tsuzuri.Markdown
     ///   添付: [ログ](ログ.txt)          … ファイル（文書と同じリンクの書き方）
     ///   → 1
     ///
-    ///   ## [確認] 7                    … 確認のカード（2026-11-17）。送らない。自動で進めているとき、ここで止まって利用者が「続ける」を押すのを待つ
-    ///   要約を見て、よければ OK        … 利用者への言葉（無くてよい）
-    ///   → [OK] 8                       … 名前の違う線が2つ以上あれば、利用者がボタンで行き先を選ぶ
-    ///   → [直す] 1                     … 前のカードへ戻る線（繰り返し）
-    ///
     /// 送るテキストの中には、`## [Claude] ` などで始まる行を書けない（次のカードになる）。最後の `→ ` で始まる行（添付のカードは `添付:` も）は、つながり・添付になる。
     /// PowerShell のカード（初めの版）は無くした（2026-11-17）。`## [PowerShell]` は Claude のカードとして読む（テキストを失わないため）。
     /// 結果のカードも無くした（2026-11-18。利用者の判断。会話は1つで Claude が前の答えを覚えているので、受け渡しの意味が薄かった）。`## [結果]` も Claude のカードとして読む。
+    /// 確認のカード（止まって利用者を待つ）も無くした（2026-11-18。利用者の判断。分かれ道の線で足りる）。`## [確認]` も Claude のカードとして読む。
     /// </summary>
     public sealed class FlowFile
     {
@@ -71,15 +67,12 @@ namespace Tsuzuri.Markdown
             if (value.Equals("PowerShell", StringComparison.OrdinalIgnoreCase) || value.Equals("PS", StringComparison.OrdinalIgnoreCase)) return FlowKind.Claude;
             if (value == FilesWord || value.Equals("Files", StringComparison.OrdinalIgnoreCase)) return FlowKind.Files;
             if (value == "結果" || value.Equals("Result", StringComparison.OrdinalIgnoreCase)) return FlowKind.Claude;
-            if (value == ConfirmWord || value.Equals("Confirm", StringComparison.OrdinalIgnoreCase)) return FlowKind.Confirm;
+            if (value == "確認" || value.Equals("Confirm", StringComparison.OrdinalIgnoreCase)) return FlowKind.Claude;
             return null;
         }
 
         /// <summary>添付のカードの種類の名前。</summary>
         public const string FilesWord = "添付";
-
-        /// <summary>確認のカードの種類の名前。</summary>
-        public const string ConfirmWord = "確認";
 
         public static string NameOf(FlowKind kind)
         {
@@ -87,8 +80,6 @@ namespace Tsuzuri.Markdown
             {
                 case FlowKind.Files:
                     return FilesWord;
-                case FlowKind.Confirm:
-                    return ConfirmWord;
                 default:
                     return "Claude";
             }
@@ -338,11 +329,7 @@ namespace Tsuzuri.Markdown
         Claude,
 
         /// <summary>添付（2026-11-17）。送らない。つないだ先の Claude のカードに、ファイルの場所を渡す。</summary>
-        Files,
-
-        /// <summary>確認（2026-11-17）。送らない。自動で進めているとき、ここで止まって利用者が続けるのを待つ（行き先を選ばせることもある）。</summary>
-        Confirm,
-    }
+        Files,    }
 
     public sealed class FlowCard
     {

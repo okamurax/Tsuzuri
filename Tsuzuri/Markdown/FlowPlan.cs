@@ -8,7 +8,7 @@ namespace Tsuzuri.Markdown
     /// 自動で送るときの段取り（2026-11-17。SPEC 21章）。送り始めたカードから、つながりをたどって次に送るカードを1枚ずつ決める。
     /// 画面やターミナルに触らない部分（tools/flow-file で確かめる）。送るのは MainWindow.Flow.cs。
     ///
-    /// ・行けるカード: 送り始めたカードから線をたどって行ける Claude・確認のカード（添付のカードへの線はたどらない）
+    /// ・行けるカード: 送り始めたカードから線をたどって行ける Claude のカード（添付のカードへの線はたどらない）
     /// ・戻る線: 送り始めたカードから深さ優先でたどったとき、たどっている途中のカードへ戻る線（繰り返し）。それ以外の線は前へ進む線
     /// ・カードは、前へ進む線で入ってくる線（行けるカードからのもの）が全部決まったら（進んだ・進まなかった）決まる。
     ///   1本でも進んだら送る。どれも進まなかったら飛ばす（その先の線も進まない）
@@ -121,7 +121,7 @@ namespace Tsuzuri.Markdown
         }
 
         /// <summary>
-        /// 次に送る（確認のカードなら止まる）カードの題。無ければ（送り終えた・続けられない）null。返したカードは、済んだら Finish を呼ぶ。
+        /// 次に送るカードの題。無ければ（送り終えた・続けられない）null。返したカードは、済んだら Finish を呼ぶ。
         /// </summary>
         public string Next()
         {
@@ -133,7 +133,7 @@ namespace Tsuzuri.Markdown
             return next.Title;
         }
 
-        /// <summary>まだ送るかもしれないカード（Claude・確認）の数（「残り N 枚以内」）。</summary>
+        /// <summary>まだ送るかもしれないClaude のカードの数（「残り N 枚以内」）。</summary>
         public int Remaining
         {
             get { return _order.Count(node => (node.State == State.Waiting || node.State == State.Ready)); }
@@ -147,7 +147,7 @@ namespace Tsuzuri.Markdown
         }
 
         /// <summary>
-        /// 送ったカード（確認のカードは続けたとき）が済んだ。分かれ道なら choice は選んだ線の名前（ChoicesOf のどれか）。
+        /// 送ったカードが済んだ。分かれ道なら choice は選んだ線の名前（ChoicesOf のどれか）。
         /// 続けられなくなったら false（Problem に理由）。
         /// </summary>
         public bool Finish(string title, string choice)

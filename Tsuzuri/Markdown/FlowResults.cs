@@ -29,17 +29,17 @@ namespace Tsuzuri.Markdown
         }
 
         /// <summary>
-        /// 分かれ道の行き先（2026-11-17）。Claude・確認のカードから Claude・確認のカードへの線のうち、名前の付いたものの名前（重なりは1つに）。
+        /// 分かれ道の行き先（2026-11-17）。Claude のカードから Claude のカードへの線のうち、名前の付いたものの名前（重なりは1つに）。
         /// 名前が2つ以上あれば分かれ道で、そのうち1つを選んだ線だけ進む（名前の無い線はいつも進む）。1つ以下なら分かれ道ではない（空の一覧）。
         /// </summary>
         public static List<string> Choices(FlowFile flow, FlowCard card)
         {
             var labels = new List<string>();
-            if (card.Kind != FlowKind.Claude && card.Kind != FlowKind.Confirm) return labels;
+            if (card.Kind != FlowKind.Claude) return labels;
             foreach (var edge in card.Edges)
             {
                 var target = flow.Find(edge.Target);
-                if (target == null || (target.Kind != FlowKind.Claude && target.Kind != FlowKind.Confirm)) continue;
+                if (target == null || target.Kind != FlowKind.Claude) continue;
                 if (edge.Label.Length > 0 && !labels.Contains(edge.Label)) labels.Add(edge.Label);
             }
             return labels.Count >= 2 ? labels : new List<string>();

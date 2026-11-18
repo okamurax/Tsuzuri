@@ -217,7 +217,7 @@ internal static class Program
             "## [Claude] 6",
             "## [添付] 7",
         }));
-        Expect(string.Join(",", FlowResults.Choices(branch, branch.Find("1"))) == "良い,悪い", "行き先は Claude・確認のカードへの線の名前だけ");
+        Expect(string.Join(",", FlowResults.Choices(branch, branch.Find("1"))) == "良い,悪い", "行き先は Claude のカードへの線の名前だけ");
         Expect(FlowResults.Choices(branch, branch.Find("2")).Count == 0, "名前の無い線は分かれ道でない");
         Expect(Run(branch, "1", "1=良い") == "1,2,4,6", "良いを選ぶ: " + Run(branch, "1", "1=良い"));
         Expect(Run(branch, "1", "1=悪い") == "1,3,4,6", "悪いを選ぶ: " + Run(branch, "1", "1=悪い"));
@@ -237,16 +237,17 @@ internal static class Program
         Expect(FlowResults.MatchChoice(new List<string> { "直す", "直さない" }, "直さない") == "直さない", "長い名前に含まれる短い名前は数えない");
         Expect(FlowResults.MatchChoice(new List<string> { "OK", "直す" }, "わからない") == null, "どれでもない");
 
-        // 繰り返し: 確認のカードで行き先を選ぶ。戻る線で戻り先から送り直す
+        // 繰り返し: Claude のカードで行き先を選ぶ。戻る線で戻り先から送り直す
         var loopFlow = FlowFile.Parse(string.Join("\n", new[]
         {
             "## [Claude] 1", "書いて", "→ 3",
-            "## [確認] 3", "見て", "→ [OK] 4", "→ [直す] 5",
+            "## [Claude] 3", "見て", "→ [OK] 4", "→ [直す] 5",
             "## [Claude] 4", "仕上げて",
             "## [Claude] 5", "直して", "→ 3",
         }));
-        Expect(loopFlow.Find("3").Kind == FlowKind.Confirm && FlowFile.Parse(loopFlow.Serialize()).Serialize() == loopFlow.Serialize()
-               && loopFlow.Serialize().Contains("## [確認] 3"), "確認のカードを読み書きする");
+        var oldConfirm = FlowFile.Parse("## [確認] 1\n見て\n→ 2\n## [Confirm] 2\n");
+        Expect(oldConfirm.Cards.All(card => card.Kind == FlowKind.Claude) && oldConfirm.Cards[0].Body == "見て" && oldConfirm.Serialize().Contains("## [Claude] 1\n"),
+               "確認のカードは Claude のカードとして読む");
         var twice = Run(loopFlow, "1", "3=直す", "3=直す", "3=OK");
         Expect(twice == "1,3,5,3,5,3,4", "直すを2回選んでから OK: " + twice);
         var forever = Run(loopFlow, "1", "3=直す", "3=直す", "3=直す", "3=直す", "3=直す", "3=直す", "3=直す");

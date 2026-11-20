@@ -25,8 +25,7 @@ namespace Tsuzuri.Views
     /// 空きマスは描かない。落とす先だけ青い枠で示す。
     /// ウィンドウの幅が変わっても回り込ませない（場所で覚えている用途の並びが崩れるため）。はみ出したらスクロール。
     ///
-    /// ファイラーと一緒の画面の左側に置く（MainWindow の LauncherHost）。その画面は、本文の場所の上半分に重ねて出す（2026-10-31）。
-    /// 下半分のエディタは見えたままで、ファイラーからドラッグできる。
+    /// ファイラーと一緒の画面の左側に置く（MainWindow の LauncherHost）。その画面は、本文の場所いっぱいに重ねて出す（2026-11-20。前は上半分）。
     /// </summary>
     public sealed class LauncherView : DockPanel
     {
@@ -116,7 +115,7 @@ namespace Tsuzuri.Views
             LastChildFill = true;
             Background = Resource("SidebarBackground");   // アウトラインと同じ地（SPEC 4章）
 
-            // 見出しの段は持たない。ツールバーの「ランチャー」をもう一度押すか、外を押すと閉じる（SPEC 4章。
+            // 見出しの段は持たない。「ランチャー」のタブをもう一度押すか、外を押すと閉じる（SPEC 4章。
             // 前はページの上端の段の右端に「ランチャー」があった）。
 
             _canvas.HorizontalAlignment = HorizontalAlignment.Left;

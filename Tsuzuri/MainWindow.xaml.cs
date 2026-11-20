@@ -97,7 +97,7 @@ namespace Tsuzuri
         private MarkdownView _focused;
 
         /// <summary>
-        /// ランチャー（SPEC 4章）。本文の上半分に、幅いっぱいで重ねて出す（2026-10-31）。下のエディタ（スタック）には触らないので、
+        /// ランチャー（SPEC 4章）。本文の場所いっぱいに重ねて出す（2026-11-20。前は上半分）。下のエディタ（スタック）には触らないので、
         /// 開け閉めしても、開いているファイルや画面の並びは変わらない。
         /// </summary>
         private LauncherView _launcher;
@@ -457,7 +457,7 @@ namespace Tsuzuri
 
             StatusText.Text = HasDocument
                 ? Active.FilePath
-                : "ツールバーの「ランチャー」からファイルを選ぶか、「新規作成」で作ってください。";
+                : "左上の「ランチャー」からファイルを選ぶか、「新規作成」で作ってください。";
         }
 
         private void OnClosing(object sender, CancelEventArgs e)

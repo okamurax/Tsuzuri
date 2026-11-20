@@ -22,7 +22,7 @@
         <Border DockPanel.Dock="Top" Height="40"
                 Background="{StaticResource ChromeBackground}"
                 MouseLeftButtonDown="Toolbar_MouseLeftButtonDown">
-            <!-- 左から、新規作成と開いている文書に対する操作｜ウィンドウ全体の機能（ランチャー・AI）｜終了。全部を左に寄せる（2026-11-01。前は右端、その前はページの上端の段に置いていた） -->
+            <!-- 左から、新規作成と開いている文書に対する操作｜ウィンドウ全体の機能（AI）｜終了。ランチャーは画面のタブの段の左端（2026-11-20）。全部を左に寄せる（2026-11-01。前は右端、その前はページの上端の段に置いていた） -->
             <DockPanel Margin="8,0,8,0" VerticalAlignment="Center" LastChildFill="False"
                        TextElement.FontSize="13">
                 <StackPanel Orientation="Horizontal">
@@ -44,10 +44,6 @@
                     <Button Content="エクスポート(_W)" Style="{StaticResource ToolButton}" Click="Export_Click"
                             ToolTip="Word 文書 (.docx) に書き出す。範囲・用紙・向き・余白を選んでから。サブページは本文に戻し、添付は隣のフォルダにコピーする" />
                     <Border Width="1" Height="16" Margin="8,0,8,0" VerticalAlignment="Center" Background="{StaticResource BorderBrushSoft}" />
-                    <!-- Tag は MarkdownView.LauncherToggleTag。ランチャーの外を押すと閉じるが、このボタンは除く -->
-                    <Button x:Name="LauncherButton" Content="ランチャー(_L)" Style="{StaticResource ToolButton}" Click="Launcher_Click"
-                            Tag="LauncherToggle"
-                            ToolTip="ランチャーとファイラーを、本文の上半分に重ねて出す。もう一度押すと閉じる" />
                     <Button Content="AI(_A)" Style="{StaticResource ToolButton}" Click="Ai_Click"
                             ToolTip="右に AI の欄を出し入れする。Claude Code と話して、開いている文書を直させる。もう一度押すと隠す（会話は残る）" />
                     <Border Width="1" Height="16" Margin="8,0,8,0" VerticalAlignment="Center" Background="{StaticResource BorderBrushSoft}" />
@@ -61,9 +57,15 @@
         <Border DockPanel.Dock="Top" Height="30"
                 Background="{StaticResource ChromeBackground}"
                 MouseLeftButtonDown="Toolbar_MouseLeftButtonDown">
-            <!-- 開いている画面のタブと「＋」 -->
+            <!-- 左端にいつも「ランチャー」のタブ（2026-11-20。前はツールバーのボタンで、よく使うのに押しづらかった）、その右に開いている画面のタブと「＋」。
+                 ランチャーのタブは押すとこの画面にランチャーを出し入れし、出している間は色を付ける（MainWindow.Overlays.cs）。
+                 ランチャーの外を押すと閉じるが、このボタンは除く（CloseLauncherOnOutsideClick） -->
             <DockPanel Margin="8,0,8,2" VerticalAlignment="Center" LastChildFill="False" TextElement.FontSize="13">
-                <StackPanel x:Name="WindowList" Orientation="Horizontal" />
+                <Button x:Name="LauncherButton" DockPanel.Dock="Left" Content="ランチャー(_L)" Style="{StaticResource ToolButton}" Click="Launcher_Click"
+                        Height="26" Padding="12,0" Margin="0,0,4,0" VerticalAlignment="Center"
+                        ToolTip="ランチャーとファイラーを、本文の場所いっぱいに重ねて出す。もう一度押すか Esc で閉じる" />
+                <Border DockPanel.Dock="Left" Width="1" Height="16" Margin="0,0,8,0" VerticalAlignment="Center" Background="{StaticResource BorderBrushSoft}" />
+                <StackPanel x:Name="WindowList" DockPanel.Dock="Left" Orientation="Horizontal" />
             </DockPanel>
         </Border>
 
@@ -163,25 +165,18 @@
                     ClipToBounds="True"
                     Background="{StaticResource PageBackground}">
                 <Grid>
-                    <!-- 上半分にランチャーを重ねるための段。ページの並びは2段にまたがる（2026-10-31） -->
-                    <Grid.RowDefinitions>
-                        <RowDefinition Height="*" />
-                        <RowDefinition Height="*" />
-                    </Grid.RowDefinitions>
-
                     <!-- 左に帯（横スクロールの入れ物。ページに幅を残すところまで）、残りにページ（SPEC 6章。2026-10-27） -->
-                    <DockPanel x:Name="StackPanelHost" Grid.RowSpan="2" LastChildFill="True"
+                    <DockPanel x:Name="StackPanelHost" LastChildFill="True"
                                SizeChanged="StackPanelHost_SizeChanged" />
 
                     <!-- ランチャーとファイラー (SPEC 4章・9章)。2つで1つの画面。左がランチャー、右がファイラー。
-                         本文の場所の上半分に、幅いっぱいで重ねて出す。下半分のエディタは見えたままで、ファイラーからドラッグできる。
-                         エディタはそのままで、閉じれば全部また見える（MainWindow.Overlays.cs。2026-10-31。
+                         本文の場所いっぱいに重ねて出す（2026-11-20。前は上半分で、下半分の本文へファイラーからドラッグできるようにしていたが、使わなかった）。
+                         エディタはそのままで、閉じれば全部また見える（MainWindow.Overlays.cs。
                          前は最前面の独立したウィンドウ、その前は本文の右側に滑らせて重ねていた）。
                          出している間はフォーカスをここへ移す（覆われた本文に打ち込まないため）ので、Focusable にする -->
-                    <Border x:Name="LauncherHost" Grid.Row="0" Visibility="Collapsed"
+                    <Border x:Name="LauncherHost" Visibility="Collapsed"
                             Focusable="True" FocusVisualStyle="{x:Null}"
-                            Background="{StaticResource SidebarBackground}"
-                            BorderBrush="{StaticResource BorderBrushSoft}" BorderThickness="0,0,0,1">
+                            Background="{StaticResource SidebarBackground}">
                         <Grid>
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="*" MinWidth="240" />

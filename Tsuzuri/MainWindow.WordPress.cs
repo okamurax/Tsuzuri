@@ -116,7 +116,7 @@ namespace Tsuzuri
             finally
             {
                 // ここからは今の画面を覚える。ただし読み込めなかったら（回線が無いなど）、何かを開くまでは記事の覚えを残す
-                // （2026-11-02。前は空の画面で上書きし、次の起動・休止からの再開で記事が戻らなかった）。知らせは LoadWordPressPost が出す。
+                // （2026-11-02。前は空の画面で上書きし、次の起動で記事が戻らなかった）。知らせは LoadWordPressPost が出す。
                 _wordPressRestoring = false;
                 _keepSavedScreen = !HasDocument;
                 _screenReady = true;
@@ -762,7 +762,7 @@ namespace Tsuzuri
                 return;
             }
 
-            // 読み込んでいる間に画面を閉じた・休止したら、開かない（2026-11-02。前は閉じた画面で開き、消した一時フォルダを作り直していた）。
+            // 読み込んでいる間に画面を閉じたら、開かない（2026-11-02。前は閉じた画面で開き、消した一時フォルダを作り直していた）。
             if (!OpenWindows.Contains(this)) return;
 
             var link = new WordPressLink

@@ -114,7 +114,7 @@ namespace Tsuzuri
   - Mermaid: 本文に Mermaid のコードブロックで書く（Tsuzuri の画面では図にならず、コードのまま見える）
   尋ねるときは、何をどこに描くつもりかも一言添える。Markdown の表は図ではないので、尋ねずに表で書く。
 - 利用者が話しかけるたびに、エディタの今の状態（開いているファイル・見ているページ・カーソルの行・選んでいる文字）が付いてくる。
-  ほかの画面や休止している画面で開いている文書の場所も「ほかに開いている文書」として付いてくる。利用者が見ていない文書の名前やタブの名前で話したら、その一覧から探す。
+  ほかの画面で開いている文書の場所も「ほかに開いている文書」として付いてくる。利用者が見ていない文書の名前やタブの名前で話したら、その一覧から探す。
   「ここ」「この節」「選んだところ」「このページ」は、それを指す。文字を選んでいて「これ」「直して」と言われたら、選んだところが相手。
   「この文書」「このファイル」「全体」は、ファイル全体（全部のページ）を指す。
 - ファイルは書き換えてよい。エディタは書き換えを知らされて、すぐ読み直す（エディタに保存していない編集がある文書は読み直さない）。
@@ -423,18 +423,11 @@ namespace Tsuzuri
             tab.Header.ToolTip = "セッションの名前: " + tab.Name + (text.Length > 0 ? Environment.NewLine + text : string.Empty);
         }
 
-        /// <summary>
-        /// アプリの中の（全部の画面の）AI の欄のタブで、その名前を使っているか。休止している画面の会話の名前も使っていることにする
-        /// （2026-11-02。再開したときに名前が変わると、「#1 に渡して」の宛先がずれる）。
-        /// </summary>
+        /// <summary>アプリの中の（全部の画面の）AI の欄のタブで、その名前を使っているか。</summary>
         private static bool AiTabNameUsed(string name)
         {
             if (string.IsNullOrEmpty(name)) return true;
-            if (OpenWindows.Any(window => window._aiTabs.Any(tab => tab.Name == name))) return true;
-
-            var settings = OpenWindows.Count > 0 ? OpenWindows[0]._settings : null;
-            return settings != null && settings.Windows.Any(session => session.Suspended && session.AiTabs != null
-                && session.AiTabs.Any(tab => tab != null && AiTabName(tab.Name) == name));
+            return OpenWindows.Any(window => window._aiTabs.Any(tab => tab.Name == name));
         }
 
         /// <summary>覚えていた会話の名前を今の形にする（前の「1」は「#1」に）。</summary>
@@ -1850,7 +1843,7 @@ namespace Tsuzuri
         }
 
         /// <summary>
-        /// 見ている文書のほかに開いている文書を、今の状態に足す（2026-11-13）。この画面で右に開いた別の文書・ほかの画面・休止している画面の文書。
+        /// 見ている文書のほかに開いている文書を、今の状態に足す（2026-11-13）。この画面で右に開いた別の文書・ほかの画面の文書。
         /// 画面 B の AI の欄で「A の文書について」と話しても通じるように。場所と、その画面で見ているページ、保存できていない編集があるかを書く。
         /// AI に渡さない場所（AiGuard）の文書は書かない（あることも書かない）。
         /// </summary>
@@ -1890,17 +1883,6 @@ namespace Tsuzuri
                     if (group.Any(view => view.IsDirty))
                         line.Append("（エディタに保存できていない編集がある。書き換えない）");
                     lines.Add(line.ToString());
-                }
-            }
-
-            foreach (var session in _settings.Windows.Where(session => session.Suspended && session.Screen != null && session.Screen.Pages != null))
-            {
-                var first = session.Screen.Pages.FirstOrDefault(page => page != null && !string.IsNullOrEmpty(page.File));
-                var where = first != null && AiGuard.IsGuarded(first.File) ? "休止している画面" : "休止している画面（タブ「" + session.Title + "」）";
-                foreach (var page in session.Screen.Pages)
-                {
-                    if (page == null || !fresh(page.File)) continue;
-                    lines.Add("- " + where + ": " + page.File);
                 }
             }
 

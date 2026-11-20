@@ -190,7 +190,7 @@ namespace Tsuzuri
             document = null;
             state = null;
 
-            // ほかの画面（休止している画面も）で開いている文書は開かず、その画面を前に出す（2026-10-31。state.json と変更の記録を2つの画面から書かないため）。
+            // ほかの画面で開いている文書は開かず、その画面を前に出す（2026-10-31。state.json と変更の記録を2つの画面から書かないため）。
             if (ShowHolderOf(path)) return false;
 
             try

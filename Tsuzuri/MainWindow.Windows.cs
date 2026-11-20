@@ -17,15 +17,14 @@ namespace Tsuzuri
     //
     // 1つのアプリの中で、この画面（MainWindow）を丸ごともう1つ作る。中の作りは変えず、画面ごとに今までと同じに動く。
     // 別の exe を起動しないのは、app.json を2つのアプリが別々に書いて、ランチャーの登録などを消し合わないため（設定はメモリの上で1つを共有する）。
-    // ・1つの文書は1つの画面だけで開く（リンクで右に開いた .md・WordPress の記事も。休止している画面の分も）。.ファイル名/state.json と変更の記録を、2つの画面から書かないため
+    // ・1つの文書は1つの画面だけで開く（リンクで右に開いた .md・WordPress の記事も）。.ファイル名/state.json と変更の記録を、2つの画面から書かないため
     // ・終了したときに開いていた画面は、次の起動で全部戻す（ページの並び・AI の会話のタブ。WordPress の記事は読み込み直す）。
     //   最初の画面の分は app.json の Screen・Collapsed・AiTabs、増やした画面の分は Windows に覚える。タブの × で閉じたら、その分は消す（「終了」・ログオフでは残す）
     // ・タブの × は、その画面だけを閉じる。ツールバーの「終了」は、アプリごと（全部の画面を）閉じる（2026-10-31）
     //   最初の画面を × で閉じたら、次の画面が最初の画面を引き継ぐ（前回のファイル・app.json の上のほうの項目）
     // ・画面は全部同じ位置・大きさに重ね、ツールバーの一段下のタブで前に出す
     // ・前に出ている画面のほかは見えなくする（2026-11-01。2026-11-11 から Hide でなく DWM の cloak）。タスクバーのボタンも Alt+Tab も1つで、切り替えはタブだけ
-    // ・タブを掴んで少し動かすか、右クリック →「休止する」で、画面を閉じて覚えだけを残す（2026-11-01）。起動しても作らず、AI の会話も始めない。
-    //   タブは薄く残り、押すとその覚えから画面を作り直す（ページの並び・AI の会話も戻す。WordPress の記事は読み込み直す）
+    // ・タブを掴んで横に動かすと並べ替える（2026-11-10）。休止（2026-11-01〜11-20）はやめた
     public partial class MainWindow
     {
         /// <summary>開いている画面。作った順。先頭が最初の画面。</summary>
@@ -41,12 +40,6 @@ namespace Tsuzuri
 
         /// <summary>「終了」で全部の画面を閉じている最中か。このときは、閉じた画面の覚え（Windows）を消さない（次の起動で戻す）。</summary>
         private static bool _closingAll;
-
-        /// <summary>休止するために閉じている最中か。閉じ終えたら、覚えを消さずに休止の印を付ける。</summary>
-        private bool _suspending;
-
-        /// <summary>休止したときのタブの名前。</summary>
-        private string _suspendTitle;
 
         /// <summary>前に出ている画面（ほかの画面は隠してある）。最後に前に出た画面。</summary>
         private static MainWindow _frontWindow;
@@ -106,18 +99,8 @@ namespace Tsuzuri
                         OpenWindows[Math.Min(index, OpenWindows.Count - 1)].BringForward(this);
                 }
 
-                if (_suspending)
-                {
-                    // 休止: 覚えは消さずに印を付ける。最初の画面なら、覚えを app.json の上のほうの項目から移し、次の画面が最初の画面を引き継ぐ。
-                    var kept = _session ?? new WindowSession { Screen = _settings.Screen, Collapsed = _settings.Collapsed, AiTabs = _settings.AiTabs };
-                    kept.Suspended = true;
-                    kept.Title = _suspendTitle;
-                    if (wasPrimary && OpenWindows.Count > 0) OpenWindows[0].PromoteToPrimary();
-                    if (!_settings.Windows.Contains(kept)) _settings.Windows.Add(kept);
-                    _settings.Save();
-                }
                 // タブの × でこの画面だけを閉じたなら、次の起動では戻さない。「終了」で全部を閉じている最中なら残す。
-                else if (!_closingAll)
+                if (!_closingAll)
                 {
                     if (_session != null) _settings.Windows.Remove(_session);
                     else if (wasPrimary && OpenWindows.Count > 0) OpenWindows[0].PromoteToPrimary();
@@ -202,7 +185,8 @@ namespace Tsuzuri
         /// <summary>最初の画面が起動したとき、前回終了したときに開いていたほかの画面を作り直す（それぞれ自分の覚えで戻す）。最後に最初の画面を前に出す。</summary>
         private void RestoreOtherWindows()
         {
-            var sessions = _settings.Windows.Where(session => !session.Suspended).ToList();   // 休止している画面は作らない（タブだけ出す）
+            // 前の版で休止していた画面（app.json の suspended。2026-11-20 に休止をやめた）も、ふつうの画面として戻す
+            var sessions = _settings.Windows.ToList();
             if (sessions.Count == 0) return;
 
             foreach (var session in sessions)
@@ -604,7 +588,7 @@ namespace Tsuzuri
         /// <summary>この画面の Closing を処理している最中。</summary>
         private bool _closing;
 
-        /// <summary>タブの並びで、隣の画面に切り替える（-1 で前、1 で次。端で反対の端へ回る）。休止している画面は飛ばす。</summary>
+        /// <summary>タブの並びで、隣の画面に切り替える（-1 で前、1 で次。端で反対の端へ回る）。</summary>
         private void SwitchWindow(int step)
         {
             if (OpenWindows.Count < 2) return;
@@ -644,25 +628,7 @@ namespace Tsuzuri
         }
 
         /// <summary>
-        /// その .md を開いていた、休止している画面。無ければ null（2026-11-02）。休止している画面も「1つの文書は1つの画面だけ」に数える。
-        /// 数えないと、休止中にほかの画面で開いたあと再開したとき、再開した画面が文書を開けず、休止の覚えが空の画面で消えていた。
-        /// </summary>
-        private WindowSession SuspendedHolding(string path)
-        {
-            return _settings.Windows.FirstOrDefault(session => session.Suspended && session.Screen != null && session.Screen.Pages != null
-                && session.Screen.Pages.Any(page => page != null && !string.IsNullOrEmpty(page.File)
-                                                    && SamePath(ShellActions.CanonicalPath(page.File), path)));
-        }
-
-        private WindowSession SuspendedHoldingPost(string siteUrl, int id)
-        {
-            return _settings.Windows.FirstOrDefault(session => session.Suspended && session.Screen != null
-                && session.Screen.WordPressPost == id
-                && string.Equals(session.Screen.WordPressSite, siteUrl, StringComparison.OrdinalIgnoreCase));
-        }
-
-        /// <summary>
-        /// その .md をほかの画面が開いていれば、その画面を前に出して true（休止している画面なら再開する）。開く前に呼ぶ（2026-11-02。前は3か所に同じ処理があった）。
+        /// その .md をほかの画面が開いていれば、その画面を前に出して true。開く前に呼ぶ（2026-11-02。前は3か所に同じ処理があった）。
         /// </summary>
         private bool ShowHolderOf(string path)
         {
@@ -673,15 +639,10 @@ namespace Tsuzuri
                 holder.Status("この文書はこの画面で開いています: " + path);
                 return true;
             }
-
-            var suspended = SuspendedHolding(path);
-            if (suspended == null) return false;
-
-            Resume(suspended);
-            return true;
+            return false;
         }
 
-        /// <summary>その WordPress の記事をほかの画面が開いていれば、その画面を前に出して true（休止している画面なら再開する）。</summary>
+        /// <summary>その WordPress の記事をほかの画面が開いていれば、その画面を前に出して true。</summary>
         private bool ShowHolderOfPost(string siteUrl, int id)
         {
             var holder = WindowHoldingPost(siteUrl, id);
@@ -691,12 +652,7 @@ namespace Tsuzuri
                 holder.Status("この記事はこの画面で開いています。#" + id);
                 return true;
             }
-
-            var suspended = SuspendedHoldingPost(siteUrl, id);
-            if (suspended == null) return false;
-
-            Resume(suspended);
-            return true;
+            return false;
         }
 
         /// <summary>全部の画面の一覧（ツールバーの一段下）を、今の中身に合わせる（題・未保存の印が変わったとき、画面が増えた・減ったとき）。</summary>
@@ -713,14 +669,11 @@ namespace Tsuzuri
         private void BuildWindowList()
         {
             var labels = OpenWindows.Select(window => window.WindowLabel()).ToList();
-            var suspended = _settings.Windows.Where(session => session.Suspended).ToList();
-            var signature = string.Join("\n", labels) + "\n" + OpenWindows.IndexOf(this) + "\n"
-                            + string.Join("\n", suspended.Select(session => session.GetHashCode() + ":" + session.Title));
+            var signature = string.Join("\n", labels) + "\n" + OpenWindows.IndexOf(this);
             if (signature == _windowListSignature) return;
 
             _windowListSignature = signature;
             WindowList.Children.Clear();
-            SuspendedList.Children.Clear();
 
             // タブの右に区切りの縦線（2026-11-10）。左右に付けると隣どうしで重なるので、右だけ。
             for (var i = 0; i < OpenWindows.Count; i++)
@@ -736,9 +689,6 @@ namespace Tsuzuri
                 });
             }
 
-            // 休止している画面は、段の右端に薄く並べる。
-            foreach (var session in suspended) SuspendedList.Children.Add(CreateSuspendedTab(session));
-
             var add = new Button
             {
                 Content = "＋",
@@ -750,9 +700,6 @@ namespace Tsuzuri
         }
 
         private const double WindowTabWidth = 180;
-
-        /// <summary>画面のタブを掴んで上下にこれだけ動かしたら（段から引き離したら）、離したときに休止する（ピクセル）。</summary>
-        private const double SuspendDragDistance = 16;
 
         /// <summary>画面のタブを掴んで横にこれだけ動かしたら、並べ替える（ピクセル。2026-11-10）。</summary>
         private const double ReorderDragDistance = 8;
@@ -811,13 +758,12 @@ namespace Tsuzuri
                 ToolTip = window.WindowTip(),
             };
 
-            // 押して離したら切り替える。掴んで横に動かしたら並べ替え（2026-11-10）、上下に引き離したら休止する（2026-11-01。前は横に動かしても休止した）。
+            // 押して離したら切り替える。掴んで横に動かしたら並べ替え（2026-11-10）。
             // 段の空いているところはウィンドウを動かすので、ここで受け止めて段に回さない（× のボタンは自分で受け取る）。
             var shift = new TranslateTransform();
             tab.RenderTransform = shift;
             Point? grabbed = null;
             var dragging = false;
-            var pulled = false;   // 段から引き離している（離せば休止）。段に戻せば並べ替えに戻る
             tab.MouseLeftButtonDown += (sender, e) =>
             {
                 e.Handled = true;
@@ -830,19 +776,15 @@ namespace Tsuzuri
                 if (grabbed == null || !tab.IsMouseCaptured) return;
 
                 var moved = e.GetPosition(WindowList) - grabbed.Value;
-                if (!dragging && OpenWindows.Count > 1
-                    && (Math.Abs(moved.X) >= ReorderDragDistance || Math.Abs(moved.Y) >= SuspendDragDistance))
+                if (!dragging && OpenWindows.Count > 1 && Math.Abs(moved.X) >= ReorderDragDistance)
                 {
                     dragging = true;
                     Panel.SetZIndex(tab, 1);   // ほかのタブの上を通る
                 }
                 if (!dragging) return;
 
-                // 掴んだタブを手に付いてこさせる。段の中では横にだけ動かし、引き離したら薄くする（離せば休止する印）。
-                pulled = Math.Abs(moved.Y) >= SuspendDragDistance;
+                // 掴んだタブを手に付いてこさせる（段の中で横にだけ）。
                 shift.X = moved.X;
-                shift.Y = pulled ? moved.Y : 0;
-                tab.Opacity = pulled ? 0.5 : 1;
             };
             tab.MouseLeftButtonUp += (sender, e) =>
             {
@@ -860,44 +802,21 @@ namespace Tsuzuri
                 dragging = false;
                 Panel.SetZIndex(tab, 0);
                 var steps = (int)Math.Round(shift.X / (tab.ActualWidth + tab.Margin.Right + WindowTabSeparatorWidth + WindowTabSeparatorMargin));
-                var suspend = pulled;
-                pulled = false;
 
-                // 元の場所に戻してから動かす（休止を保存するかで取りやめたときも、元の場所に残る）。
-                shift.X = shift.Y = 0;
-                tab.Opacity = 1;
-
-                if (suspend) window.Suspend();
-                else if (steps != 0) MoveWindowTab(window, steps);
+                // 元の場所に戻してから動かす。
+                shift.X = 0;
+                if (steps != 0) MoveWindowTab(window, steps);
             };
             tab.LostMouseCapture += delegate
             {
                 if (grabbed == null) return;
                 grabbed = null;
                 dragging = false;
-                pulled = false;
                 Panel.SetZIndex(tab, 0);
-                shift.X = shift.Y = 0;
-                tab.Opacity = 1;
+                shift.X = 0;
             };
             tab.MouseEnter += delegate { if (!self) tab.Background = (Brush)FindResource("HoverFill"); };
             tab.MouseLeave += delegate { if (!self) tab.Background = Brushes.Transparent; };
-
-            // 右クリックで「休止する」。画面が1つだけなら休止できない（何も見えなくなる）。
-            tab.MouseRightButtonUp += (sender, e) =>
-            {
-                e.Handled = true;
-                var suspend = new MenuItem
-                {
-                    Header = "休止する",
-                    ToolTip = "この画面を閉じて、状態だけを残す（AI の会話も止める）。タブは右端に薄く残り、押すと元の状態で開き直す。タブを掴んで上下に引き離しても休止する（横に動かすと並べ替え）",
-                    IsEnabled = OpenWindows.Count > 1,
-                };
-                suspend.Click += delegate { window.Suspend(); };
-                var menu = new ContextMenu { PlacementTarget = tab, Placement = System.Windows.Controls.Primitives.PlacementMode.Bottom };
-                menu.Items.Add(suspend);
-                menu.IsOpen = true;
-            };
             return tab;
         }
 
@@ -923,7 +842,7 @@ namespace Tsuzuri
             var settings = first._settings;
             var order = OpenWindows.Where(other => other._session != null).Select(other => other._session).ToList();
             settings.Windows.RemoveAll(order.Contains);
-            settings.Windows.InsertRange(0, order);   // 休止している画面は後ろに残る
+            settings.Windows.InsertRange(0, order);
             settings.Save();
 
             RefreshWindowLists();
@@ -954,115 +873,6 @@ namespace Tsuzuri
 
             _settings.LastFile = RememberableFile();
             if (Application.Current != null) Application.Current.MainWindow = this;
-        }
-
-        /// <summary>休止している画面のタブ。薄く出す。押すとその覚えから画面を作り直し、× で覚えごと捨てる。</summary>
-        private Border CreateSuspendedTab(WindowSession session)
-        {
-            var panel = new DockPanel { LastChildFill = true };
-
-            var close = new Button
-            {
-                Content = "\uE711",
-                ToolTip = "休止している状態を捨てる（ファイルはそのまま。AI の会話は claude --resume で開ける）",
-                FontFamily = IconFont,
-                FontSize = 9,
-                Width = 20,
-                Height = 20,
-                Padding = new Thickness(0),
-                Margin = new Thickness(6, 0, 0, 0),
-                Focusable = false,
-                VerticalAlignment = VerticalAlignment.Center,
-                Style = (Style)FindResource("ToolButton"),
-            };
-            close.Click += delegate
-            {
-                _settings.Windows.Remove(session);
-                _settings.Save();
-                RefreshWindowLists();
-            };
-            DockPanel.SetDock(close, Dock.Right);
-            panel.Children.Add(close);
-
-            panel.Children.Add(new TextBlock
-            {
-                Text = string.IsNullOrEmpty(session.Title) ? "（空）" : session.Title,
-                FontStyle = FontStyles.Italic,
-                TextTrimming = TextTrimming.CharacterEllipsis,
-                VerticalAlignment = VerticalAlignment.Center,
-                Foreground = (Brush)FindResource("TextMuted"),
-            });
-
-            var tab = new Border
-            {
-                Child = panel,
-                Width = WindowTabWidth,
-                Height = 26,
-                Opacity = 0.6,
-                CornerRadius = new CornerRadius(4),
-                Padding = new Thickness(10, 0, 3, 0),
-                Margin = new Thickness(0, 0, 4, 0),
-                Cursor = System.Windows.Input.Cursors.Hand,
-                VerticalAlignment = VerticalAlignment.Center,
-                Background = Brushes.Transparent,
-                ToolTip = "休止中: " + session.Title + "。押すと、休止したときの状態で開き直す（AI の会話も戻す）",
-            };
-            tab.MouseLeftButtonDown += (sender, e) =>
-            {
-                e.Handled = true;
-                Resume(session);
-            };
-            tab.MouseEnter += delegate { tab.Background = (Brush)FindResource("HoverFill"); };
-            tab.MouseLeave += delegate { tab.Background = Brushes.Transparent; };
-            return tab;
-        }
-
-        /// <summary>この画面を休止する（閉じて覚えだけを残す）。未保存なら、閉じるときと同じく尋ねる。取りやめたら休止しない。</summary>
-        private void Suspend()
-        {
-            if (OpenWindows.Count < 2) return;
-
-            _suspendTitle = WindowLabel(false);
-            _suspending = true;
-            CloseShowingFirst();
-            if (OpenWindows.Contains(this)) _suspending = false;   // 保存するかで取りやめた
-        }
-
-        /// <summary>休止している画面を、その覚えから作り直して前に出す。</summary>
-        private void Resume(WindowSession session)
-        {
-            // 休止している間に、その文書・記事をほかの画面で開いていたら（2026-11-02 より前の版で開いたものなど）、再開せずにその画面を出す。
-            // 再開すると文書を開けず、休止の覚えが空の画面で上書きされる。休止のタブはそのまま残す。
-            var holder = OpenHolderOf(session);
-            if (holder != null)
-            {
-                holder.BringForward(this);
-                holder.Status("休止している画面の文書を、この画面で開いています。こちらを閉じてから、休止のタブを押してください。");
-                return;
-            }
-
-            session.Suspended = false;
-            session.Title = null;
-            _settings.Save();
-
-            var window = new MainWindow(_settings, this, session);
-            window.BringForward(this);
-            RefreshWindowLists();
-        }
-
-        /// <summary>休止している画面の文書・記事を開いている、開いている画面。無ければ null。</summary>
-        private static MainWindow OpenHolderOf(WindowSession session)
-        {
-            var screen = session.Screen;
-            if (screen == null) return null;
-
-            if (screen.WordPressPost > 0)
-                return OpenWindows.FirstOrDefault(window => window.HoldsPost(screen.WordPressSite, screen.WordPressPost));
-
-            if (screen.Pages == null) return null;
-            var files = screen.Pages.Where(page => page != null && !string.IsNullOrEmpty(page.File))
-                                    .Select(page => ShellActions.CanonicalPath(page.File)).ToList();
-            return OpenWindows.FirstOrDefault(window => files.Any(window.Holds));
         }
 
         /// <summary>一覧に出す名前。開いているファイル（いちばん左のページ）の題。WordPress の記事なら頭に「WP:」、未保存なら後ろに「*」。</summary>
@@ -1109,7 +919,7 @@ namespace Tsuzuri
         private void CancelClosingAll()
         {
             _closingAll = false;
-            _settings.Windows.RemoveAll(session => !session.Suspended && !OpenWindows.Any(window => ReferenceEquals(window._session, session)));
+            _settings.Windows.RemoveAll(session => !OpenWindows.Any(window => ReferenceEquals(window._session, session)));
             _settings.Save();
         }
     }

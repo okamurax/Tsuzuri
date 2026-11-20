@@ -112,7 +112,6 @@ namespace Tsuzuri
         /// <summary>
         /// 増やした画面（2026-10-31）。作った順。最初の画面の分は上の Screen・Collapsed・AiTabs。
         /// 終了したときに開いていた画面を、次の起動で全部戻すため。画面をタブの × で閉じたら、その分は消す（「終了」・ログオフでは残す）。
-        /// 休止している画面（Suspended）もここに置く。
         /// </summary>
         [DataMember(Name = "windows", EmitDefaultValue = false)]
         public List<WindowSession> Windows { get; set; }
@@ -301,17 +300,6 @@ namespace Tsuzuri
 
         [DataMember(Name = "aiTabs", EmitDefaultValue = false)]
         public List<AiTabState> AiTabs { get; set; }
-
-        /// <summary>
-        /// 休止している画面か（2026-11-01）。画面は閉じて、覚えだけを残す。起動しても作らず（AI の会話も始めない）、タブだけを薄く出す。
-        /// タブを押すと、この覚えから画面を作り直す（ページの並び・AI の会話も戻す）。
-        /// </summary>
-        [DataMember(Name = "suspended", EmitDefaultValue = false)]
-        public bool Suspended { get; set; }
-
-        /// <summary>休止している画面のタブに出す名前（休止したときの題）。</summary>
-        [DataMember(Name = "title", EmitDefaultValue = false)]
-        public string Title { get; set; }
     }
 
     /// <summary>AI の欄の会話のタブ1つ（AppSettings.AiTabs）。</summary>

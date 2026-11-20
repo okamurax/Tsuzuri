@@ -204,6 +204,16 @@ namespace Tsuzuri
       （ルーターの設定を誤ると利用者の接続ごと切れ、現地に行かないと戻せないことがあるため）。置くときは、何をするコマンドかを先に返事に書く。
     - 伏せる前の結果を別のやり方で取ったときは、パスワード・事前共有鍵（pre-shared-key）・login password の行を、返事・文書には伏せて書く。
       結果をファイルに残したときは、要らなくなったら消す（残すなら、その場所と秘密の行が入っていることを利用者に伝える）。
+- Tsuzuri にはカレンダーがある（画面のタブの並びの右のアイコン・Alt+C で出す）。予定を週の行で下へずっと並べ、予定ごとに日・名前・メモを持つ。
+  時間の枠は無く、時間は名前に書く（「10:00 打合せ」）。何日かにまたがる予定もある。繰り返しは無い（繰り返しは利用者が Google カレンダーに置いている）。
+  予定の保存先は「{schedule-file}」（Markdown。利用者はこのファイルを開かず、カレンダーの画面で直す）。予定・日付・空いている日の話になったら、このファイルを読む。
+  - 形: 予定1つが見出し1つ。`## 2026-11-21 10:00 打合せ`、何日かは `## 2026-11-21〜2026-11-25 出張`（終わりの日を含む）。見出しの下の行から次の `## ` の手前までがメモ。
+    アウトラインの見出しから登録した予定は、見出しのすぐ下に `<!-- link: 文書のファイル | ページ | 見出し -->` の行がある（文書のその見出しと結んでいる。中身はその節にある）。
+    メモの中で `## ` で始まる行は、頭に `\` を付けて書く。先頭の印の行と `# 予定` は残す。ファイルが無ければ、まだ予定が無い。
+  - カレンダーを開いていれば、話しかけるたびに今の状態に「カレンダー」として、見えている週・選んでいる日・選んでいる予定が付いてくる。
+    「この日」「この週」「選んだ日」「この予定」は、それを指す。今日の日付は今の状態の先頭の日時。
+  - 予定を足す・直す・消すのは、頼まれたときだけ。書き換える前に必ず読み直す。並びは日付順でなくてよい（カレンダーが保存するときに並べ直す）。
+    link の行は書き換えない（結んだ予定の名前も変えない。名前を変えたいと言われたら、結びが切れることを伝える）。書くと、開いているカレンダーは読み直す。
 - 返事は日本語で、欄は狭いので短めに書く。";
 
         /// <summary>図の書き方（2026-11-01。SPEC 19章）。exe の隣に置き、図を頼まれたときだけ Claude に読ませる（毎回は渡さない）。</summary>
@@ -717,7 +727,8 @@ namespace Tsuzuri
                     .Replace("{ssh-exe}", AiSshExe)
                     .Replace("{ssh-askpass}", askpass)
                     .Replace("{ssh-session}", Path.Combine(AiFolder, "ssh-session.ps1"))
-                    .Replace("{terminal}", Path.Combine(AiFolder, "terminal.ps1")));
+                    .Replace("{terminal}", Path.Combine(AiFolder, "terminal.ps1"))
+                    .Replace("{schedule-file}", ScheduleFilePath));
                 File.WriteAllText(settings, AiSettings(_aiContextPath, AiPipeName, StartAiHttp()), new UTF8Encoding(false));
                 WriteAiContext(null);
                 Dispatcher.BeginInvoke(new Action(RefreshAiFileLinks));   // 今の状態・フックの設定を書いたので、下端のボタンに出す（2026-11-08）
@@ -1753,6 +1764,7 @@ namespace Tsuzuri
             {
                 text.Append("ファイルは開いていない。\n");
                 AppendOtherDocuments(text, null);
+                AppendCalendarContext(text);
                 AppendAiShellContext(text);
                 return text.ToString();
             }
@@ -1765,6 +1777,7 @@ namespace Tsuzuri
                 text.Append("見ている文書は、利用者が AI に渡さないと決めた場所（目印 ").Append(AiGuard.MarkerName)
                     .Append(" のあるフォルダの中）にある。場所も中身も渡していない。尋ねたり探したりしない。\n");
                 AppendOtherDocuments(text, document);
+                AppendCalendarContext(text);
                 AppendAiShellContext(text);
                 return text.ToString();
             }
@@ -1829,6 +1842,7 @@ namespace Tsuzuri
                 text.Append("エディタに保存できていない編集がある。ファイルの中身はエディタの画面より古く、行番号もファイルと合わない。この文書は書き換えず、先に保存してもらう。\n");
 
             AppendOtherDocuments(text, document);
+            AppendCalendarContext(text);  // カレンダーを開いていれば、見えている週・選んでいる日（2026-11-21）
             AppendAiShellContext(text);   // 共通ターミナルの画面（2026-11-08）
 
             // 図の頼みは、最初の指示に書くだけでは罫線で描かれた（2026-11-01）。話しかけるたびに1行だけ念を押す（書き方そのものは渡さない）。
@@ -1912,6 +1926,8 @@ namespace Tsuzuri
             // （開く位置がずれる・確認した一覧と違うページを消す等）。このアプリのダイアログはどれもこの窓が親なので、
             // 出ている間は Windows がこの窓を操作できなくする。それで見分ける。閉じてこの窓に戻ったとき（Activated）に読み直す。
             if (IsShowingDialog()) return;
+
+            if (_calendar != null) _calendar.ReloadIfChanged();   // Claude が予定を書き換えたら出し直す（2026-11-21）
 
             var documents = _stack.Select(view => view.Owner).Where(owner => owner != null).Distinct().ToList();
             var reloaded = new List<PageDocument>();

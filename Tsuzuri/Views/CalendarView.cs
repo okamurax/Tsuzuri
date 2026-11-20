@@ -48,6 +48,7 @@ namespace Tsuzuri.Views
         private static readonly Brush EvenMonthFill = Freeze(Color.FromRgb(0x1A, 0x22, 0x37));   // 月の境が分かるよう、偶数月の地を少し変える
         private static readonly Brush TodayFill = Freeze(Color.FromRgb(0x1F, 0x30, 0x55));       // 今日のマス（偶数月の地と見分けが付くように濃く）
         private static readonly Brush TodayEdge = Freeze(Color.FromRgb(0x5D, 0x89, 0xEA));       // 今日のマスの枠と、日の数字の地（AccentText と同じ色）
+        private static readonly Brush DropFill = Freeze(Color.FromArgb(0x60, 0x5D, 0x89, 0xEA));    // アウトラインから落とす先の日
         private static readonly Brush GripHover = Freeze(Color.FromArgb(0x90, 0x5D, 0x89, 0xEA));
 
         private static readonly CultureInfo Japanese = CultureInfo.GetCultureInfo("ja-JP");
@@ -92,6 +93,11 @@ namespace Tsuzuri.Views
         private bool _extending;
 
         private ScheduleItem _selected;
+
+        // 選んでいる日（押した日から、なぞった・Shift で押した日まで）。AI に渡す（2026-11-21。日付の話をするため）
+        private DateTime? _dayAnchor;
+        private DateTime? _dayEnd;
+        private bool _selectingDays;
 
         // 帯をつかんでいる（動かす・延ばす）
         private Gesture _gesture;
@@ -426,7 +432,7 @@ namespace Tsuzuri.Views
                 {
                     BorderBrush = Resource("BorderBrushSoft"),
                     BorderThickness = new Thickness(d == 0 ? 0 : 1, 0, 0, 1),
-                    Background = date == _dropOn ? Resource("SelectionFill") : BaseFill(date),
+                    Background = CellFill(date),
                 };
                 Grid.SetColumn(cell, d);
                 Grid.SetRowSpan(cell, rowCount);
@@ -507,6 +513,33 @@ namespace Tsuzuri.Views
 
             row.Children.Add(WeekGripFor(row, weekStart, rowCount));
             return row;
+        }
+
+        /// <summary>日のマスの地。落とす先・選んでいる日・今日・偶数月の順に決める。</summary>
+        private Brush CellFill(DateTime date)
+        {
+            if (date == _dropOn) return DropFill;
+            if (IsDaySelected(date)) return Resource("SelectionFill");
+            return BaseFill(date);
+        }
+
+        private bool IsDaySelected(DateTime date)
+        {
+            return SelectedFrom.HasValue && date >= SelectedFrom.Value && date <= SelectedTo.Value;
+        }
+
+        /// <summary>出している日のマスを塗り直す（選ぶ日・落とす先が変わったとき。組み直さない）。</summary>
+        private void PaintCells()
+        {
+            foreach (var pair in _cells) pair.Value.Background = CellFill(pair.Key);
+        }
+
+        private void ClearDays()
+        {
+            if (!_dayAnchor.HasValue) return;
+            _dayAnchor = null;
+            _dayEnd = null;
+            PaintCells();
         }
 
         private static Brush BaseFill(DateTime date)
@@ -760,6 +793,7 @@ namespace Tsuzuri.Views
             }
             if (date == null) return;
 
+            ClearDays();   // 予定を選んだら、日を選ぶのはやめる
             if (!ReferenceEquals(_selected, item))
             {
                 _selected = item;
@@ -799,19 +833,40 @@ namespace Tsuzuri.Views
                 _selected = null;
                 Rebuild();
             }
+
+            // 日を選ぶ。Shift で押すと、選び始めた日からその日まで。押したままなぞっても延ばせる
+            if ((Keyboard.Modifiers & ModifierKeys.Shift) != 0 && _dayAnchor.HasValue) _dayEnd = date.Value;
+            else
+            {
+                _dayAnchor = date.Value;
+                _dayEnd = date.Value;
+                _selectingDays = true;
+                _weeks.CaptureMouse();
+            }
+            PaintCells();
         }
 
         private void OnWeeksMove(object sender, MouseEventArgs e)
         {
-            if (!_weeks.IsMouseCaptured || _dragItem == null) return;
+            if (!_weeks.IsMouseCaptured || (_dragItem == null && !_selectingDays)) return;
 
-            // 上下の端へ寄せたら、少しずつスクロールする（見えていない週まで延ばす・動かすため）
+            // 上下の端へ寄せたら、少しずつスクロールする（見えていない週まで延ばす・動かす・選ぶため）
             var inView = e.GetPosition(_scroll).Y;
             if (inView < 24) _scroll.ScrollToVerticalOffset(_scroll.VerticalOffset - 16);
             else if (inView > _scroll.ViewportHeight - 24) _scroll.ScrollToVerticalOffset(_scroll.VerticalOffset + 16);
 
             var date = DateAt(e.GetPosition(_weeks));
             if (date == null) return;
+
+            if (_selectingDays)
+            {
+                if (date != _dayEnd)
+                {
+                    _dayEnd = date;
+                    PaintCells();
+                }
+                return;
+            }
             var delta = (int)(date.Value - _dragFrom).TotalDays;
             if (delta == _dragDelta) return;
             _dragDelta = delta;
@@ -834,6 +889,7 @@ namespace Tsuzuri.Views
             _dragItem = null;
             _gesture = Gesture.None;
             _dragDelta = 0;
+            _selectingDays = false;
             if (_weeks.IsMouseCaptured) _weeks.ReleaseMouseCapture();
             if (item == null) return;
 
@@ -952,9 +1008,10 @@ namespace Tsuzuri.Views
 
             if (date != _dropOn)
             {
-                if (_dropOn.HasValue && _cells.ContainsKey(_dropOn.Value)) _cells[_dropOn.Value].Background = BaseFill(_dropOn.Value);
+                var old = _dropOn;
                 _dropOn = date;
-                if (date.HasValue && _cells.ContainsKey(date.Value)) _cells[date.Value].Background = Resource("SelectionFill");
+                if (old.HasValue && _cells.ContainsKey(old.Value)) _cells[old.Value].Background = CellFill(old.Value);
+                if (date.HasValue && _cells.ContainsKey(date.Value)) _cells[date.Value].Background = CellFill(date.Value);
             }
             return date.HasValue;
         }
@@ -992,6 +1049,67 @@ namespace Tsuzuri.Views
         public void ClearDrop()
         {
             ShowDrop(new Point(-1, -1));
+        }
+
+        // ---------------------------------------------------------------
+        // AI に渡す今の状態（2026-11-21。MainWindow.Ai の AiContext）
+        // ---------------------------------------------------------------
+
+        /// <summary>予定の保存先。</summary>
+        public string FilePath
+        {
+            get { return _path; }
+        }
+
+        /// <summary>選んでいる日の初め（選んでいなければ null）。</summary>
+        public DateTime? SelectedFrom
+        {
+            get { return _dayAnchor.HasValue && _dayEnd.HasValue ? (_dayAnchor.Value < _dayEnd.Value ? _dayAnchor : _dayEnd) : null; }
+        }
+
+        /// <summary>選んでいる日の終わり（その日を含む。選んでいなければ null）。</summary>
+        public DateTime? SelectedTo
+        {
+            get { return _dayAnchor.HasValue && _dayEnd.HasValue ? (_dayAnchor.Value < _dayEnd.Value ? _dayEnd : _dayAnchor) : null; }
+        }
+
+        /// <summary>選んでいる予定の写し（選んでいなければ null）。</summary>
+        public ScheduleItem SelectedItem
+        {
+            get { return _selected != null ? _selected.Clone() : null; }
+        }
+
+        /// <summary>見えている日の範囲（いちばん上に見えている週の日曜から、いちばん下に見えている週の土曜まで）。並ぶ前は今週。</summary>
+        public void VisibleRange(out DateTime first, out DateTime last)
+        {
+            first = WeekStart(DateTime.Today);
+            last = first.AddDays(6);
+            var top = 0.0;
+            var found = false;
+            foreach (var pair in _rows)
+            {
+                var height = pair.Value.ActualHeight;
+                var bottom = top + height;
+                if (height > 0 && bottom > _scroll.VerticalOffset + 1 && top < _scroll.VerticalOffset + _scroll.ViewportHeight - 1)
+                {
+                    if (!found) first = pair.Key;
+                    found = true;
+                    last = pair.Key.AddDays(6);
+                }
+                top = bottom;
+            }
+        }
+
+        /// <summary>
+        /// 保存先が外（Claude など）で書き換わっていたら読み直して出し直す。打ちかけ・欄で直している最中・帯をつかんでいる最中は読み直さない
+        /// （そのときは、次に直すときに Fresh が読み直す）。
+        /// </summary>
+        public void ReloadIfChanged()
+        {
+            if (Stamp() == _loadedStamp || _editorOpen || _newBox != null || _dragItem != null) return;
+            Load();
+            _undo.Clear();
+            Rebuild();
         }
 
         // ---------------------------------------------------------------
@@ -1050,11 +1168,15 @@ namespace Tsuzuri.Views
                     ScrollToToday();
                     break;
                 case Key.Escape:
-                    // 選んでいる予定があれば、選ぶのをやめる（カレンダーは閉じない。閉じるのはタブだけ）
-                    if (_selected == null) return;
+                    // 選んでいる予定・日があれば、選ぶのをやめる（カレンダーは閉じない。閉じるのはタブだけ）
+                    if (_selected == null && !_dayAnchor.HasValue) return;
                     e.Handled = true;
-                    _selected = null;
-                    Rebuild();
+                    ClearDays();
+                    if (_selected != null)
+                    {
+                        _selected = null;
+                        Rebuild();
+                    }
                     break;
             }
         }

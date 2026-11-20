@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Linq;
+using System.Text;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
@@ -104,6 +105,59 @@ namespace Tsuzuri
                               .ToList();
             _settings.CalendarWeekHeights = list.Count > 0 ? list : null;
             _settings.Save();
+        }
+
+        /// <summary>
+        /// AI に渡す今の状態に、カレンダーを足す（2026-11-21。利用者と日付の話をするため）。開いていなければ何も書かない。
+        /// 見えている週・選んでいる日・選んでいる予定。保存先や結んだ文書が AI に渡さない場所なら、その中身は書かない。
+        /// </summary>
+        private void AppendCalendarContext(StringBuilder text)
+        {
+            var calendar = _calendar;
+            if (calendar == null) return;
+
+            if (AiGuard.IsGuarded(calendar.FilePath))
+            {
+                text.Append("カレンダー: 開いている（予定の保存先は、利用者が AI に渡さないと決めた場所にある。中身を尋ねたり探したりしない）\n");
+                return;
+            }
+
+            DateTime first, last;
+            calendar.VisibleRange(out first, out last);
+            text.Append("カレンダー: 開いている（予定の保存先: ").Append(calendar.FilePath).Append("）\n");
+            text.Append("  見えている週: ").Append(Day(first)).Append("〜").Append(Day(last)).Append('\n');
+
+            var from = calendar.SelectedFrom;
+            var to = calendar.SelectedTo;
+            if (from.HasValue && to.HasValue)
+            {
+                text.Append("  選んでいる日: ").Append(Day(from.Value));
+                if (to.Value > from.Value) text.Append("〜").Append(Day(to.Value)).Append("（").Append((int)(to.Value - from.Value).TotalDays + 1).Append(" 日）");
+                text.Append('\n');
+            }
+
+            var item = calendar.SelectedItem;
+            if (item != null)
+            {
+                text.Append("  選んでいる予定: ").Append(Day(item.Start));
+                if (item.End > item.Start) text.Append("〜").Append(Day(item.End));
+                if (item.IsLinked && AiGuard.IsGuarded(item.LinkFile))
+                    text.Append("（AI に渡さない場所の文書の見出しと結んだ予定。名前は伏せた）\n");
+                else
+                {
+                    text.Append(" ").Append(item.Title);
+                    if (item.IsLinked) text.Append("（文書の見出しと結んだ予定: ").Append(item.LinkFile).Append(" の「").Append(item.LinkHeading).Append("」）");
+                    text.Append(item.Memo.Trim().Length > 0 ? "（メモあり。保存先を読む）" : string.Empty).Append('\n');
+                }
+            }
+
+            if (!(from.HasValue) && item == null) text.Append("  選んでいる日・予定: なし\n");
+        }
+
+        /// <summary>AI に渡す日付（2026-11-21（土））。</summary>
+        private static string Day(DateTime date)
+        {
+            return date.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture) + "（" + CultureInfo.GetCultureInfo("ja-JP").DateTimeFormat.GetShortestDayName(date.DayOfWeek) + "）";
         }
 
         /// <summary>カレンダーを閉じる。マスで打っている名前・欄で直している中身は、先に保存する（打った文字を捨てない）。閉じたら true。</summary>

@@ -438,16 +438,28 @@ namespace Tsuzuri.Views
             _resultArea = new Border();
             _resultArea.Height = DefaultResultAreaHeight;
             _resultArea.Background = Theme.Background;
-            _resultArea.BorderBrush = Theme.Divider;
-            _resultArea.BorderThickness = new Thickness(0, 0, 0, 1);
             _resultArea.Padding = new Thickness(0, 3, 0, 3);
             _resultArea.Child = halves;
 
             // 欄の下端（本文との境界）をつかんで上下に動かせる（2026-11-17。SPEC 12章）。高さは全部のページで共有し、app.json に覚える。
-            // ダブルクリックで標準の高さ（132）に戻す。つかむところは下の線の上の 5px（線に重ねると線が太って見えるので、欄の中に置く）
+            // ダブルクリックで標準の高さ（132）に戻す。
+            // 境界は本文と AI の欄の間の仕切りと同じ見た目（2026-11-20。前は 1px の線だけで細かった）: 4px の窓の地の色の帯に、真ん中に 1px の線。
+            // つかむところはその帯と、その上の欄の 2px。
+            _resultLine = new System.Windows.Shapes.Rectangle { Height = 1, VerticalAlignment = VerticalAlignment.Center, Fill = Theme.Divider, SnapsToDevicePixels = true };
+            var resultGap = new Border
+            {
+                Height = ResultGapHeight,
+                Background = (Application.Current != null ? Application.Current.TryFindResource("ChromeBackground") as Brush : null) ?? Theme.Divider,
+                Child = _resultLine,
+            };
             var resultGrip = CreateResultGrip();
             var resultWrap = new Grid();
+            resultWrap.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            resultWrap.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
             resultWrap.Children.Add(_resultArea);
+            Grid.SetRow(resultGap, 1);
+            resultWrap.Children.Add(resultGap);
+            Grid.SetRowSpan(resultGrip, 2);
             resultWrap.Children.Add(resultGrip);
             DockPanel.SetDock(resultWrap, Dock.Top);
 
@@ -2614,6 +2626,12 @@ namespace Tsuzuri.Views
 
         private double _gripStartHeight;
 
+        /// <summary>一覧とお気に入りの欄と本文の間の帯の高さ（AI の欄との仕切りの幅と同じ）。</summary>
+        private const double ResultGapHeight = 4;
+
+        /// <summary>その帯の真ん中の線。つかめるところに来たら色を変える。</summary>
+        private System.Windows.Shapes.Rectangle _resultLine;
+
         /// <summary>一覧とお気に入りの欄の高さを変える（低すぎる値は直す。画面に出ていれば、本文に高さを残す）。</summary>
         public void SetResultAreaHeight(double height)
         {
@@ -2623,8 +2641,8 @@ namespace Tsuzuri.Views
             var frameHeight = _frame != null ? _frame.ActualHeight : 0;
             if (frameHeight > 0)
             {
-                // 検索欄（32）・パンくず（24）・本文の残りを引いたもの
-                var max = frameHeight - 32 - 24 - MinBodyHeight;
+                // 検索欄（32）・境界の帯・パンくず（24）・本文の残りを引いたもの
+                var max = frameHeight - 32 - ResultGapHeight - 24 - MinBodyHeight;
                 if (height > max) height = max;
             }
             if (height < MinResultAreaHeight) height = MinResultAreaHeight;
@@ -2640,22 +2658,24 @@ namespace Tsuzuri.Views
 
             var grip = new System.Windows.Controls.Primitives.Thumb();
             grip.Template = new ControlTemplate(typeof(System.Windows.Controls.Primitives.Thumb)) { VisualTree = factory };
-            grip.Height = 5;
+            grip.Height = ResultGapHeight + 2;
             grip.VerticalAlignment = VerticalAlignment.Bottom;
             grip.Cursor = Cursors.SizeNS;
             grip.Focusable = false;
             grip.ToolTip = "ドラッグで高さを変える（ダブルクリックで標準の高さ）";
 
-            // つかめるところに来たら、下の線をほかの仕切りと同じ色にする
+            // つかめるところに来たら、線をほかの仕切りと同じにする（色を変え、2px に）
             var accent = Application.Current != null ? Application.Current.TryFindResource("AccentBrush") as Brush : null;
-            grip.MouseEnter += delegate { _resultArea.BorderBrush = accent ?? Theme.Link; };
-            grip.MouseLeave += delegate { if (!grip.IsDragging) _resultArea.BorderBrush = Theme.Divider; };
+            Action hot = () => { _resultLine.Fill = accent ?? Theme.Link; _resultLine.Height = 2; };
+            Action cold = () => { _resultLine.Fill = Theme.Divider; _resultLine.Height = 1; };
+            grip.MouseEnter += delegate { hot(); };
+            grip.MouseLeave += delegate { if (!grip.IsDragging) cold(); };
 
             grip.DragStarted += delegate { _gripStartHeight = _resultArea.Height; };
             grip.DragDelta += (sender, e) => SetResultAreaHeight(_resultArea.Height + e.VerticalChange);
             grip.DragCompleted += delegate
             {
-                if (!grip.IsMouseOver) _resultArea.BorderBrush = Theme.Divider;
+                if (!grip.IsMouseOver) cold();
                 if (_resultArea.Height == _gripStartHeight) return;   // 押しただけ（ダブルクリックの1回目も）
                 var handler = ResultAreaResized;
                 if (handler != null) handler(this, _resultArea.Height);

@@ -68,10 +68,6 @@ namespace Tsuzuri
             view.TextArea.Caret.PositionChanged += delegate { ScheduleOutlineRefresh(); };
             view.TextArea.GotKeyboardFocus += delegate { OnViewFocused(view); };
 
-            // 見出しの履歴に積むきっかけ（2026-10-30）。AvalonEdit が処理済みにしても届くよう handledEventsToo。
-            view.TextArea.AddHandler(UIElement.PreviewMouseLeftButtonDownEvent, new MouseButtonEventHandler(delegate { NoteHeadingClick(view); }), true);
-            view.TextArea.AddHandler(UIElement.PreviewKeyDownEvent, new KeyEventHandler((sender, e) => NoteHeadingKey(view, e)), true);
-
             return view;
         }
 

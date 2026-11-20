@@ -146,50 +146,11 @@
                         </ScrollViewer>
                     </Border>
 
-                    <!-- 上にアウトラインの木、下に見出しの履歴（SPEC 7章。2026-10-29）。仕切りは動かせ、ダブルクリックで半分ずつ -->
-                    <Grid>
-                        <Grid.RowDefinitions>
-                            <RowDefinition x:Name="OutlineRow" Height="*" MinHeight="60" />
-                            <RowDefinition Height="4" />
-                            <RowDefinition x:Name="HistoryRow" Height="*" MinHeight="60" />
-                        </Grid.RowDefinitions>
-
-                        <!-- 横スクロールを止めて、項目の幅をサイドバーに収める。
-                             そうしないと長い見出しで行が伸び、右端の ＋ / • が外に押し出される -->
-                        <Grid Grid.Row="0">
-                            <TreeView x:Name="OutlineTree" Padding="6,0,6,12"
-                                      ScrollViewer.HorizontalScrollBarVisibility="Disabled" />
-                        </Grid>
-
-                        <GridSplitter Grid.Row="1" Height="4" Style="{StaticResource RowSplitter}" ResizeDirection="Rows"
-                                      HorizontalAlignment="Stretch" VerticalAlignment="Stretch"
-                                      DragCompleted="HistorySplitter_DragCompleted"
-                                      MouseDoubleClick="HistorySplitter_MouseDoubleClick" />
-
-                        <!-- 履歴。左に本文で踏んだ見出し、右にリンクで移ってきたときのリンク元（2026-11-08）。
-                             新しいものから上に積み、押すとそこへ移る。題と空のときの案内は出さない。名前は1行で出し、はみ出す分は下の横のスクロールバーで見る（2026-11-10。前は折り返していた） -->
-                        <Grid Grid.Row="2">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*" />
-                                <ColumnDefinition Width="1" />
-                                <ColumnDefinition Width="*" />
-                            </Grid.ColumnDefinitions>
-
-                            <ScrollViewer x:Name="HeadingHistoryScroll" Grid.Column="0"
-                                          VerticalScrollBarVisibility="Auto"
-                                          HorizontalScrollBarVisibility="Auto">
-                                <StackPanel x:Name="HeadingHistoryList" Margin="0,6,0,12" />
-                            </ScrollViewer>
-
-                            <Border Grid.Column="1" Background="{StaticResource BorderBrushSoft}" Margin="0,6,0,6" />
-
-                            <ScrollViewer x:Name="LinkHistoryScroll" Grid.Column="2"
-                                          VerticalScrollBarVisibility="Auto"
-                                          HorizontalScrollBarVisibility="Auto">
-                                <StackPanel x:Name="LinkHistoryList" Margin="0,6,0,12" />
-                            </ScrollViewer>
-                        </Grid>
-                    </Grid>
+                    <!-- アウトラインの木。横スクロールを止めて、項目の幅をサイドバーに収める。
+                         そうしないと長い見出しで行が伸び、右端の ＋ / • が外に押し出される。
+                         下にあった見出しの履歴・リンク元の欄は 2026-11-20 にやめた（SPEC 7章） -->
+                    <TreeView x:Name="OutlineTree" Padding="6,0,6,12"
+                              ScrollViewer.HorizontalScrollBarVisibility="Disabled" />
                 </DockPanel>
             </Border>
 

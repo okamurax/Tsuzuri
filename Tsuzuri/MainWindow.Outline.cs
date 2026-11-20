@@ -65,7 +65,6 @@ namespace Tsuzuri
             {
                 _headingContext = context;
                 RefreshHeadingBookmarks();
-                RefreshHeadingHistory();
             }
 
             if (!HasDocument)
@@ -133,9 +132,6 @@ namespace Tsuzuri
             started = PerfLog.Start();
             HighlightOutline(snapshot.CurrentIndex);
             PerfLog.Step("今の見出しを選ぶ", started);
-            started = PerfLog.Start();
-            RecordHeadingVisit(Active, snapshot, false);
-            PerfLog.Step("見出しの履歴", started);   // 履歴の一番上の見出しを追いかける（積むのはクリック2度・キー。2026-10-30）
         }
 
         /// <summary>しまっておいたアウトラインの木。ページ（MarkdownView）ごとに1つ。</summary>

@@ -37,9 +37,6 @@ namespace Tsuzuri
 
             var target = e.Target;
 
-            // 押した場所（↩ で戻る先）。カーソルはリンクの頭に置いてある（MarkdownView.OnPreviewMouseLeftButtonDown）。
-            var origin = LinkOriginOf(view, e);
-
             if (target.StartsWith("#", StringComparison.Ordinal))
             {
                 var anchor = target.Substring(1);
@@ -52,22 +49,16 @@ namespace Tsuzuri
                 }
 
                 // ページでなければ、同じページの中の見出しへ飛ぶ（HTML と同じページ内リンク）。
-                // サブページへは積まない（上の縦帯で戻れる）。見出しへは積む（長いファイルの中で飛んだあとも戻れるように。2026-11-07）。
                 var line = view.FindHeading(anchor);
                 if (line > 0)
                 {
                     view.GoToLine(line);
-                    RecordLinkOrigin(origin, view.FilePath);
                     return;
                 }
 
                 // 同じページに無ければ、同じファイルのほかのページの見出しを探す（2026-11-02。行番号の右クリックでコピーしたリンクは
                 // 見出しの名前だけで書くので、ほかのページの見出しを指すことがある）。
-                if (view.Owner != null && GoToAnchor(view.Owner, anchor))
-                {
-                    RecordLinkOrigin(origin, view.FilePath);
-                    return;
-                }
+                if (view.Owner != null && GoToAnchor(view.Owner, anchor)) return;
 
                 Status("見つかりません: " + target);
                 return;
@@ -130,32 +121,8 @@ namespace Tsuzuri
                 return;
             }
 
-            // 移った先の画面の履歴に、リンク元（↩）を積む（2026-11-07）。
             var anchorOf = AnchorOf(target);
-            OpenFileThen(path, (window, document) =>
-            {
-                window.GoToAnchor(document, anchorOf);
-                window.RecordLinkOrigin(origin, document.FilePath);
-            });
-        }
-
-        /// <summary>リンクを押した場所。ファイルに保存していない文書なら null（戻れない）。</summary>
-        private static LinkOrigin LinkOriginOf(MarkdownView view, LinkActivatedEventArgs e)
-        {
-            if (string.IsNullOrEmpty(view.FilePath) || e.IsImage) return null;
-
-            var caret = view.TextArea.Caret;
-            var heading = view.HeadingAbove(caret.Line);
-            return new LinkOrigin
-            {
-                File = view.FilePath,
-                Page = view.PageId ?? string.Empty,
-                Line = caret.Line,
-                Column = caret.Column - 1,
-                Target = e.Target,
-                Label = e.Label ?? string.Empty,
-                Heading = heading != null ? heading.Text : null,
-            };
+            OpenFileThen(path, (window, document) => window.GoToAnchor(document, anchorOf));
         }
 
         /// <summary>リンク先の # の後ろ（見出しの名前かページの番号）。無ければ null。</summary>
@@ -179,7 +146,7 @@ namespace Tsuzuri
         }
 
         /// <summary>
-        /// 文書を出してから arrive を呼ぶ（OpenLinkedFile と、↩ でリンク元へ戻るときに使う。2026-11-07）。
+        /// 文書を出してから arrive を呼ぶ（OpenLinkedFile などから）。
         /// この画面で開いていればこの画面で、ほかの画面で開いていればその画面を前に出して、どこにも無ければ新しい画面で開く。
         /// arrive には、文書を出した画面と文書を渡す。開けなかったら呼ばない。
         /// </summary>

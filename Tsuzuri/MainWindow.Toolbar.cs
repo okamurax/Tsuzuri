@@ -86,7 +86,7 @@ namespace Tsuzuri
         /// <summary>
         /// ファイラーで名前を変えたあと（2026-11-03。SPEC 9章）。エディタが絶対パスで覚えているものを、新しい名前に直す。
         /// ・app.json: 前回のファイル・画面の覚え（最初の画面・増やした画面）・たたんだ見出し・ランチャーの登録・ファイラーのフォルダ
-        /// ・開いている画面の、見出しの履歴とたたんだ見出し
+        /// ・開いている画面の、見出しのブックマークとたたんだ見出し
         /// ・文書なら、その文書の state.json（ブックマークが覚えている画面）と、変更の記録（名前の変更として記録する）
         /// フォルダの名前を変えたときは、その中のもの全部を直す。ほかの文書からのリンクは直さず、同じフォルダの文書にあれば知らせる（返す文）。
         /// </summary>
@@ -122,11 +122,6 @@ namespace Tsuzuri
 
             foreach (var window in OpenWindows)
             {
-                foreach (var mark in window._headingHistory)
-                {
-                    mark.File = remap(mark.File);
-                    if (mark.From != null) mark.From.File = remap(mark.From.File);
-                }
                 foreach (var mark in window._headingBookmarks) mark.File = remap(mark.File);
                 var keys = RemapKeys(window._collapsedPaths.ToList(), from, to, isFolder);
                 window._collapsedPaths.Clear();

@@ -645,24 +645,6 @@ namespace Tsuzuri.Markdown
             return false;
         }
 
-        /// <summary>
-        /// この id を指すリンクの文字（[ ] の中）。見出しの履歴で、どのサブページの見出しかを示すのに使う（2026-10-30）。
-        /// リンクが見つからなければ null。
-        /// </summary>
-        public string LinkTextTo(string id)
-        {
-            string pageId;
-            int offset, length;
-            if (!FindLinkTo(id, null, out pageId, out offset, out length)) return null;
-
-            var link = Find(pageId).Text.Substring(offset, length);
-            var close = link.IndexOf("](", StringComparison.Ordinal);
-            if (close < 1) return null;
-
-            var text = Regex.Replace(link.Substring(1, close - 1), @"\\(.)", "$1").Trim();
-            return text.Length > 0 ? text : null;
-        }
-
         /// <summary>このページの中から、リンクを辿って行けるページ全部（自分は含まない）。</summary>
         private HashSet<string> Descendants(string id)
         {

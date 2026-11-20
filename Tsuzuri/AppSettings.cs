@@ -34,10 +34,6 @@ namespace Tsuzuri
         [DataMember(Name = "aiWidth")]
         public double AiWidth { get; set; }
 
-        /// <summary>左の欄の、アウトラインと見出しの履歴の仕切り。上のアウトラインの高さの割合（2026-10-29）。0 なら未保存で半分ずつ。</summary>
-        [DataMember(Name = "historySplit", EmitDefaultValue = false)]
-        public double HistorySplit { get; set; }
-
         /// <summary>ページの検索欄の下の、一覧とお気に入りの欄の高さ（2026-11-17。全部のページで共有）。0 なら未保存で標準（132）。</summary>
         [DataMember(Name = "searchResultHeight", EmitDefaultValue = false)]
         public double SearchResultHeight { get; set; }
@@ -151,7 +147,6 @@ namespace Tsuzuri
             if (SidebarWidth < 110 || SidebarWidth > 2000) SidebarWidth = 190;
             if (FilerWidth < 180 || FilerWidth > 2000) FilerWidth = 300;
             if (AiWidth < 200 || AiWidth > 4000) AiWidth = 560;
-            if (!(HistorySplit >= 0.1 && HistorySplit <= 0.9)) HistorySplit = 0.5;
             if (!(SearchResultHeight >= 40 && SearchResultHeight <= 4000)) SearchResultHeight = 132;   // NaN もここで直す
             if (!(AiShellSplit >= 0.15 && AiShellSplit <= 0.85)) AiShellSplit = 0.6;   // NaN もここで直す
 

@@ -146,9 +146,6 @@
     <Compile Include="MainWindow.Bookmarks.cs">
       <DependentUpon>MainWindow.xaml</DependentUpon>
     </Compile>
-    <Compile Include="MainWindow.History.cs">
-      <DependentUpon>MainWindow.xaml</DependentUpon>
-    </Compile>
     <Compile Include="MainWindow.Links.cs">
       <DependentUpon>MainWindow.xaml</DependentUpon>
     </Compile>

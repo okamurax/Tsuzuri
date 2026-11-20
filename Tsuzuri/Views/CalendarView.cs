@@ -8,6 +8,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
+using System.Windows.Media.Animation;
 using System.Windows.Threading;
 using Tsuzuri.Markdown;
 
@@ -23,6 +24,7 @@ namespace Tsuzuri.Views
     /// ・アウトラインの見出しを日へドラッグすると、その見出しと結んだ予定になる（2026-11-20）。2度押すと文書のその見出しへ飛ぶ。
     ///   見出しの名前が変わっても追わない。見つからなければ印を付けるだけ（利用者の判断）
     /// ・週の下の境を引っぱると、その週だけ高さを広げられる（2026-11-21。考える週だけ広げる。2度押すと戻す）。広げた高さは app.json に覚える
+    /// ・保存先を見張り、外（Claude・ほかの画面・同期）で書き換わったら、すぐ出し直す。増えた・変わった予定は少しの間光らせる（2026-11-21）
     /// ・直すたびにすぐ保存する（保存の操作は無い）。外で書き換わっていたら、直す前に読み直す
     /// 本文の場所に重ねて出す（MainWindow.Calendar.cs）。ランチャーと同じく、出すたびに作り、閉じたら捨てる。
     /// </summary>
@@ -39,6 +41,8 @@ namespace Tsuzuri.Views
         private const int WeeksPerExtend = 12;      // 端へスクロールしたら足す週
         private const double ExtendMargin = 600;    // 端からこれだけ手前まで来たら足す
         private const int UndoLimit = 50;
+        private const double FlashSeconds = 2.5;    // 外で増えた・変わった予定を光らせる時間
+        private const double NoticeSeconds = 8;     // 上の段の「外で変わりました」を出しておく時間
         private const double WeekGrip = 6;          // 週の下の境のこの高さをつかむと、週の高さを変える
 
         private static readonly Brush SundayText = Freeze(Color.FromRgb(0xE0, 0x7A, 0x7A));
@@ -49,6 +53,7 @@ namespace Tsuzuri.Views
         private static readonly Brush TodayFill = Freeze(Color.FromRgb(0x1F, 0x30, 0x55));       // 今日のマス（偶数月の地と見分けが付くように濃く）
         private static readonly Brush TodayEdge = Freeze(Color.FromRgb(0x5D, 0x89, 0xEA));       // 今日のマスの枠と、日の数字の地（AccentText と同じ色）
         private static readonly Brush DropFill = Freeze(Color.FromArgb(0x60, 0x5D, 0x89, 0xEA));    // アウトラインから落とす先の日
+        private static readonly Color FlashColor = Color.FromRgb(0x5D, 0x89, 0xEA);
         private static readonly Brush GripHover = Freeze(Color.FromArgb(0x90, 0x5D, 0x89, 0xEA));
 
         private static readonly CultureInfo Japanese = CultureInfo.GetCultureInfo("ja-JP");
@@ -83,6 +88,20 @@ namespace Tsuzuri.Views
         private readonly List<List<ScheduleItem>> _undo = new List<List<ScheduleItem>>();
 
         private readonly TextBlock _title = new TextBlock();
+
+        // 保存先の見張り（2026-11-21）。FileSystemWatcher が届かない場所（共有フォルダなど）のために、時々更新日時も見る
+        private FileSystemWatcher _watcher;
+        private readonly DispatcherTimer _reloadTimer;
+        private readonly DispatcherTimer _pollTimer;
+
+        // 外で増えた・変わった予定（光らせる）と、光らせ始めた時刻
+        private HashSet<ScheduleItem> _flash = new HashSet<ScheduleItem>();
+        private DateTime _flashStart;
+
+        // 上の段の「外で変わりました」（押すと、変わった予定のある週へ）
+        private readonly Button _notice;
+        private readonly DispatcherTimer _noticeTimer;
+        private DateTime? _noticeDate;
         private readonly ScrollViewer _scroll = new ScrollViewer();
         private readonly StackPanel _weeks = new StackPanel();
 
@@ -141,6 +160,17 @@ namespace Tsuzuri.Views
             _title.Foreground = Resource("TextPrimary");
             DockPanel.SetDock(_title, Dock.Left);
             bar.Children.Add(_title);
+            _notice = ToolButton(string.Empty, "変わった予定のある週へ");
+            _notice.Margin = new Thickness(16, 0, 0, 0);
+            _notice.Foreground = Resource("AccentText");
+            _notice.Visibility = Visibility.Collapsed;
+            _notice.Click += delegate
+            {
+                if (_noticeDate.HasValue) ScrollToDate(_noticeDate.Value);
+                _notice.Visibility = Visibility.Collapsed;
+            };
+            DockPanel.SetDock(_notice, Dock.Left);
+            bar.Children.Add(_notice);
             var todayButton = ToolButton("今日", "今日の週へ（Home）");
             todayButton.Click += delegate { ScrollToToday(); };
             DockPanel.SetDock(todayButton, Dock.Right);
@@ -194,6 +224,24 @@ namespace Tsuzuri.Views
 
             KeyDown += OnKey;
 
+            // 見張り。知らせはまとめて来る（置き換えで消す・作る・名前を変える）ので、少し待ってから1回読む
+            _reloadTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(250) };
+            _reloadTimer.Tick += delegate
+            {
+                _reloadTimer.Stop();
+                if (!ReloadIfChanged()) _reloadTimer.Start();   // 打っている・つかんでいる最中なら、終わるまで待って読む
+            };
+            _pollTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(2) };
+            _pollTimer.Tick += delegate { if (Stamp() != _loadedStamp && !_reloadTimer.IsEnabled) _reloadTimer.Start(); };
+            _noticeTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(NoticeSeconds) };
+            _noticeTimer.Tick += delegate
+            {
+                _noticeTimer.Stop();
+                _notice.Visibility = Visibility.Collapsed;
+            };
+            Loaded += delegate { StartWatching(); };
+            Unloaded += delegate { StopWatching(); };   // 閉じたら捨てる（MainWindow が CalendarHost から外す）
+
             Load();
             _firstWeek = WeekStart(DateTime.Today).AddDays(-7 * WeeksBefore);
             _weekCount = WeeksBefore + 1 + WeeksAfter;
@@ -241,9 +289,7 @@ namespace Tsuzuri.Views
         {
             if (Stamp() == _loadedStamp) return true;
 
-            Load();
-            _undo.Clear();
-            Rebuild();
+            ReloadKeepingSelection();
             _status("予定が外で書き換えられていたので、読み直しました。もう一度操作してください");
             return false;
         }
@@ -271,6 +317,108 @@ namespace Tsuzuri.Views
             {
                 _status("予定を保存できませんでした: " + ex.Message);
             }
+        }
+
+        // ---------------------------------------------------------------
+        // 見張る（外で書き換わったら、すぐ出し直す。2026-11-21）
+        // ---------------------------------------------------------------
+
+        private void StartWatching()
+        {
+            _pollTimer.Start();
+            if (_watcher != null) return;
+            try
+            {
+                var folder = Path.GetDirectoryName(Path.GetFullPath(_path));
+                if (string.IsNullOrEmpty(folder) || !Directory.Exists(folder)) return;
+                var watcher = new FileSystemWatcher(folder, Path.GetFileName(_path))
+                {
+                    NotifyFilter = NotifyFilters.LastWrite | NotifyFilters.FileName | NotifyFilters.Size,
+                };
+                FileSystemEventHandler changed = (sender, e) => Poke();
+                watcher.Changed += changed;
+                watcher.Created += changed;
+                watcher.Deleted += changed;
+                watcher.Renamed += (sender, e) => Poke();
+                watcher.EnableRaisingEvents = true;
+                _watcher = watcher;
+            }
+            catch (Exception)
+            {
+                // 見張れない場所（共有フォルダなど）は、2秒ごとに更新日時を見るだけにする
+            }
+        }
+
+        private void StopWatching()
+        {
+            _pollTimer.Stop();
+            _reloadTimer.Stop();
+            _noticeTimer.Stop();
+            if (_watcher == null) return;
+            _watcher.EnableRaisingEvents = false;
+            _watcher.Dispose();
+            _watcher = null;
+        }
+
+        /// <summary>見張りの知らせ（見張りのスレッドから）。画面のスレッドで、少し待ってから読む。</summary>
+        private void Poke()
+        {
+            Dispatcher.BeginInvoke(new Action(delegate
+            {
+                _reloadTimer.Stop();
+                _reloadTimer.Start();
+            }));
+        }
+
+        /// <summary>予定を見分ける形（日・名前・結んだ見出し・メモ）。読み直したときに、増えた・変わった予定を探す。</summary>
+        private static string KeyOf(ScheduleItem item)
+        {
+            return item.Start.Ticks + "|" + item.End.Ticks + "|" + item.Title + "|" + item.LinkFile + "|" + item.LinkPage + "|" + item.LinkHeading + "|" + item.Memo;
+        }
+
+        /// <summary>外で書き換わって読み直したとき。増えた・変わった予定を光らせ、上の段に何件変わったかを出す。</summary>
+        private void MarkChanges(List<ScheduleItem> before)
+        {
+            var oldKeys = new Dictionary<string, int>();
+            foreach (var item in before)
+            {
+                var key = KeyOf(item);
+                oldKeys[key] = oldKeys.TryGetValue(key, out var n) ? n + 1 : 1;
+            }
+
+            var added = new List<ScheduleItem>();
+            foreach (var item in _items)
+            {
+                var key = KeyOf(item);
+                int n;
+                if (oldKeys.TryGetValue(key, out n) && n > 0) oldKeys[key] = n - 1;
+                else added.Add(item);
+            }
+            var removed = oldKeys.Values.Sum();
+            var changed = Math.Min(added.Count, removed);   // 変わった予定は「消えて増えた」に見える。少ない方を「変わった」と数える
+
+            _flash = new HashSet<ScheduleItem>(added);
+            _flashStart = DateTime.UtcNow;
+            if (added.Count == 0 && removed == 0) return;
+
+            var parts = new List<string>();
+            if (added.Count - changed > 0) parts.Add("増えた " + (added.Count - changed));
+            if (changed > 0) parts.Add("変わった " + changed);
+            if (removed - changed > 0) parts.Add("消えた " + (removed - changed));
+            var message = "外で変わりました: " + string.Join("・", parts);
+
+            // 見えていない週で変わった予定があれば、押すとそこへ
+            DateTime first, last;
+            VisibleRange(out first, out last);
+            var outside = added.Where(item => item.End < first || item.Start > last).OrderBy(item => item.Start).FirstOrDefault();
+            _noticeDate = outside != null ? outside.Start : (DateTime?)null;
+            if (outside != null) message += "（" + outside.Start.ToString("M/d", CultureInfo.InvariantCulture) + " へ ›）";
+
+            _notice.Content = message;
+            _notice.IsHitTestVisible = outside != null;
+            _notice.Visibility = Visibility.Visible;
+            _noticeTimer.Stop();
+            _noticeTimer.Start();
         }
 
         // ---------------------------------------------------------------
@@ -366,7 +514,13 @@ namespace Tsuzuri.Views
 
         private void ScrollToToday()
         {
-            var week = WeekStart(DateTime.Today);
+            ScrollToDate(DateTime.Today);
+        }
+
+        /// <summary>その日の週を上から2行目あたりに出す。出していない週なら、その週のまわりを組み直す。</summary>
+        private void ScrollToDate(DateTime date)
+        {
+            var week = WeekStart(date);
             if (week < _firstWeek || week >= _firstWeek.AddDays(7 * _weekCount))
             {
                 _firstWeek = week.AddDays(-7 * WeeksBefore);
@@ -694,7 +848,7 @@ namespace Tsuzuri.Views
                 Margin = new Thickness(startsHere ? 3 : 0, 1, endsHere ? 3 : 0, 1),
                 Padding = new Thickness(6, 0, 6, 0),
                 CornerRadius = new CornerRadius(startsHere ? 3 : 0, endsHere ? 3 : 0, endsHere ? 3 : 0, startsHere ? 3 : 0),
-                Background = shown.Days > 1 ? MultiFill : SingleFill,
+                Background = FlashFill(item, shown.Days > 1 ? MultiFill : SingleFill),
                 BorderBrush = selected ? Resource("AccentBrush") : Brushes.Transparent,
                 BorderThickness = new Thickness(1),
                 Cursor = Cursors.Hand,
@@ -710,6 +864,31 @@ namespace Tsuzuri.Views
             };
             bar.MouseLeftButtonDown += (sender, e) => OnBarDown(item, bar, e, startsHere, endsHere);
             return bar;
+        }
+
+        /// <summary>外で増えた・変わった予定は、光の色から元の色へ戻していく（組み直しても、光らせ始めた時刻から続ける）。</summary>
+        private Brush FlashFill(ScheduleItem item, Brush normal)
+        {
+            if (!_flash.Contains(item)) return normal;
+            var left = FlashSeconds - (DateTime.UtcNow - _flashStart).TotalSeconds;
+            if (left <= 0) return normal;
+
+            var to = ((SolidColorBrush)normal).Color;
+            var brush = new SolidColorBrush(FlashColor);
+            var animation = new ColorAnimation
+            {
+                From = Lerp(to, FlashColor, left / FlashSeconds),
+                To = to,
+                Duration = TimeSpan.FromSeconds(left),
+                EasingFunction = new QuadraticEase { EasingMode = EasingMode.EaseIn },
+            };
+            brush.BeginAnimation(SolidColorBrush.ColorProperty, animation);
+            return brush;
+        }
+
+        private static Color Lerp(Color from, Color to, double t)
+        {
+            return Color.FromRgb((byte)(from.R + (to.R - from.R) * t), (byte)(from.G + (to.G - from.G) * t), (byte)(from.B + (to.B - from.B) * t));
         }
 
         private static Gesture EdgeOf(Border bar, MouseEventArgs e, bool startsHere, bool endsHere)
@@ -1102,11 +1281,25 @@ namespace Tsuzuri.Views
         /// 保存先が外（Claude など）で書き換わっていたら読み直して出し直す。打ちかけ・欄で直している最中・帯をつかんでいる最中は読み直さない
         /// （そのときは、次に直すときに Fresh が読み直す）。
         /// </summary>
-        public void ReloadIfChanged()
+        /// <returns>読み直した・読み直す要が無かったら true。打っている最中などで待つなら false（見張りが少し後にまた呼ぶ）。</returns>
+        public bool ReloadIfChanged()
         {
-            if (Stamp() == _loadedStamp || _editorOpen || _newBox != null || _dragItem != null) return;
+            if (Stamp() == _loadedStamp) return true;
+            if (_editorOpen || _newBox != null || _dragItem != null || _selectingDays || _sizingRow != null) return false;
+
+            ReloadKeepingSelection();
+            return true;
+        }
+
+        /// <summary>外で書き換わった保存先を読み直す。選んでいた予定は、同じ形の予定があれば選んだままにし、増えた・変わった予定を光らせる。</summary>
+        private void ReloadKeepingSelection()
+        {
+            var before = _items;
+            var selectedKey = _selected != null ? KeyOf(_selected) : null;
             Load();
             _undo.Clear();
+            if (selectedKey != null) _selected = _items.FirstOrDefault(item => KeyOf(item) == selectedKey);
+            MarkChanges(before);
             Rebuild();
         }
 

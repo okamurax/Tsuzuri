@@ -457,7 +457,7 @@ namespace Tsuzuri
 
             StatusText.Text = HasDocument
                 ? Active.FilePath
-                : "左上の「ランチャー」からファイルを選ぶか、「新規作成」で作ってください。";
+                : "タブの「ランチャー」からファイルを選ぶか、「新規作成」で作ってください。";
         }
 
         private void OnClosing(object sender, CancelEventArgs e)

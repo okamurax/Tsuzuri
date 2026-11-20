@@ -312,7 +312,7 @@ namespace Tsuzuri
             return path;
         }
 
-        /// <summary>画面のタブの段の左端の「ランチャー」（2026-11-20。前はツールバー、その前はページの上端の段）。ランチャーとファイラーを出し入れする（SPEC 4章）。</summary>
+        /// <summary>今の画面のタブの右の「ランチャー」（2026-11-20。前はツールバー、その前はページの上端の段）。ランチャーとファイラーを出し入れする（SPEC 4章）。</summary>
         private void Launcher_Click(object sender, RoutedEventArgs e)
         {
             ToggleLauncher();

@@ -57,14 +57,9 @@
         <Border DockPanel.Dock="Top" Height="30"
                 Background="{StaticResource ChromeBackground}"
                 MouseLeftButtonDown="Toolbar_MouseLeftButtonDown">
-            <!-- 左端にいつも「ランチャー」のタブ（2026-11-20。前はツールバーのボタンで、よく使うのに押しづらかった）、その右に開いている画面のタブと「＋」。
-                 ランチャーのタブは押すとこの画面にランチャーを出し入れし、出している間は色を付ける（MainWindow.Overlays.cs）。
-                 ランチャーの外を押すと閉じるが、このボタンは除く（CloseLauncherOnOutsideClick） -->
+            <!-- 開いている画面のタブと「＋」。今の画面のタブのすぐ右に「ランチャー」（2026-11-20。前はツールバーのボタンで、よく使うのに押しづらかった）。
+                 中身は MainWindow.Windows.cs（BuildWindowList）が組む -->
             <DockPanel Margin="8,0,8,2" VerticalAlignment="Center" LastChildFill="False" TextElement.FontSize="13">
-                <Button x:Name="LauncherButton" DockPanel.Dock="Left" Content="ランチャー(_L)" Style="{StaticResource ToolButton}" Click="Launcher_Click"
-                        Height="26" Padding="12,0" Margin="0,0,4,0" VerticalAlignment="Center"
-                        ToolTip="ランチャーとファイラーを、本文の場所いっぱいに重ねて出す。もう一度押すか Esc で閉じる" />
-                <Border DockPanel.Dock="Left" Width="1" Height="16" Margin="0,0,8,0" VerticalAlignment="Center" Background="{StaticResource BorderBrushSoft}" />
                 <StackPanel x:Name="WindowList" DockPanel.Dock="Left" Orientation="Horizontal" />
             </DockPanel>
         </Border>

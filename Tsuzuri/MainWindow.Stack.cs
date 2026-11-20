@@ -819,7 +819,7 @@ namespace Tsuzuri
         private UIElement CreatePlaceholder()
         {
             var text = new TextBlock();
-            text.Text = "左上の「ランチャー」からファイルを選ぶか、「新規作成」で作ってください";
+            text.Text = "タブの「ランチャー」からファイルを選ぶか、「新規作成」で作ってください";
             text.FontSize = 15;
             text.HorizontalAlignment = HorizontalAlignment.Center;
             text.VerticalAlignment = VerticalAlignment.Center;

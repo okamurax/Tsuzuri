@@ -679,6 +679,7 @@ namespace Tsuzuri
             for (var i = 0; i < OpenWindows.Count; i++)
             {
                 WindowList.Children.Add(CreateWindowTab(OpenWindows[i], labels[i], OpenWindows.Count > 1));
+                if (ReferenceEquals(OpenWindows[i], this)) WindowList.Children.Add(LauncherButton);   // 今の画面のタブのすぐ右（2026-11-20）
                 WindowList.Children.Add(new Border
                 {
                     Width = WindowTabSeparatorWidth,
@@ -700,6 +701,33 @@ namespace Tsuzuri
         }
 
         private const double WindowTabWidth = 180;
+
+        private Button _launcherButton;
+
+        /// <summary>
+        /// 「ランチャー」のタブ（2026-11-20。前はツールバーのボタン）。いつも今の画面のタブのすぐ右に置く（BuildWindowList）。
+        /// 押すとこの画面にランチャーを出し入れし、出している間は色を付ける（MainWindow.Overlays.cs）。Alt+L でも。
+        /// ランチャーの外を押すと閉じるが、このボタンは除く（CloseLauncherOnOutsideClick）。
+        /// </summary>
+        private Button LauncherButton
+        {
+            get
+            {
+                if (_launcherButton != null) return _launcherButton;
+                _launcherButton = new Button
+                {
+                    Content = "ランチャー(_L)",
+                    Style = (Style)FindResource("ToolButton"),
+                    Height = 26,
+                    Padding = new Thickness(12, 0, 12, 0),
+                    Margin = new Thickness(0, 0, 4, 0),
+                    VerticalAlignment = VerticalAlignment.Center,
+                    ToolTip = "ランチャーとファイラーを、本文の場所いっぱいに重ねて出す。もう一度押すか Esc で閉じる",
+                };
+                _launcherButton.Click += Launcher_Click;
+                return _launcherButton;
+            }
+        }
 
         /// <summary>画面のタブを掴んで横にこれだけ動かしたら、並べ替える（ピクセル。2026-11-10）。</summary>
         private const double ReorderDragDistance = 8;

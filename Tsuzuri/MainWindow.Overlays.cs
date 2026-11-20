@@ -123,12 +123,10 @@ namespace Tsuzuri
             if (hadFocus && Active != null) Active.TextArea.Focus();
         }
 
-        /// <summary>「ランチャー」のタブを、出している間は画面のタブの今の画面と同じ色にする。</summary>
+        /// <summary>「ランチャー」のタブを、出している間は明るい地にする（App.xaml の LauncherTabButton が Tag を見る）。</summary>
         private void PaintLauncherButton()
         {
-            var open = _launcher != null;
-            LauncherButton.Background = open ? (Brush)FindResource("AccentFill") : Brushes.Transparent;
-            LauncherButton.Foreground = (Brush)FindResource(open ? "AccentText" : "TextPrimary");
+            LauncherButton.Tag = _launcher != null ? "Open" : null;
         }
 
         /// <summary>

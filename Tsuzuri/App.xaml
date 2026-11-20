@@ -74,6 +74,42 @@
             </Setter>
         </Style>
 
+        <!-- ============ 「ランチャー」のタブ（2026-11-20）。画面のタブの段で、今の画面のタブのすぐ右 ============ -->
+        <!-- 字は出さずアイコンだけで幅を狭く、見つけやすいよう青い地に白いアイコン。載せると明るく、押すと濃く。
+             ランチャーを出している間は明るい地のまま（Tag="Open"。MainWindow.Overlays.cs の PaintLauncherButton） -->
+        <SolidColorBrush x:Key="LauncherTabFill"      Color="#3B69CF" />
+        <SolidColorBrush x:Key="LauncherTabFillHover" Color="#5A86E8" />
+        <SolidColorBrush x:Key="LauncherTabFillDown"  Color="#2F58B3" />
+        <Style x:Key="LauncherTabButton" TargetType="Button">
+            <Setter Property="Background" Value="{StaticResource LauncherTabFill}" />
+            <Setter Property="Foreground" Value="#FFFFFF" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="Focusable" Value="False" />
+            <Setter Property="SnapsToDevicePixels" Value="True" />
+            <Setter Property="FocusVisualStyle" Value="{x:Null}" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="Chrome" Background="{TemplateBinding Background}" CornerRadius="4" SnapsToDevicePixels="True">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="Tag" Value="Open">
+                                <Setter TargetName="Chrome" Property="Background" Value="{StaticResource LauncherTabFillHover}" />
+                            </Trigger>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Chrome" Property="Background" Value="{StaticResource LauncherTabFillHover}" />
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="Chrome" Property="Background" Value="{StaticResource LauncherTabFillDown}" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
         <!-- ============ 青みのあるボタン ============ -->
         <!-- Mattermost の「三次」ボタンと同じく、青い字にごく薄い青の地。載せる・押すと地が濃くなる。
              作る・登録するといった、その場の主な操作に使う -->

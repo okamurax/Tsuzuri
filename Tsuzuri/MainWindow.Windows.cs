@@ -714,17 +714,19 @@ namespace Tsuzuri
             get
             {
                 if (_launcherButton != null) return _launcherButton;
+                // 字は出さずアイコン（4つの四角）だけ。幅を狭く、青い地で見つけやすく（2026-11-20。見た目は App.xaml の LauncherTabButton）
                 _launcherButton = new Button
                 {
-                    Content = "ランチャー(_L)",
-                    Style = (Style)FindResource("ToolButton"),
+                    Content = new TextBlock { Text = "\uE8A9", FontFamily = IconFont, FontSize = 14, VerticalAlignment = VerticalAlignment.Center },
+                    Style = (Style)FindResource("LauncherTabButton"),
+                    Width = 34,
                     Height = 26,
-                    Padding = new Thickness(12, 0, 12, 0),
                     Margin = new Thickness(0, 0, 4, 0),
                     VerticalAlignment = VerticalAlignment.Center,
-                    ToolTip = "ランチャーとファイラーを、本文の場所いっぱいに重ねて出す。もう一度押すか Esc で閉じる",
+                    ToolTip = "ランチャー（Alt+L）。ランチャーとファイラーを、本文の場所いっぱいに重ねて出す。もう一度押すか Esc で閉じる",
                 };
                 _launcherButton.Click += Launcher_Click;
+                System.Windows.Input.AccessKeyManager.Register("L", _launcherButton);   // 字を出さなくなったので、Alt+L は自分で付ける
                 return _launcherButton;
             }
         }

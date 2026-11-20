@@ -277,7 +277,7 @@ namespace Tsuzuri.Markdown
                         .Append(',').Append(Math.Round(card.Y).ToString(CultureInfo.InvariantCulture)).Append(" -->\n");
                 }
 
-                var body = string.Join("\n", TrimBlank(card.Body.Replace("\r\n", "\n").Replace('\r', '\n').Split('\n')));
+                var body = Safe(string.Join("\n", TrimBlank(card.Body.Replace("\r\n", "\n").Replace('\r', '\n').Split('\n'))));
                 if (body.Length > 0) text.Append('\n').Append(body).Append('\n');
 
                 if (card.Kind == FlowKind.Files && card.Attachments.Count > 0)
@@ -300,7 +300,7 @@ namespace Tsuzuri.Markdown
             }
 
             // ボードはいつも最後（カードの本文と見分けやすいように）
-            var boardText = string.Join("\n", TrimBlank((Board ?? string.Empty).Replace("\r\n", "\n").Replace('\r', '\n').Split('\n')));
+            var boardText = Safe(string.Join("\n", TrimBlank((Board ?? string.Empty).Replace("\r\n", "\n").Replace('\r', '\n').Split('\n'))));
             if (boardText.Length > 0)
             {
                 if (Cards.Count > 0) text.Append('\n');
@@ -308,6 +308,41 @@ namespace Tsuzuri.Markdown
             }
 
             return text.ToString();
+        }
+
+        /// <summary>
+        /// 本文・ボードを、読み直しても同じ区切りになる形にする（2026-11-20）。
+        /// ・閉じていないコードブロックは、終わりで閉じる（閉じないと、後ろのカード・ボードが全部その本文に入った。元に戻しても直らなかった）
+        /// ・コードブロックの外の、カード・ボードの見出しに見える行（`## [Claude] 3` など）は、頭に \ を付けて本文のままにする（Markdown では同じ字に見える）
+        /// </summary>
+        private static string Safe(string text)
+        {
+            if (text.Length == 0) return text;
+            var lines = text.Split('\n');
+            var fence = string.Empty;
+            for (var i = 0; i < lines.Length; i++)
+            {
+                var run = FenceRun(lines[i]);
+                if (fence.Length == 0)
+                {
+                    if (run.Length > 0)
+                    {
+                        fence = run;
+                        continue;
+                    }
+                }
+                else
+                {
+                    if (run.Length >= fence.Length && run[0] == fence[0] && lines[i].Trim() == run) fence = string.Empty;
+                    continue;
+                }
+                var match = CardLine.Match(lines[i]);
+                if (!match.Success) continue;
+                var words = match.Groups["kind"].Value.Split(new[] { ' ', '\t', '　' }, StringSplitOptions.RemoveEmptyEntries);
+                if (words.Length > 0 && (KindOf(words[0]) != null || IsBoardWord(words[0]))) lines[i] = "\\" + lines[i];
+            }
+            var result = string.Join("\n", lines);
+            return fence.Length > 0 ? result + "\n" + fence : result;
         }
 
         public FlowCard Find(string title)

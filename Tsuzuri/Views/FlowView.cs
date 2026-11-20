@@ -301,8 +301,19 @@ namespace Tsuzuri.Views
             if (_dirty) Save();
         }
 
+        /// <summary>画面から外した（持ち主が閉じた）。以後は文書に書かない（2026-11-20。外したあとに残った欄の後始末やタイマーが、文書に書いていた）。</summary>
+        public void Detach()
+        {
+            _saveDelay.Stop();
+            _detached = true;
+            _dirty = false;
+        }
+
+        private bool _detached;
+
         private void Changed()
         {
+            if (_detached) return;
             _dirty = true;
             _saveDelay.Stop();
             _saveDelay.Start();
@@ -310,7 +321,7 @@ namespace Tsuzuri.Views
 
         private void Save()
         {
-            if (!_dirty) return;
+            if (!_dirty || _detached) return;
             var text = _flow.Serialize();
             _write(text);
             _known = text;

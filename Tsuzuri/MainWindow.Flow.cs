@@ -91,7 +91,8 @@ namespace Tsuzuri
             _flowDocument = document;
             _flowPage = id;
             var name = "フロー — " + Path.GetFileName(document.FilePath);
-            _flowView = new FlowView(
+            FlowView created = null;
+            _flowView = created = new FlowView(
                 document.FilePath + "#" + id,
                 name,
                 () => document.TextOf(id),
@@ -100,7 +101,7 @@ namespace Tsuzuri
                     if (!document.SetText(id, text))
                     {
                         Status("フローのページが文書にありません（消えた・読み直した）。閉じます");
-                        Dispatcher.BeginInvoke(new Action(CloseFlow));
+                        Dispatcher.BeginInvoke(new Action(delegate { if (ReferenceEquals(_flowView, created)) CloseFlow(); }));   // その間に開いた別のフローは閉じない
                         return;
                     }
                     UpdateChrome();   // 未保存の印
@@ -172,8 +173,12 @@ namespace Tsuzuri
         {
             if (_flowView == null) return;
 
+            // 送りも止める（2026-11-20。前は次の答えが終わるまで止まらず、新しい会話の起動を待っている間に閉じると、閉じたあとでカードが送られた）
+            if (_flowRun != null && ReferenceEquals(_flowRun.View, _flowView)) StopFlowRun("フローを閉じたので、送りをやめました");
+
             var hadFocus = _flowView.IsKeyboardFocusWithin;
             _flowView.Flush();
+            _flowView.Detach();   // 外したあとに残ったタイマー・欄の後始末から、文書に書かせない
             _flowView = null;
             _flowDocument = null;
             _flowPage = null;
@@ -289,10 +294,21 @@ namespace Tsuzuri
 
             /// <summary>送った（Enter まで押した）カードの答えを待っている。</summary>
             public bool Waiting;
+
             public bool Stopped;
         }
 
         private FlowRun _flowRun;
+
+        /// <summary>カードの文字を入れて、Enter を押すのを待っている（この間は送り直さない。止めた送りの分も。2026-11-20）。</summary>
+        private bool _flowTyping;
+
+        /// <summary>会話のタブを閉じた（2026-11-20）。その会話で送っていれば止め、フローの会話の覚えからも外す。</summary>
+        private void OnFlowTabClosed(AiTab tab)
+        {
+            if (_flowRun != null && ReferenceEquals(_flowRun.Tab, tab)) StopFlowRun("フローの会話のタブを閉じたので、送りをやめました");
+            foreach (var key in _flowSessions.Where(pair => ReferenceEquals(pair.Value, tab)).Select(pair => pair.Key).ToList()) _flowSessions.Remove(key);
+        }
 
         /// <summary>
         /// 「▶ 送る」（最初のカード）・「ここから送る」（途中の Claude のカード。2026-11-17）。そのカードから、続くカードを順に送る送りを始める。
@@ -300,6 +316,12 @@ namespace Tsuzuri
         private void SendFlowCard(FlowView view, FlowCard card, bool enter)
         {
             if (card.Kind != FlowKind.Claude) return;
+            if (_flowTyping)
+            {
+                // 文字を入れて Enter を待っている間に送り直すと、2枚のテキストがつながって送られる（2026-11-20）
+                view.ShowStatus("前のカードを送っている途中です。少し待ってから送ってください");
+                return;
+            }
 
             StopFlowRun(null);
             foreach (var watch in _flowWatches.Where(each => each.Key == view.FlowKey).ToList()) StopFlowWatch(watch);   // 前の送りの行き先はもう待たない
@@ -339,6 +361,9 @@ namespace Tsuzuri
             _flowRun = null;
             run.Stopped = true;
             if (run.Tab != null && run.Tab.SessionId != null) SetFlowPrompt(run.Tab.SessionId, null);
+            // 行き先の監視も止める（2026-11-20。前は止めたあとも最長 3 時間、毎秒記録を見ていた）
+            foreach (var watch in _flowWatches.Where(each => each.Key == run.View.FlowKey || (run.Tab != null && ReferenceEquals(each.Tab, run.Tab))).ToList())
+                StopFlowWatch(watch);
             run.View.SetRunning(false);
             if (why != null)
             {
@@ -449,7 +474,8 @@ namespace Tsuzuri
 
             // 会話はフローに1つ（2026-11-17。途中から新しい会話にするのは無くした）。閉じた・終わっていたら作り直す
             AiTab tab;
-            if (_flowSessions.TryGetValue(view.FlowKey, out tab) && _aiTabs.Contains(tab) && tab.View != null && tab.View.IsRunning)
+            if (_flowSessions.TryGetValue(view.FlowKey, out tab) && _aiTabs.Contains(tab) && tab.View != null && tab.View.IsRunning
+                && tab.SessionId != null)   // まだ起動の途中（番号が届いていない）なら、下で待つ（2026-11-20。前は起動途中の画面に打ち込んだ）
             {
                 run.Tab = tab;
                 if (AiPane.Visibility != Visibility.Visible) ShowAiPane();
@@ -463,18 +489,28 @@ namespace Tsuzuri
                 return;
             }
 
-            // 新しい会話を始めて、動き出す（claude のフックで会話の番号が届く）のを待ってから送る
-            if (!CanStartAi())
+            var starting = tab != null && _aiTabs.Contains(tab) && tab.View != null && tab.View.IsRunning;   // 前に始めた会話が、まだ起動の途中
+            if (starting)
             {
-                StopFlowRun(null);
-                return;
+                run.Tab = tab;
+                if (AiPane.Visibility != Visibility.Visible) ShowAiPane();
+                view.ShowStatus("会話（" + tab.Name + "）が始まるのを待っています…");
             }
-            AddAiTab(string.Empty);
-            tab = _aiTab;
-            run.Tab = tab;
-            _flowSessions[view.FlowKey] = tab;
-            if (AiPane.Visibility != Visibility.Visible) ShowAiPane();
-            view.ShowStatus("新しい会話（" + tab.Name + "）を始めています…");
+            else
+            {
+                // 新しい会話を始めて、動き出す（claude のフックで会話の番号が届く）のを待ってから送る
+                if (!CanStartAi())
+                {
+                    StopFlowRun(null);
+                    return;
+                }
+                AddAiTab(string.Empty);
+                tab = _aiTab;
+                run.Tab = tab;
+                _flowSessions[view.FlowKey] = tab;
+                if (AiPane.Visibility != Visibility.Visible) ShowAiPane();
+                view.ShowStatus("新しい会話（" + tab.Name + "）を始めています…");
+            }
 
             var started = DateTime.UtcNow;
             var timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(300) };
@@ -535,8 +571,10 @@ namespace Tsuzuri
             // 1行は印を付けずに打つ（2026-11-17。印を付けると、続けて送った Enter が貼り付けの続きと見なされ、送信されなかった）
             var data = text.IndexOf('\n') < 0 ? text.Replace("\t", "    ") : "\x1b[200~" + text.Replace("\n", "\r") + "\x1b[201~";
             var watch = wants.Count > 0 ? PrepareFlowWatch(view, tab, wants) : null;
+            _flowTyping = true;
             if (!terminal.WriteInput(data))
             {
+                _flowTyping = false;
                 StopFlowRun("会話のタブに書けなかったので止めました");
                 return;
             }
@@ -549,7 +587,9 @@ namespace Tsuzuri
             timer.Tick += delegate
             {
                 timer.Stop();
-                if (hidden != null) SetFlowPrompt(tab.SessionId, hidden);
+                _flowTyping = false;
+                // 止めた（「止める」・閉じた）あとでも、入れた文字は Enter で送り切る（今のカードは止めない）。行き先の頼みだけは置かない
+                if (hidden != null && !run.Stopped) SetFlowPrompt(tab.SessionId, hidden);
                 if (!terminal.WriteInput("\r"))
                 {
                     if (hidden != null) SetFlowPrompt(tab.SessionId, null);

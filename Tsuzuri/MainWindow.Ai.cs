@@ -555,6 +555,7 @@ namespace Tsuzuri
             _aiTabs.RemoveAt(index);
             RebuildAiTabStrip();
             StoreAiTabs();   // 自分で閉じた会話は、次の起動で戻さない
+            OnFlowTabClosed(tab);   // その会話で送っていたフローを止める（SPEC 21章）
 
             if (_aiTabs.Count == 0)
             {
@@ -1958,6 +1959,10 @@ namespace Tsuzuri
             // （開く位置がずれる・確認した一覧と違うページを消す等）。このアプリのダイアログはどれもこの窓が親なので、
             // 出ている間は Windows がこの窓を操作できなくする。それで見分ける。閉じてこの窓に戻ったとき（Activated）に読み直す。
             if (IsShowingDialog()) return;
+
+            // フロー図の直しかけ（書く前の 0.3 秒）を先に文書へ書く（2026-11-20）。書けば文書は未保存になり、読み直さずに外での変更の確かめへ回る。
+            // 前は直しかけを見ずに読み直し、打った文字か、Claude がボードに書いたものが消えた
+            FlushFlow();
 
             var documents = _stack.Select(view => view.Owner).Where(owner => owner != null).Distinct().ToList();
             var reloaded = new List<PageDocument>();

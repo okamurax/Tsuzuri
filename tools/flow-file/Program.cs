@@ -267,6 +267,20 @@ internal static class Program
         Expect(onlyBoard.Cards.Count == 0 && onlyBoard.Board == "メモ" && FlowFile.Parse(onlyBoard.Serialize()).Serialize() == onlyBoard.Serialize(),
                "カードの無いボード・[Board] も読む: " + onlyBoard.Serialize());
         Expect(FlowFile.Parse("## [ボード]\nA\n## [Claude] 1\n## [ボード]\nB\n").Board == "A\n\nB", "ボードが2つあれば1つにまとめる");
+        // 閉じていないコードブロック・見出しに見える行（2026-11-20）
+        var unclosed = FlowFile.Parse("## [Claude] 1\n本文\n→ 2\n## [Claude] 2\n二枚目\n");
+        unclosed.Cards[0].Body = "前\n```\nコード";
+        unclosed.Board = "メモ\n## [Claude] 9\n## [ボード]\n```\n## [AI] 8";
+        var unclosedText = unclosed.Serialize();
+        var reread = FlowFile.Parse(unclosedText);
+        Expect(reread.Cards.Count == 2 && reread.Cards[0].Edges.Count == 1 && reread.Cards[1].Body == "二枚目"
+               && reread.Cards[0].Body == "前\n```\nコード\n```" && reread.Board == "メモ\n\\## [Claude] 9\n\\## [ボード]\n```\n## [AI] 8\n```"
+               && reread.Serialize() == unclosedText,
+               "閉じていない ``` は閉じ、見出しに見える行は \\ を付ける: " + unclosedText);
+        var cardHead = FlowFile.Parse("## [Claude] 1\n本文\n");
+        cardHead.Cards[0].Body = "## [結果] 5\n## [確認]\n## 普通の見出し";
+        Expect(FlowFile.Parse(cardHead.Serialize()).Cards.Count == 1 && FlowFile.Parse(cardHead.Serialize()).Cards[0].Body == "\\## [結果] 5\n\\## [確認]\n## 普通の見出し",
+               "本文の中のカードの見出しに見える行: " + cardHead.Serialize());
         Expect(FlowFile.BoardLine(boardText) == boardText.Split('\n').ToList().IndexOf("## [ボード]") && FlowFile.BoardLine("```\n## [ボード]\n```\n") == -1
                && FlowFile.BoardLine("## [Claude] 1\n") == -1, "ボードの行を探す（コードの中は見ない）");
         var twice = Run(loopFlow, "1", "3=直す", "3=直す", "3=OK");

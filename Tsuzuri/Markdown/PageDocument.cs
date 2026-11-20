@@ -1189,16 +1189,64 @@ namespace Tsuzuri.Markdown
                 return;
             }
 
+            ReplaceWith(temp, path);
+        }
+
+        /// <summary>
+        /// 書き終えた一時ファイル temp で path を置き換える（どちらもある）。
+        /// \\Mac\ 共有は置き換え（File.Replace）に対応していないので、元を「名前.old」へ名前替えしてから一時ファイルを本来の名前にし、.old を消す（2026-11-20）。
+        /// 前は上書きのコピーで代えていて、コピーの途中で共有が切れると、元のファイルが途中までの中身で残った。
+        /// 名前替えもできなければ、最後の手として上書きのコピー。それも失敗したら、一時ファイルの場所を添えて投げる（中身の全部はそこに残る）。
+        /// </summary>
+        internal static void ReplaceWith(string temp, string path)
+        {
             try
             {
                 File.Replace(temp, path, null);
+                return;
             }
             catch (Exception)
             {
-                // \\Mac\ 共有は置き換えに対応していないので、上書きで代える（SPEC 10章）。この環境ではこれが普通の道。
-                File.Copy(temp, path, true);
-                TryDelete(temp);
             }
+
+            var old = path + ".old";
+            var moved = false;
+            try
+            {
+                if (File.Exists(old)) File.Delete(old);
+                File.Move(path, old);
+                moved = true;
+                File.Move(temp, path);
+                TryDelete(old);
+                return;
+            }
+            catch (Exception)
+            {
+                // 一時ファイルを本来の名前にできなかった。元を戻してから、上書きのコピーで代える
+                if (moved && !File.Exists(path))
+                {
+                    try
+                    {
+                        File.Move(old, path);
+                    }
+                    catch (Exception)
+                    {
+                        // 戻せなくても、下のコピーで本来の名前に書く（元の中身は .old に残る）
+                    }
+                }
+            }
+
+            try
+            {
+                File.Copy(temp, path, true);
+            }
+            catch (Exception ex)
+            {
+                throw new IOException("置き換えの途中で失敗しました。書こうとした中身の全部は " + temp + " に残っています"
+                                      + (moved && File.Exists(old) ? "（前の中身は " + old + "）" : string.Empty) + "。" + ex.Message, ex);
+            }
+            TryDelete(temp);
+            TryDelete(old);
         }
 
         private static void TryDelete(string path)

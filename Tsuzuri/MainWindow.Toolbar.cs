@@ -600,16 +600,7 @@ namespace Tsuzuri
                 return;
             }
 
-            try
-            {
-                File.Replace(temp, path, null);
-            }
-            catch (Exception)
-            {
-                // \\Mac\ 共有は置き換えに対応していないので、上書きで代える（PageDocument.WriteAtomically と同じ。SPEC 10章）。
-                File.Copy(temp, path, true);
-                TryDeleteDrawingTemp(temp);
-            }
+            PageDocument.ReplaceWith(temp, path);   // \\Mac\ 共有では名前替えで代える（SPEC 10章）
         }
 
         private static void TryDeleteDrawingTemp(string path)

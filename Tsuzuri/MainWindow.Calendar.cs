@@ -1,9 +1,12 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Threading;
+using Tsuzuri.Markdown;
 using Tsuzuri.Views;
 
 namespace Tsuzuri
@@ -12,6 +15,7 @@ namespace Tsuzuri
     // 予定を週の行で下へずっと並べ、カレンダーの画面で直接打つ。保存先は .md（ScheduleFile）で、裏に置くだけ（利用者の考え）。
     // ランチャーと同じく、本文の場所いっぱいに重ねて出し、画面のタブの並びの一番右（ランチャーの右）のタブで出し入れする。
     // ランチャーとは同時に出さない（片方を出すと、もう片方を閉じる）。
+    // アウトラインの見出しをカレンダーの日へドラッグすると、その見出しと結んだ予定になる（2026-11-20）。結ぶのは見出しの文字で、名前が変わっても追わない。
     public partial class MainWindow
     {
         private CalendarView _calendar;
@@ -59,7 +63,7 @@ namespace Tsuzuri
             }
 
             CloseLauncher();
-            _calendar = new CalendarView(ScheduleFilePath, Status);
+            _calendar = new CalendarView(ScheduleFilePath, Status, ScheduleLinkFound, OpenScheduleLink);
             CalendarHost.Child = _calendar;
             CalendarHost.Visibility = Visibility.Visible;
             CalendarButton.Tag = "Open";
@@ -87,6 +91,94 @@ namespace Tsuzuri
             CalendarHost.Visibility = Visibility.Collapsed;
             CalendarButton.Tag = null;
             if (hadFocus && Active != null) Active.TextArea.Focus();
+            return true;
+        }
+
+        // ---------------------------------------------------------------
+        // アウトラインの見出しと結んだ予定
+        // ---------------------------------------------------------------
+
+        /// <summary>閉じている文書の見出しの文字（ファイルの更新日時で覚える。全部の画面で共有）。カレンダーを組み直すたびに読み直さないため。</summary>
+        private static readonly Dictionary<string, KeyValuePair<DateTime, HashSet<string>>> HeadingCache =
+            new Dictionary<string, KeyValuePair<DateTime, HashSet<string>>>(StringComparer.OrdinalIgnoreCase);
+
+        /// <summary>
+        /// 結んだ見出しが、その文書のどこか（どのページでも。ブックマークと同じ探し方）にあるか。
+        /// どこかの画面で開いていれば、その中身（保存していない編集も）で見る。閉じていればファイルを読む（更新日時で覚える）。
+        /// </summary>
+        private bool ScheduleLinkFound(ScheduleItem item)
+        {
+            foreach (var window in OpenWindows)
+            {
+                var open = window.FindOpenDocument(item.LinkFile);
+                if (open != null) return HeadingsOf(open).Contains(item.LinkHeading);
+            }
+
+            if (!File.Exists(item.LinkFile)) return false;
+            var stamp = File.GetLastWriteTimeUtc(item.LinkFile);
+            KeyValuePair<DateTime, HashSet<string>> cached;
+            if (!HeadingCache.TryGetValue(item.LinkFile, out cached) || cached.Key != stamp)
+            {
+                cached = new KeyValuePair<DateTime, HashSet<string>>(stamp, HeadingsOf(PageDocument.Load(item.LinkFile)));
+                HeadingCache[item.LinkFile] = cached;
+            }
+            return cached.Value.Contains(item.LinkHeading);
+        }
+
+        private static HashSet<string> HeadingsOf(PageDocument document)
+        {
+            var headings = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var page in document.Pages)
+                foreach (var heading in MarkdownParser.Headings(document.TextOf(page.Id))) headings.Add(heading.Text);
+            return headings;
+        }
+
+        /// <summary>結んだ見出しへ飛ぶ。カレンダーを閉じ、文書を出して（ほかの画面で開いていればその画面を前に出し、閉じていれば開く）、見出しへ移る。</summary>
+        private void OpenScheduleLink(ScheduleItem item)
+        {
+            if (!File.Exists(item.LinkFile))
+            {
+                Status("文書が見つかりません: " + item.LinkFile);
+                return;
+            }
+            if (!CloseCalendar()) return;
+
+            var mark = new HeadingBookmark { File = item.LinkFile, Page = item.LinkPage ?? string.Empty, Text = item.LinkHeading };
+            OpenFileThen(item.LinkFile, (window, document) =>
+            {
+                mark.File = document.FilePath;
+                window.OpenHeadingBookmark(mark);
+            });
+        }
+
+        /// <summary>アウトラインの見出しをつかんで動かしている（MainWindow.OutlineDrag.cs）。カレンダーの日の上なら、その日を塗って true。</summary>
+        private bool ShowCalendarDrop()
+        {
+            return _calendar != null && _calendar.ShowDrop(Mouse.GetPosition(_calendar));
+        }
+
+        /// <summary>
+        /// アウトラインの見出しを離した。カレンダーの日の上なら、その見出しと結んだ予定を足して true（節は動かさない）。
+        /// 保存していない文書（ファイルが無い）の見出しは結べないので断る。
+        /// </summary>
+        private bool DropOnCalendar(string heading, bool released)
+        {
+            if (_calendar == null) return false;
+            if (!released || !_calendar.ShowDrop(Mouse.GetPosition(_calendar)))
+            {
+                _calendar.ClearDrop();
+                return false;
+            }
+
+            var owner = _outlineOwner ?? Active;
+            if (owner == null || string.IsNullOrEmpty(owner.FilePath) || !File.Exists(owner.FilePath))
+            {
+                _calendar.ClearDrop();
+                Status("保存していない文書の見出しは、予定にできません。先に保存してください");
+                return true;
+            }
+
+            _calendar.DropHeading(owner.FilePath, owner.PageId ?? string.Empty, heading);
             return true;
         }
 

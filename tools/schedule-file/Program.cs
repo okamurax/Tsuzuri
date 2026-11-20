@@ -22,7 +22,8 @@ internal static class Program
         if (a.Count != b.Count) return false;
         for (var i = 0; i < a.Count; i++)
         {
-            if (a[i].Start != b[i].Start || a[i].End != b[i].End || a[i].Title != b[i].Title || a[i].Memo != b[i].Memo)
+            if (a[i].Start != b[i].Start || a[i].End != b[i].End || a[i].Title != b[i].Title || a[i].Memo != b[i].Memo
+                || a[i].LinkFile != b[i].LinkFile || a[i].LinkPage != b[i].LinkPage || a[i].LinkHeading != b[i].LinkHeading)
             {
                 Console.WriteLine("  違い " + i + ": [" + a[i].Title + "|" + a[i].Memo + "] [" + b[i].Title + "|" + b[i].Memo + "]");
                 return false;
@@ -40,6 +41,9 @@ internal static class Program
             new ScheduleItem { Start = D(2026, 11, 21), End = D(2026, 11, 25), Title = "出張（大阪）", Memo = "新幹線 8:00\n\n宿: xxxx" },
             new ScheduleItem { Start = D(2026, 11, 21), End = D(2026, 11, 21), Title = "10:00 A社打合せ", Memo = "## 議題\n- 見積\n\\## そのまま" },
             new ScheduleItem { Start = D(2026, 12, 1), End = D(2026, 12, 1), Title = string.Empty },
+            new ScheduleItem { Start = D(2026, 12, 2), End = D(2026, 12, 4), Title = "見積 | 第2版", Memo = "<!-- link: x | y | z -->",
+                               LinkFile = @"D:\案件\見積.md", LinkPage = "p3", LinkHeading = "見積 | 第2版" },
+            new ScheduleItem { Start = D(2026, 12, 5), End = D(2026, 12, 5), Title = "本体の見出し", LinkFile = @"\\Mac\Home\a.md", LinkPage = "", LinkHeading = "本体の見出し" },
         };
         var text = ScheduleFile.Serialize(items);
         var back = ScheduleFile.Parse(text);
@@ -50,6 +54,13 @@ internal static class Program
         Check(text.Contains("## 2026-11-21〜2026-11-25 出張（大阪）\n"), "何日かにまたがる予定の見出し");
         Check(text.Contains("\n\\## 議題\n"), "メモの中の ## に \\ が付かない");
         Check(back[0].Title == "出張（大阪）" && back[1].Title == "10:00 A社打合せ", "同じ日の並びが変わった");
+
+        Check(text.Contains("## 2026-12-02〜2026-12-04 見積 | 第2版\n<!-- link: D:\\案件\\見積.md | p3 | 見積 | 第2版 -->\n"), "見出しの場所の行");
+        var linked = back.FirstOrDefault(item => item.LinkPage == "p3");
+        Check(linked != null && linked.Memo == "<!-- link: x | y | z -->", "メモの中の link の形の行を、見出しの場所として読んだ");
+        var root = back.FirstOrDefault(item => item.Title == "本体の見出し");
+        Check(root != null && root.IsLinked && root.LinkPage == "", "ルートのページの見出しの場所");
+        Check(!back[0].IsLinked, "直接打った予定に見出しの場所が付いた");
 
         // 崩れた行・手で書いた形
         var hand = "# 予定\nメモの前の行\n## 2026-11-03 祝日\n## 2026-11-05 ~ 2026-11-07 研修\n本文\n## 2026-11-09〜2026-11-08 逆\n## 2026-13-01 月が無い\n## 見出しだけ\n";

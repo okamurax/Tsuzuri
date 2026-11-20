@@ -103,6 +103,7 @@ namespace Tsuzuri
 
             ShowOutlineDropMark(now);
             if (OutlineEdgeDirection(now) != 0) _outlineAutoScroll.Start();
+            ShowCalendarDrop();   // カレンダーを出していれば、その日の上で離すと予定にする（SPEC 22章）
             e.Handled = true;
         }
 
@@ -169,6 +170,7 @@ namespace Tsuzuri
             var kind = _outlineDropKind;
             var anchor = _outlineDropAnchor;
             var valid = _outlineDropValid && _outlineReleased;
+            var released = _outlineReleased;
 
             _outlineDragging = false;
             _outlineReleased = false;
@@ -177,6 +179,8 @@ namespace Tsuzuri
             OutlineTree.Cursor = null;
             ShowDropMarkOn(null, false);
 
+            // カレンダーの日の上で離したら、その見出しを予定にする（節は動かさない。SPEC 22章）
+            if (node != null && DropOnCalendar(node.Text, released)) return;
             if (valid && node != null) MoveSectionTo(node, kind, anchor);
         }
 

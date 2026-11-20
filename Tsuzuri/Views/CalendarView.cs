@@ -20,6 +20,8 @@ namespace Tsuzuri.Views
     /// ・月・2週の切り替えは持たない。週の行が上下にずっと続き、スクロールした先を足していく（利用者の考え）
     /// ・日を2度押すと、その日のマスで名前を打つ（1日の予定）。帯の端を引っぱって延ばすと何日かになる。帯をつかんで別の日へ動かす
     /// ・予定を2度押すと、名前とメモを直す欄（日付は欄では直さない。帯で直す）。Delete で消す。Ctrl+Z で戻す
+    /// ・アウトラインの見出しを日へドラッグすると、その見出しと結んだ予定になる（2026-11-20）。2度押すと文書のその見出しへ飛ぶ。
+    ///   見出しの名前が変わっても追わない。見つからなければ印を付けるだけ（利用者の判断）
     /// ・直すたびにすぐ保存する（保存の操作は無い）。外で書き換わっていたら、直す前に読み直す
     /// 本文の場所に重ねて出す（MainWindow.Calendar.cs）。ランチャーと同じく、出すたびに作り、閉じたら捨てる。
     /// </summary>
@@ -44,11 +46,21 @@ namespace Tsuzuri.Views
         private static readonly Brush EvenMonthFill = Freeze(Color.FromRgb(0x1A, 0x22, 0x37));   // 月の境が分かるよう、偶数月の地を少し変える
 
         private static readonly CultureInfo Japanese = CultureInfo.GetCultureInfo("ja-JP");
+        private static readonly FontFamily IconFont = new FontFamily("Segoe Fluent Icons, Segoe MDL2 Assets");
 
         private enum Gesture { None, Move, ResizeStart, ResizeEnd }
 
         private readonly string _path;
         private readonly Action<string> _status;
+        private readonly Func<ScheduleItem, bool> _linkFound;
+        private readonly Action<ScheduleItem> _openLink;
+
+        // 組み直しのたびに、結んだ見出しがあるかを1回だけ見る（見るのは MainWindow。ファイルの更新日時で覚えている）
+        private readonly Dictionary<ScheduleItem, bool> _found = new Dictionary<ScheduleItem, bool>();
+
+        // 日のマス（アウトラインから落とす先を塗る）と、落とす先の日
+        private readonly Dictionary<DateTime, Border> _cells = new Dictionary<DateTime, Border>();
+        private DateTime? _dropOn;
 
         private List<ScheduleItem> _items = new List<ScheduleItem>();
         private DateTime _loadedStamp;
@@ -85,10 +97,14 @@ namespace Tsuzuri.Views
         private ScheduleItem _editing;
         private bool _editorOpen;
 
-        public CalendarView(string path, Action<string> status)
+        /// <param name="linkFound">アウトラインから登録した予定の見出しが、今もあるか。</param>
+        /// <param name="openLink">その見出しへ飛ぶ（カレンダーは閉じる）。</param>
+        public CalendarView(string path, Action<string> status, Func<ScheduleItem, bool> linkFound, Action<ScheduleItem> openLink)
         {
             _path = path;
             _status = status;
+            _linkFound = linkFound;
+            _openLink = openLink;
 
             Focusable = true;
             FocusVisualStyle = null;
@@ -249,6 +265,8 @@ namespace Tsuzuri.Views
             var offset = _scroll.VerticalOffset;
             _weeks.Children.Clear();
             _rows.Clear();
+            _cells.Clear();
+            _found.Clear();
             for (var w = 0; w < _weekCount; w++)
             {
                 var weekStart = _firstWeek.AddDays(7 * w);
@@ -388,11 +406,12 @@ namespace Tsuzuri.Views
                 {
                     BorderBrush = Resource("BorderBrushSoft"),
                     BorderThickness = new Thickness(d == 0 ? 0 : 1, 0, 0, 1),
-                    Background = date == today ? Resource("AccentFill") : date.Month % 2 == 0 ? EvenMonthFill : Brushes.Transparent,
+                    Background = date == _dropOn ? Resource("SelectionFill") : BaseFill(date),
                 };
                 Grid.SetColumn(cell, d);
                 Grid.SetRowSpan(cell, rowCount);
                 row.Children.Add(cell);
+                _cells[date] = cell;
 
                 // 月の初めの日は「12月1日」と出す（下へ続けて並べるので、どこから次の月かを分かるように）
                 var first = date.Day == 1;
@@ -431,6 +450,29 @@ namespace Tsuzuri.Views
             return row;
         }
 
+        private static Brush BaseFill(DateTime date)
+        {
+            return date == DateTime.Today ? Resource("AccentFill") : date.Month % 2 == 0 ? EvenMonthFill : Brushes.Transparent;
+        }
+
+        /// <summary>結んだ見出しがあるか（この組み直しの間は覚えておく）。直接打った予定はいつも true。</summary>
+        private bool Found(ScheduleItem item)
+        {
+            if (!item.IsLinked) return true;
+            bool found;
+            if (_found.TryGetValue(item, out found)) return found;
+            try
+            {
+                found = _linkFound(item);
+            }
+            catch (Exception)
+            {
+                found = false;
+            }
+            _found[item] = found;
+            return found;
+        }
+
         /// <summary>つかんでいる帯は、動かした・延ばした先の形で出す。ほかはそのまま。</summary>
         private KeyValuePair<ScheduleItem, ScheduleItem> Shifted(ScheduleItem item)
         {
@@ -463,14 +505,23 @@ namespace Tsuzuri.Views
             var endsHere = shown.End <= weekEnd;
             var selected = ReferenceEquals(item, _selected);
 
+            var found = Found(item);
             var text = new TextBlock
             {
-                Text = (item.Title.Length > 0 ? item.Title : "（名前なし）") + (item.Memo.Trim().Length > 0 ? "  ≡" : string.Empty),
                 TextTrimming = TextTrimming.CharacterEllipsis,
                 VerticalAlignment = VerticalAlignment.Center,
                 Foreground = Resource("TextPrimary"),
-                Opacity = item.Title.Length > 0 ? 1 : 0.6,
+                Opacity = item.Title.Length > 0 && found ? 1 : 0.6,
             };
+            // 見出しと結んだ予定は頭にリンクの印、見出しが見つからなければ警告の印（Segoe のアイコン）
+            if (item.IsLinked)
+                text.Inlines.Add(new System.Windows.Documents.Run(found ? "\uE71B " : "\uE7BA ")
+                {
+                    FontFamily = IconFont,
+                    FontSize = 11,
+                    Foreground = found ? Resource("AccentText") : SundayText,
+                });
+            text.Inlines.Add(new System.Windows.Documents.Run((item.Title.Length > 0 ? item.Title : "（名前なし）") + (item.Memo.Trim().Length > 0 ? "  ≡" : string.Empty)));
 
             var bar = new Border
             {
@@ -483,7 +534,7 @@ namespace Tsuzuri.Views
                 BorderThickness = new Thickness(1),
                 Cursor = Cursors.Hand,
                 Opacity = ReferenceEquals(item, _dragItem) && _dragDelta != 0 ? 0.75 : 1,
-                ToolTip = Tip(item),
+                ToolTip = Tip(item, found),
             };
 
             // 端に載せたら、延ばせる印（左右の矢印）にする。端は、その週で始まる・終わるときだけ
@@ -504,9 +555,13 @@ namespace Tsuzuri.Views
             return Gesture.Move;
         }
 
-        private static string Tip(ScheduleItem item)
+        private static string Tip(ScheduleItem item, bool found)
         {
             var tip = Dates(item) + "  " + item.Title;
+            if (item.IsLinked)
+                tip += "\n" + (found ? "見出し: " : "見出しが見つかりません（名前を変えた・消した）: ")
+                       + Path.GetFileName(item.LinkFile) + " > " + item.LinkHeading
+                       + (found ? "\n2度押すとその見出しへ飛ぶ。メモは選んで Enter" : "\n直すときは、この予定を消してアウトラインからドラッグし直す");
             var memo = item.Memo.Trim();
             if (memo.Length > 0) tip += "\n\n" + (memo.Length > 600 ? memo.Substring(0, 600) + "…" : memo);
             return tip;
@@ -564,7 +619,9 @@ namespace Tsuzuri.Views
 
             if (e.ClickCount == 2)
             {
-                OpenEditor(item);
+                // 見出しと結んだ予定は、その見出しへ飛ぶ（中身は文書で見る）。メモは選んで Enter
+                if (item.IsLinked) _openLink(item);
+                else OpenEditor(item);
                 return;
             }
             if (date == null) return;
@@ -746,6 +803,64 @@ namespace Tsuzuri.Views
         }
 
         // ---------------------------------------------------------------
+        // アウトラインの見出しを落として登録する（MainWindow.Calendar.cs が、アウトラインのドラッグから呼ぶ）
+        // ---------------------------------------------------------------
+
+        /// <summary>アウトラインの見出しをつかんで、この位置（カレンダーの中の位置）に来た。日の上なら、その日を塗って true。</summary>
+        public bool ShowDrop(Point point)
+        {
+            DateTime? date = null;
+            if (!_editorOpen && point.X >= 0 && point.Y >= 0 && point.X <= ActualWidth && point.Y <= ActualHeight)
+            {
+                var inView = TranslatePoint(point, _scroll);
+                if (inView.Y >= 0 && inView.Y <= _scroll.ViewportHeight) date = DateAt(TranslatePoint(point, _weeks));
+            }
+
+            if (date != _dropOn)
+            {
+                if (_dropOn.HasValue && _cells.ContainsKey(_dropOn.Value)) _cells[_dropOn.Value].Background = BaseFill(_dropOn.Value);
+                _dropOn = date;
+                if (date.HasValue && _cells.ContainsKey(date.Value)) _cells[date.Value].Background = Resource("SelectionFill");
+            }
+            return date.HasValue;
+        }
+
+        /// <summary>
+        /// 塗った日に、その見出しと結んだ1日の予定を足す（名前は見出しの文字）。塗った日が無ければ何もしない。
+        /// file は保存してある文書（保存していない文書は、呼ぶ側で断る）。
+        /// </summary>
+        public void DropHeading(string file, string page, string heading)
+        {
+            var date = _dropOn;
+            ClearDrop();
+            if (!date.HasValue || !Fresh()) return;
+
+            CommitNew();
+            Remember();
+            var item = new ScheduleItem
+            {
+                Start = date.Value,
+                End = date.Value,
+                Title = ScheduleFile.OneLine(heading),
+                LinkFile = file,
+                LinkPage = page ?? string.Empty,
+                LinkHeading = heading,
+            };
+            _items.Add(item);
+            _selected = item;
+            Save();
+            Rebuild();
+            Focus();
+            _status("見出しを予定にしました（何日かにするときは帯の端を引っぱる）: " + heading);
+        }
+
+        /// <summary>落とすのをやめた（塗った日を戻す）。</summary>
+        public void ClearDrop()
+        {
+            ShowDrop(new Point(-1, -1));
+        }
+
+        // ---------------------------------------------------------------
         // キー
         // ---------------------------------------------------------------
 
@@ -916,6 +1031,8 @@ namespace Tsuzuri.Views
             _editing = item;
             _editDates.Text = Dates(item);
             _editTitle.Text = item.Title;
+            _editTitle.IsReadOnly = item.IsLinked;   // 見出しと結んだ予定の名前は、見出しの文字のまま
+            if (item.IsLinked) _editDates.Text += "\n見出し: " + Path.GetFileName(item.LinkFile) + " > " + item.LinkHeading;
             _editMemo.Text = item.Memo.Replace("\n", Environment.NewLine);
             _editorLayer.Visibility = Visibility.Visible;
             _editorOpen = true;

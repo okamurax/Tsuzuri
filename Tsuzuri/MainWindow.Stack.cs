@@ -480,7 +480,6 @@ namespace Tsuzuri
         private void RebuildStack(bool animate)
         {
             var started = PerfLog.Start();
-            Dispatcher.BeginInvoke(new Action(ReloadFlowIfChanged), DispatcherPriority.Background);   // フローの文書が画面から無くなったら閉じる（SPEC 21章）
 
             // 外すと表示位置を失うので、外す前に覚えておく。
             // あわせて、枠を今の入れ物から確実に外す。外し忘れると次に入れられない。

@@ -91,7 +91,6 @@ B のリンクを踏む     [A帯][B帯][C]
 | コードの色分け | コードブロックの中の文字列・数・コメント・括弧・記号・よく使う語・「名前:」の名前に色を付ける。言語は見分けない |
 | 表エディタ | 表を押すと、Excel のような画面で編集し、Markdown の表に書き戻す |
 | 図エディタ | 直線・四角・丸・文字・寸法線を描いて、図として入れる。点線・矢印・文字の背景も付けられる。寸法は mm で入れられ、図を押すと描き直せる |
-| フロー | AI の欄の Claude へ送るテキストをカードにして自由に置き、線でつなぐ（カードの中で直接打つ。操作は図エディタと同じ）。最初のカードの「送る」で新しい会話を始め、つながるカードは Claude の答えが終わるたびに自動で順に送る。「添付」のカードにファイルをドラッグしてつなぐと、そのファイルを読ませられる。線に名前を付けると分かれ道になり、Claude が行き先を選ぶ。前のカードへ戻る線で繰り返せる。フロー図の右の「ボード」は、できたものの置き場で（フローのページの中に持つ）、カードに「ボードの『要約』に書いて」と頼むと Claude がそこに書く。途中のカードから送り直せる。フローは今の文書のサブページで、Claude にも作らせられる |
 | Word への書き出し | サブページを本文に展開した `.docx` を作る（下を参照） |
 | 保存と変更の記録 | 保存は自分で行う（自動保存はしない）。保存のたびに、文書の変更を git で記録する（AI に経緯を読ませるため。下を参照） |
 | AI の欄 | 本文の右に Claude Code の端末を出し、開いている文書を直させる（下を参照） |
@@ -197,8 +196,6 @@ Mac では、XAML を除いた C# のコンパイルだけを `bash tools/check-
 
 `bash tools/ai-guard.sh` で、AI に渡さない場所（目印 `.tsuzuri-no-ai`）の下を Claude が読み書きしようとしたら断り、ほかは通すかを確かめます。`Tsuzuri/Markdown/AiGuard.cs` を変えたら回してください。
 
-`bash tools/flow-file.sh` で、フローのテキスト（フローのサブページ）を読んで書き直しても変わらないか、カード・つながり・添付のカードを正しく読むか、分かれ道・繰り返しで送るカードの順が正しいか、答えから行き先を正しく取り出すかを確かめます。`Tsuzuri/Markdown/FlowFile.cs`・`FlowResults.cs`・`FlowPlan.cs` を変えたら回してください。
-
 ## 設定ファイル
 
 どれも exe と同じフォルダに置きます。持ち運べるように、`%AppData%` は使いません。
@@ -218,7 +215,7 @@ Tsuzuri/
 ├ MainWindow.xaml(.cs)   画面の骨格。受け持ちごとに MainWindow.*.cs に分けている
 │                        （Stack: ページの並び／Outline: アウトライン／Overlays: ランチャー／Ai: AI の欄／AiShell: AI の欄の共通ターミナル／WordPress など）
 ├ Markdown/              ページの読み書き（PageDocument）、Markdig による解析、変更の記録（DocumentHistory）
-├ Views/                 編集面（AvalonEdit の拡張）、ランチャー、ファイラー、端末、フロー図
+├ Views/                 編集面（AvalonEdit の拡張）、ランチャー、ファイラー、端末
 ├ Export/                Word への書き出し
 ├ WordPress/             WordPress の REST API、HTML → Markdown の変換、送る HTML（WordPressHtml）
 ├ Ai/                    AI に読ませる図の書き方（drawing-format.md）と、AI が使う台本（SSH の askpass・ネットワーク機器への入り方・共通ターミナル）
@@ -226,7 +223,7 @@ Tsuzuri/
 └ ConPty/                AI の欄の端末で使う ConPTY（conpty.dll・OpenConsole.exe）
 TableEditor/             表エディタ（WPF。本体から DLL として読み込む）
 DrawingEditor/           図エディタ（WPF。本体から DLL として読み込む）
-tools/                   Mac でのコンパイル確認、WordPress の変換の確かめ（wp-check）、部分解析の確かめ（parse-fuzz）、アウトラインの操作の確かめ（struct-fuzz）、崩れた文書での読み書きの確かめ（page-fuzz）、AI に渡さない場所の確かめ（ai-guard）、フローのテキストの確かめ（flow-file）、コミット前のフック、アイコンの生成
+tools/                   Mac でのコンパイル確認、WordPress の変換の確かめ（wp-check）、部分解析の確かめ（parse-fuzz）、アウトラインの操作の確かめ（struct-fuzz）、崩れた文書での読み書きの確かめ（page-fuzz）、AI に渡さない場所の確かめ（ai-guard）、コミット前のフック、アイコンの生成
 sample/                  動作確認用の文書
 ```
 

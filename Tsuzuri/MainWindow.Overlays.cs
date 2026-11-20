@@ -56,8 +56,6 @@ namespace Tsuzuri
                 && !string.Equals(last, _filer.Folder, StringComparison.OrdinalIgnoreCase))
                 _filer.Navigate(last);
 
-            CloseFlow();   // フロー図の下に隠れるので閉じる（2026-11-17）
-
             _launcher = new LauncherView(_settings, OpenFromLauncher, Status, folder =>
             {
                 _filer.Navigate(folder);

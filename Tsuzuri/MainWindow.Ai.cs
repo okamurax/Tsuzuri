@@ -113,19 +113,6 @@ namespace Tsuzuri
   - 罫線（┌─┐│）の図: 本文に文字で描く。コードブロックに入れる
   - Mermaid: 本文に Mermaid のコードブロックで書く（Tsuzuri の画面では図にならず、コードのまま見える）
   尋ねるときは、何をどこに描くつもりかも一言添える。Markdown の表は図ではないので、尋ねずに表で書く。
-- **フロー**（文書のサブページ。本文から `[フロー](#pN)` でリンクする）は、利用者がこの AI の欄のターミナルへ1枚ずつ流し込むテキストを、カードに並べたもの。
-  頼まれたら書き・直してよい。形: ページの最初の行に `<!-- tsuzuri-flow -->`。カードは `## [Claude] 番号` の行で始め
-  （番号はつながりの目印。画面には出さない。フローの中で重ねない。利用者が送るのは最初のカードだけで、つながるカードは答えが終わるたびに順に送られる）、
-  すぐ下に位置 `<!-- x,y -->`（無くてよい。横に 320・縦に 190 ずつ離すと重ならない）、空行のあとに送るテキスト、
-  最後につながり `→ 番号` か `→ [線の名前] 番号`。
-  送るテキストに `## [` で始まる行を書かない（コードブロックの中ならよい）。最初のカードより前の行は説明として残る。
-  `## [添付] 番号` は添付のカード（送らない。`添付: [名前](リンク)` の行を並べ（本文のリンクと同じ書き方）、つないだ Claude のカードにファイルの場所を渡す）。
-  Claude のカードから出る線に違う名前が2つ以上あれば分かれ道で、名前の付いた線は Claude が選んだ1つだけ進む。
-  `## [ボード]` はボード（フローでできたものの置き場。カードではない。ページの最後に1つ。中は Markdown で、置き場を `### 名前` の見出しで分ける。`## [` で始まる行は書かない）。
-  「ボードの『要約』に書いて」と頼まれたら、今の状態の「開いているフロー」にある場所の、その見出しの下だけを書き換える（無ければ見出しを足す。ほかの置き場とカードは変えない）。
-  「ボードの〜を読んで」なら、そこを読む。ボードは利用者の画面に出ている。
-  前のカードへ戻る線を引くと繰り返しになる（同じ所へ戻るのは 5 回まで。名前の無い戻る線は毎回戻るので、分かれ道にする）。
-  送ったテキストか、話しかけに付いてくる文脈に `<<<行き先 …>>>` と `<<<ここまで 行き先 …>>>` の印があれば、答えの最後に、頼まれた名前のうち答えの内容に一番合うものを1つだけ、その印の行で囲んで書く。
 - 利用者が話しかけるたびに、エディタの今の状態（開いているファイル・見ているページ・カーソルの行・選んでいる文字）が付いてくる。
   ほかの画面や休止している画面で開いている文書の場所も「ほかに開いている文書」として付いてくる。利用者が見ていない文書の名前やタブの名前で話したら、その一覧から探す。
   「ここ」「この節」「選んだところ」「このページ」は、それを指す。文字を選んでいて「これ」「直して」と言われたら、選んだところが相手。
@@ -555,7 +542,6 @@ namespace Tsuzuri
             _aiTabs.RemoveAt(index);
             RebuildAiTabStrip();
             StoreAiTabs();   // 自分で閉じた会話は、次の起動で戻さない
-            OnFlowTabClosed(tab);   // その会話で送っていたフローを止める（SPEC 21章）
 
             if (_aiTabs.Count == 0)
             {
@@ -1003,10 +989,6 @@ namespace Tsuzuri
             var post = http != null
                 ? "{\"type\":\"http\",\"url\":\"" + http + "post\",\"timeout\":30}"
                 : "{\"type\":\"command\",\"command\":\"" + PowerShell(notify) + "\"}";
-            // 答え終わったとき（Stop。2026-11-17。フローを次のカードへ進める）
-            var stop = http != null
-                ? "{\"type\":\"http\",\"url\":\"" + http + "stop\",\"timeout\":10}"
-                : "{\"type\":\"command\",\"command\":\"" + PowerShell(SessionHook(connect, "stop")) + "\"}";
             var prompt = http != null
                 ? "{\"type\":\"http\",\"url\":\"" + http + "prompt\",\"timeout\":300}"
                 : "{\"type\":\"command\",\"timeout\":300,\"command\":\"" + PowerShell(context) + "\"}";
@@ -1015,7 +997,6 @@ namespace Tsuzuri
                    "\"PreToolUse\":[{\"matcher\":\"Read|Edit|Write|MultiEdit|NotebookEdit|Grep|Glob|Bash|PowerShell\",\"hooks\":[" + pre + "]}]," +
                    "\"PostToolUse\":[{\"matcher\":\"Edit|Write|MultiEdit|NotebookEdit|Bash\",\"hooks\":[" + post + "]}]," +
                    "\"UserPromptSubmit\":[{\"hooks\":[" + prompt + "]}]," +
-                   "\"Stop\":[{\"hooks\":[" + stop + "]}]," +
                    "\"SessionStart\":[{\"hooks\":[{\"type\":\"command\",\"command\":\"" + PowerShell(SessionHook(connect, "session")) + "\"}]}]," +
                    "\"SessionEnd\":[{\"hooks\":[{\"type\":\"command\",\"command\":\"" + PowerShell(SessionHook(connect, "ended")) + "\"}]}]" +
                    "}}";
@@ -1216,13 +1197,6 @@ namespace Tsuzuri
                         writer.WriteLine(answer ?? "ok");
                         writer.Flush();
                         server.WaitForPipeDrain();
-                    }
-                    else if (request != null && request.StartsWith("stop\t", StringComparison.Ordinal))
-                    {
-                        // 答え終わった（フローを進める。SessionHook の形「stop→タブの番号→会話の番号→フォルダ」）
-                        var parts = request.Split('\t');
-                        if (parts.Length >= 3)
-                            Dispatcher.BeginInvoke(new Action(delegate { OnAiTurnEnded(parts[1], parts[2]); }));
                     }
                     else if (request != null && (request.StartsWith("session\t", StringComparison.Ordinal)
                                                  || request.StartsWith("ended\t", StringComparison.Ordinal)))
@@ -1554,7 +1528,6 @@ namespace Tsuzuri
         /// </summary>
         private void SaveForAi()
         {
-            FlushFlow();   // 直しかけのフローをページに書いてから（SPEC 21章）
             if (_stack.Any(view => view.IsDirty)) SaveAll();
         }
 
@@ -1859,8 +1832,6 @@ namespace Tsuzuri
             text.Append("開いているページの並び（左から）: ")
                 .Append(string.Join(" > ", _stack.Select(page => AiGuard.IsGuarded(page.FilePath) ? "（AI に渡さない文書）" : PageLabel(page)).ToArray())).Append('\n');
 
-            AppendFlowBoard(text);
-
             if (_stack.Any(page => page.IsDirty))
                 text.Append("エディタに保存できていない編集がある。ファイルの中身はエディタの画面より古く、行番号もファイルと合わない。この文書は書き換えず、先に保存してもらう。\n");
 
@@ -1960,10 +1931,6 @@ namespace Tsuzuri
             // 出ている間は Windows がこの窓を操作できなくする。それで見分ける。閉じてこの窓に戻ったとき（Activated）に読み直す。
             if (IsShowingDialog()) return;
 
-            // フロー図の直しかけ（書く前の 0.3 秒）を先に文書へ書く（2026-11-20）。書けば文書は未保存になり、読み直さずに外での変更の確かめへ回る。
-            // 前は直しかけを見ずに読み直し、打った文字か、Claude がボードに書いたものが消えた
-            FlushFlow();
-
             var documents = _stack.Select(view => view.Owner).Where(owner => owner != null).Distinct().ToList();
             var reloaded = new List<PageDocument>();
 
@@ -2000,7 +1967,6 @@ namespace Tsuzuri
             }
 
             if (reloaded.Count == 0) return;
-            Dispatcher.BeginInvoke(new Action(ReloadFlowIfChanged), DispatcherPriority.Background);   // 開いているフロー図（SPEC 21章）
 
             // 無くなったページから右は閉じる。ルートはいつもあるので、先頭は残る。
             // 右には別のファイルのページもありうる。閉じるとそのファイルの未保存の編集が消えるので、そこにしか無い文書に

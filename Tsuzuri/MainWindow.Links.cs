@@ -47,8 +47,6 @@ namespace Tsuzuri
                 // 同じファイルの中のページ（SPEC 5章）。ファイル操作は一切起きない。
                 if (view.Owner != null && view.Owner.Contains(anchor))
                 {
-                    // フローのページは、ページとして開かずにフロー図で開く（SPEC 21章。2026-11-17）
-                    if (TryOpenFlow(view.Owner, anchor)) return;
                     PushPage(view, view.Owner, anchor);
                     return;
                 }

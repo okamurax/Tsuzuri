@@ -13,7 +13,7 @@ namespace Tsuzuri
     // Claude Code のフックを HTTP で受ける口（2026-11-15。SPEC 19章）。
     // フックを PowerShell で動かすと、Claude がツールを使うたびに powershell.exe を起動し（1 回 0.3〜1 秒）、返事が目に見えて遅くなった。
     // Claude Code の HTTP のフック（"type": "http"）なら、フックの入力の JSON をそのまま POST してくるので、プロセスを起動しない。
-    // 受けるのは、読み書きの前（PreToolUse）・書き換えたあと（PostToolUse）・話しかけたとき（UserPromptSubmit）・答え終わったとき（Stop。フローを進める）。
+    // 受けるのは、読み書きの前（PreToolUse）・書き換えたあと（PostToolUse）・話しかけたとき（UserPromptSubmit）。
     // 会話の始まり・終わり（SessionStart・SessionEnd）は今までどおり PowerShell とパイプ（始まりは HTTP を使えない。どちらも1回だけ）。
     // 共通ターミナルの terminal.ps1 もパイプのまま。
     //
@@ -151,15 +151,8 @@ namespace Tsuzuri
                             answer = AiHttpPostToolUse(input);
                             break;
                         case "prompt":
-                            answer = AiHttpPrompt(Text(input, "session_id"));
+                            answer = AiHttpPrompt();
                             break;
-                        case "stop":
-                        {
-                            // 答え終わった（2026-11-17。フローを次のカードへ進める）。会話の番号でタブを探す
-                            var session = Text(input, "session_id");
-                            Dispatcher.BeginInvoke(new Action(delegate { OnAiTurnEnded(null, session); }));
-                            break;
-                        }
                         default:
                             WriteAiHttp(stream, 404, string.Empty);
                             return;
@@ -221,14 +214,9 @@ namespace Tsuzuri
             };
         }
 
-        /// <summary>
-        /// 話しかけたとき。保存して今の状態を書き出し、それを Claude への文脈として返す（additionalContext）。
-        /// フローが送ったカードなら、行き先（分かれ道の線の名前）を印で書く頼みも文脈に足す（画面には出ない。MainWindow.FlowResult.cs）。
-        /// </summary>
-        private object AiHttpPrompt(string session)
+        /// <summary>話しかけたとき。保存して今の状態を書き出し、それを Claude への文脈として返す（additionalContext）。</summary>
+        private object AiHttpPrompt()
         {
-            var flow = TakeFlowPrompt(session);
-
             try
             {
                 PrepareAiPrompt();
@@ -247,7 +235,6 @@ namespace Tsuzuri
             catch (Exception)
             {
             }
-            if (flow != null) context = string.IsNullOrEmpty(context) ? flow : context.TrimEnd() + "\n\n" + flow;
             if (string.IsNullOrEmpty(context)) return null;
 
             return new Dictionary<string, object>

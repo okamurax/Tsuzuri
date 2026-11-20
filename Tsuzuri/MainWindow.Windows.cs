@@ -92,9 +92,6 @@ namespace Tsuzuri
             // 見えなくしている画面は前の画面にしない（前の画面を閉じたとき、Windows が重なりの次の窓として、見えない画面を選ぶことがある）。
             Activated += delegate { if (!_cloaked) _frontWindow = this; };
 
-            // 直しかけのフローは閉じる前に書く（2026-11-17）
-            Closing += delegate { if (_flowView != null) _flowView.Flush(); };
-
             Closed += delegate
             {
                 var wasPrimary = IsPrimary;

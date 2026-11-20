@@ -601,13 +601,6 @@ namespace Tsuzuri.Export
             {
                 var anchor = url.Substring(1);
 
-                if (anchor.Length > 0 && context.Document.Contains(anchor) && FlowFile.IsFlow(context.Document.TextOf(anchor)))
-                {
-                    // フロー（SPEC 21章）は本文に展開しない。リンクの名前だけ残す
-                    WriteChildren(link, segment, style, context);
-                    return;
-                }
-
                 if (anchor.Length > 0 && context.Document.Contains(anchor))
                 {
                     // サブページへのリンク。記号（>> など）は書き出さない。除外するなら本文も入れない。

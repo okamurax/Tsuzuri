@@ -85,6 +85,7 @@ B のリンクを踏む     [A帯][B帯][C]
 | 検索 | ページごとに検索欄を持つ。正規表現で照合し、該当箇所を検索欄の下の左半分に一覧にする。右半分は検索語のお気に入り（ファイルごと。検索欄の ☆ で足し、押すとその語で探す）。この欄と本文の境界はドラッグで上下に動かせ、高さを覚える（ダブルクリックで標準の高さ） |
 | 画面を増やす | ツールバーの一段下の「＋」で、同じ機能の画面をもう1つ開く。別の文書や WordPress の記事を並べて直せる。並んだタブか Ctrl+PageUp・Ctrl+PageDown で切り替え（タスクバーのボタンは1つ）、タブの × でその画面だけを閉じる。タブは掴んで横に動かすと並べ替えられる（「終了」はアプリごと閉じる）。終了したときの画面は、次の起動で全部戻す |
 | ランチャー | ファイル・フォルダ・アプリ・バッチを、固定のマス目に登録して起動する。画面のタブの並びの一番右の「ランチャー」で、ファイラーと一緒に本文の場所いっぱいに重ねて出す |
+| カレンダー | 予定を月か2週で並べ、カレンダーの画面で直接打つ（時間は名前に書く）。何日かにまたがる予定は帯で出し、予定ごとにメモを書ける。つかんで別の日へ動かせる。保存先は app.json の隣の `予定.md`（`scheduleFile` で変えられる） |
 | ファイラー | フォルダの中身を見て、添付にしたいファイルを本文へドラッグする |
 | 添付 | ファイルのドロップや貼り付けで、文書の隣の添付フォルダ（`.ファイル名/`）にコピーしてリンクを入れる。画像は本文の中に表示する（検索欄の段の「画像」「リンク」で、画像だけ／リンクの文字だけを切り替える） |
 | コードの色分け | コードブロックの中の文字列・数・コメント・括弧・記号・よく使う語・「名前:」の名前に色を付ける。言語は見分けない |
@@ -195,13 +196,15 @@ Mac では、XAML を除いた C# のコンパイルだけを `bash tools/check-
 
 `bash tools/ai-guard.sh` で、AI に渡さない場所（目印 `.tsuzuri-no-ai`）の下を Claude が読み書きしようとしたら断り、ほかは通すかを確かめます。`Tsuzuri/Markdown/AiGuard.cs` を変えたら回してください。
 
+`bash tools/schedule-file.sh` で、カレンダーの予定の保存先（`予定.md`）を読んで書き直しても変わらないか、何日かにまたがる予定・メモ・崩れた行・打った日付を正しく読むかを確かめます。`Tsuzuri/Markdown/ScheduleFile.cs` を変えたら回してください。
+
 ## 設定ファイル
 
 どれも exe と同じフォルダに置きます。持ち運べるように、`%AppData%` は使いません。
 
 | ファイル | 中身 |
 |---|---|
-| `app.json` | ウィンドウの位置、仕切りの位置、前回開いていたファイル、ランチャーの登録、開いていた画面（タブ）・AI の会話のタブなど。自動で作る。仮想マシンで画面がちらつくときは、終了してから `"softwareRendering": true` にすると GPU を使わずに描く。`"perfLog": true` にすると、打ってから画面に出るまでの時間と、ページを移るときの時間を exe の隣の `perf.log` に書く（遅さの原因を探すため） |
+| `app.json` | ウィンドウの位置、仕切りの位置、前回開いていたファイル、ランチャーの登録、カレンダーの予定の保存先（`scheduleFile`）と月・2週の別、開いていた画面（タブ）・AI の会話のタブなど。自動で作る。仮想マシンで画面がちらつくときは、終了してから `"softwareRendering": true` にすると GPU を使わずに描く。`"perfLog": true` にすると、打ってから画面に出るまでの時間と、ページを移るときの時間を exe の隣の `perf.log` に書く（遅さの原因を探すため） |
 | `wordpress.json` | WordPress の接続先とアプリケーションパスワード。WordPress を使うときだけ自分で書く |
 | `ssh/` | AI の欄から SSH でつなぐ接続先の一覧 `config.txt` と鍵。使うときだけ自分で置く（Tsuzuri が `%LOCALAPPDATA%\Tsuzuri\ssh` に写して使う） |
 
@@ -214,7 +217,7 @@ Tsuzuri/
 ├ MainWindow.xaml(.cs)   画面の骨格。受け持ちごとに MainWindow.*.cs に分けている
 │                        （Stack: ページの並び／Outline: アウトライン／Overlays: ランチャー／Ai: AI の欄／AiShell: AI の欄の共通ターミナル／WordPress など）
 ├ Markdown/              ページの読み書き（PageDocument）、Markdig による解析、変更の記録（DocumentHistory）
-├ Views/                 編集面（AvalonEdit の拡張）、ランチャー、ファイラー、端末
+├ Views/                 編集面（AvalonEdit の拡張）、ランチャー、ファイラー、カレンダー、端末
 ├ Export/                Word への書き出し
 ├ WordPress/             WordPress の REST API、HTML → Markdown の変換、送る HTML（WordPressHtml）
 ├ Ai/                    AI に読ませる図の書き方（drawing-format.md）と、AI が使う台本（SSH の askpass・ネットワーク機器への入り方・共通ターミナル）
@@ -222,7 +225,7 @@ Tsuzuri/
 └ ConPty/                AI の欄の端末で使う ConPTY（conpty.dll・OpenConsole.exe）
 TableEditor/             表エディタ（WPF。本体から DLL として読み込む）
 DrawingEditor/           図エディタ（WPF。本体から DLL として読み込む）
-tools/                   Mac でのコンパイル確認、WordPress の変換の確かめ（wp-check）、部分解析の確かめ（parse-fuzz）、アウトラインの操作の確かめ（struct-fuzz）、崩れた文書での読み書きの確かめ（page-fuzz）、AI に渡さない場所の確かめ（ai-guard）、コミット前のフック、アイコンの生成
+tools/                   Mac でのコンパイル確認、WordPress の変換の確かめ（wp-check）、部分解析の確かめ（parse-fuzz）、アウトラインの操作の確かめ（struct-fuzz）、崩れた文書での読み書きの確かめ（page-fuzz）、AI に渡さない場所の確かめ（ai-guard）、カレンダーの予定の保存先の確かめ（schedule-file）、コミット前のフック、アイコンの生成
 sample/                  動作確認用の文書
 ```
 

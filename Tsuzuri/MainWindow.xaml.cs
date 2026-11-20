@@ -252,6 +252,7 @@ namespace Tsuzuri
             // ランチャーを出している間に、その外（アウトライン・ツールバー等）を押したら閉じる。Esc でも閉じる（SPEC 4章）。
             PreviewMouseDown += CloseLauncherOnOutsideClick;
             LauncherHost.KeyDown += LauncherHost_KeyDown;
+            CalendarHost.KeyDown += CalendarHost_KeyDown;
 
             // アウトラインのドラッグで節を動かす（SPEC 7章）。木はページごとに作るので、つなぐのは HookOutlineTree で（2026-11-05）。
             HookOutlineTree(OutlineTree);
@@ -462,6 +463,15 @@ namespace Tsuzuri
 
         private void OnClosing(object sender, CancelEventArgs e)
         {
+            // カレンダーの欄で打ちかけの予定は、閉じる前に保存する（保存できない日付なら、閉じない。SPEC 22章）
+            if (_calendar != null && !_calendar.CommitEdit())
+            {
+                e.Cancel = true;
+                if (!IsOnScreen) BringForward(FrontWindow(), true);
+                Status("予定の欄に直すところがあります。直して保存するか、「やめる」を押してから閉じてください");
+                return;
+            }
+
             _closing = true;
             try
             {

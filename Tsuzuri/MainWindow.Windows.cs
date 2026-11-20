@@ -690,6 +690,7 @@ namespace Tsuzuri
             }
 
             WindowList.Children.Add(LauncherButton);   // タブの並びの一番右（「＋」の左。2026-11-20）
+            WindowList.Children.Add(CalendarButton);   // その右にカレンダー（SPEC 22章）
 
             var add = new Button
             {

@@ -42,6 +42,14 @@ namespace Tsuzuri
         [DataMember(Name = "aiShellSplit", EmitDefaultValue = false)]
         public double AiShellSplit { get; set; }
 
+        /// <summary>カレンダーの予定の保存先（2026-11-20。SPEC 22章）。空なら app.json の隣の 予定.md。%USERPROFILE% などの環境変数を使える。</summary>
+        [DataMember(Name = "scheduleFile", EmitDefaultValue = false)]
+        public string ScheduleFile { get; set; }
+
+        /// <summary>カレンダーを2週で出すか（false なら月）。</summary>
+        [DataMember(Name = "calendarTwoWeeks", EmitDefaultValue = false)]
+        public bool CalendarTwoWeeks { get; set; }
+
         /// <summary>ファイラーで最後に見ていたフォルダ。</summary>
         [DataMember(Name = "filerFolder")]
         public string FilerFolder { get; set; }

@@ -188,6 +188,11 @@
                             <Border x:Name="FilerHost" Grid.Column="2" />
                         </Grid>
                     </Border>
+
+                    <!-- カレンダー（SPEC 22章。2026-11-20。MainWindow.Calendar.cs・Views/CalendarView.cs）。ランチャーと同じく本文の場所いっぱいに重ねる -->
+                    <Border x:Name="CalendarHost" Visibility="Collapsed"
+                            Focusable="False"
+                            Background="{StaticResource SidebarBackground}" />
                 </Grid>
             </Border>
 

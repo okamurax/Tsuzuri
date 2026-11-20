@@ -56,6 +56,8 @@ namespace Tsuzuri
                 && !string.Equals(last, _filer.Folder, StringComparison.OrdinalIgnoreCase))
                 _filer.Navigate(last);
 
+            if (!CloseCalendar()) return;   // カレンダーとは同時に出さない
+
             _launcher = new LauncherView(_settings, OpenFromLauncher, Status, folder =>
             {
                 _filer.Navigate(folder);
@@ -89,14 +91,21 @@ namespace Tsuzuri
         /// </summary>
         private void CloseLauncherOnOutsideClick(object sender, MouseButtonEventArgs e)
         {
+            // カレンダーも同じ（SPEC 22章）。「カレンダー」のタブとカレンダーの中は除く。予定の欄で直すところがあれば閉じない（CloseCalendar）
+            if (_calendar != null && !IsInside(e.OriginalSource as DependencyObject, CalendarButton, CalendarHost)) CloseCalendar();
+
             if (_launcher == null) return;
-
-            for (var node = e.OriginalSource as DependencyObject; node != null; node = ParentOf(node))
-            {
-                if (node == LauncherButton || node == LauncherHost) return;
-            }
-
+            if (IsInside(e.OriginalSource as DependencyObject, LauncherButton, LauncherHost)) return;
             CloseLauncher();
+        }
+
+        private static bool IsInside(DependencyObject source, DependencyObject a, DependencyObject b)
+        {
+            for (var node = source; node != null; node = ParentOf(node))
+            {
+                if (node == a || node == b) return true;
+            }
+            return false;
         }
 
         private static DependencyObject ParentOf(DependencyObject node)

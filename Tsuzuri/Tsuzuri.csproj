@@ -146,6 +146,9 @@
     <Compile Include="MainWindow.Bookmarks.cs">
       <DependentUpon>MainWindow.xaml</DependentUpon>
     </Compile>
+    <Compile Include="MainWindow.Calendar.cs">
+      <DependentUpon>MainWindow.xaml</DependentUpon>
+    </Compile>
     <Compile Include="MainWindow.Links.cs">
       <DependentUpon>MainWindow.xaml</DependentUpon>
     </Compile>
@@ -181,6 +184,7 @@
     <Compile Include="Markdown\Attachments.cs" />
     <Compile Include="Markdown\DocumentModel.cs" />
     <Compile Include="Markdown\DocumentHistory.cs" />
+    <Compile Include="Markdown\ScheduleFile.cs" />
     <Compile Include="Markdown\ScreenState.cs" />
     <Compile Include="Markdown\DocumentState.cs" />
     <Compile Include="Markdown\ImageOrientation.cs" />
@@ -203,6 +207,7 @@
     <Compile Include="PerfLog.cs" />
     <Compile Include="Views\ScrollThumbLength.cs" />
     <Compile Include="Views\CodeCopyLayer.cs" />
+    <Compile Include="Views\CalendarView.cs" />
     <Compile Include="Views\CodeBlockRenderer.cs" />
     <Compile Include="Views\SearchColorizer.cs" />
     <Compile Include="Views\MarkdownView.cs" />

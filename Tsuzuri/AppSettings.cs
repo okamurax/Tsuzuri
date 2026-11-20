@@ -46,10 +46,6 @@ namespace Tsuzuri
         [DataMember(Name = "scheduleFile", EmitDefaultValue = false)]
         public string ScheduleFile { get; set; }
 
-        /// <summary>カレンダーを2週で出すか（false なら月）。</summary>
-        [DataMember(Name = "calendarTwoWeeks", EmitDefaultValue = false)]
-        public bool CalendarTwoWeeks { get; set; }
-
         /// <summary>ファイラーで最後に見ていたフォルダ。</summary>
         [DataMember(Name = "filerFolder")]
         public string FilerFolder { get; set; }

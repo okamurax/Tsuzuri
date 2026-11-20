@@ -9,7 +9,7 @@ using Tsuzuri.Views;
 namespace Tsuzuri
 {
     // MainWindow の一部: カレンダー（SPEC 22章。2026-11-20）。
-    // 予定を月か2週で並べ、カレンダーの画面で直接打つ。保存先は .md（ScheduleFile）で、裏に置くだけ（利用者の考え）。
+    // 予定を週の行で下へずっと並べ、カレンダーの画面で直接打つ。保存先は .md（ScheduleFile）で、裏に置くだけ（利用者の考え）。
     // ランチャーと同じく、本文の場所いっぱいに重ねて出し、画面のタブの並びの一番右（ランチャーの右）のタブで出し入れする。
     // ランチャーとは同時に出さない（片方を出すと、もう片方を閉じる）。
     public partial class MainWindow
@@ -42,7 +42,7 @@ namespace Tsuzuri
                     Height = 26,
                     Margin = new Thickness(0, 0, 4, 0),
                     VerticalAlignment = VerticalAlignment.Center,
-                    ToolTip = "カレンダー（Alt+C）。予定を月か2週で出し、ここで直接打つ。もう一度押すか Esc で閉じる",
+                    ToolTip = "カレンダー（Alt+C）。予定を週の行で下へずっと並べ、ここで直接打つ。もう一度押すか Esc で閉じる",
                 };
                 _calendarButton.Click += delegate { ToggleCalendar(); };
                 AccessKeyManager.Register("C", _calendarButton);
@@ -59,7 +59,7 @@ namespace Tsuzuri
             }
 
             CloseLauncher();
-            _calendar = new CalendarView(ScheduleFilePath, _settings, Status);
+            _calendar = new CalendarView(ScheduleFilePath, Status);
             CalendarHost.Child = _calendar;
             CalendarHost.Visibility = Visibility.Visible;
             CalendarButton.Tag = "Open";
@@ -71,10 +71,7 @@ namespace Tsuzuri
             }), DispatcherPriority.Loaded);
         }
 
-        /// <summary>
-        /// カレンダーを閉じる。予定を足す・直す欄が開いていれば、先に保存する。読めない日付などで保存できなければ閉じない（打った文字を捨てない）。
-        /// 閉じたら true。
-        /// </summary>
+        /// <summary>カレンダーを閉じる。マスで打っている名前・欄で直している中身は、先に保存する（打った文字を捨てない）。閉じたら true。</summary>
         private bool CloseCalendar()
         {
             if (_calendar == null) return true;

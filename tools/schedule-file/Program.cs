@@ -64,15 +64,6 @@ internal static class Program
         // 名前の改行
         Check(ScheduleFile.OneLine(" a\r\n b \n") == "a b", "名前の改行");
 
-        // 打った日付
-        DateTime date;
-        var reference = D(2026, 11, 20);
-        Check(ScheduleFile.TryReadDate("2026-11-21", reference, out date) && date == D(2026, 11, 21), "2026-11-21");
-        Check(ScheduleFile.TryReadDate("2027/1/2", reference, out date) && date == D(2027, 1, 2), "2027/1/2");
-        Check(ScheduleFile.TryReadDate("12/3", reference, out date) && date == D(2026, 12, 3), "12/3");
-        Check(!ScheduleFile.TryReadDate("2/30", reference, out date), "2/30 を読んだ");
-        Check(!ScheduleFile.TryReadDate("あした", reference, out date), "文字を読んだ");
-
         Console.WriteLine(_ng == 0 ? "全部 OK" : "NG: " + _ng + " 件");
         return _ng == 0 ? 0 : 1;
     }

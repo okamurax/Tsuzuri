@@ -146,23 +146,5 @@ namespace Tsuzuri.Markdown
         {
             return DateTime.TryParseExact(text, DateFormat, CultureInfo.InvariantCulture, DateTimeStyles.None, out date);
         }
-
-        /// <summary>
-        /// 打った日付を読む（編集の画面）。「2026-11-21」「2026/11/21」「11/21」「11-21」（年は基準の日の年）。読めなければ false。
-        /// </summary>
-        public static bool TryReadDate(string text, DateTime reference, out DateTime date)
-        {
-            date = DateTime.MinValue;
-            var match = Regex.Match((text ?? string.Empty).Trim(), @"^(?:(\d{4})[-/.])?(\d{1,2})[-/.](\d{1,2})$");
-            if (!match.Success) return false;
-
-            var year = match.Groups[1].Success ? int.Parse(match.Groups[1].Value, CultureInfo.InvariantCulture) : reference.Year;
-            var month = int.Parse(match.Groups[2].Value, CultureInfo.InvariantCulture);
-            var day = int.Parse(match.Groups[3].Value, CultureInfo.InvariantCulture);
-            if (month < 1 || month > 12 || day < 1 || day > DateTime.DaysInMonth(year, month)) return false;
-
-            date = new DateTime(year, month, day);
-            return true;
-        }
     }
 }

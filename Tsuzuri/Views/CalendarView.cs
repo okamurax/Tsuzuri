@@ -8,16 +8,18 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
+using System.Windows.Threading;
 using Tsuzuri.Markdown;
 
 namespace Tsuzuri.Views
 {
     /// <summary>
-    /// カレンダー（SPEC 22章。2026-11-20）。予定を月か2週で並べ、ここで直接打って直す。保存先の .md（ScheduleFile）は裏に置くだけ。
+    /// カレンダー（SPEC 22章。2026-11-20）。予定を週の行で下へずっと並べ、ここで直接打って直す。保存先の .md（ScheduleFile）は裏に置くだけ。
     ///
     /// ・時間の枠は持たない。予定は日に付き、時間は名前に書く（利用者の書き方）。何日かにまたがる予定は帯で出す
-    /// ・予定とタスクは分けない。済んだら消す。繰り返しは持たない（Google カレンダーに残す）
-    /// ・日を2度押す・何日かをなぞると、その日（その間）の予定を足す。予定を2度押すか Enter で直す。予定をつかんで別の日へ動かす。Delete で消す。Ctrl+Z で戻す
+    /// ・月・2週の切り替えは持たない。週の行が上下にずっと続き、スクロールした先を足していく（利用者の考え）
+    /// ・日を2度押すと、その日のマスで名前を打つ（1日の予定）。帯の端を引っぱって延ばすと何日かになる。帯をつかんで別の日へ動かす
+    /// ・予定を2度押すと、名前とメモを直す欄（日付は欄では直さない。帯で直す）。Delete で消す。Ctrl+Z で戻す
     /// ・直すたびにすぐ保存する（保存の操作は無い）。外で書き換わっていたら、直す前に読み直す
     /// 本文の場所に重ねて出す（MainWindow.Calendar.cs）。ランチャーと同じく、出すたびに作り、閉じたら捨てる。
     /// </summary>
@@ -27,96 +29,82 @@ namespace Tsuzuri.Views
         private const double DayHeaderHeight = 24;
         private const double DayNumberHeight = 22;
         private const double LaneHeight = 22;
+        private const double RowMinHeight = 112;
+        private const double EdgeGrip = 7;          // 帯の端のこの幅をつかむと延ばす・縮める
+        private const int WeeksBefore = 8;          // 初めに出す、今週より前の週
+        private const int WeeksAfter = 26;          // 初めに出す、今週より後の週
+        private const int WeeksPerExtend = 12;      // 端へスクロールしたら足す週
+        private const double ExtendMargin = 600;    // 端からこれだけ手前まで来たら足す
         private const int UndoLimit = 50;
 
         private static readonly Brush SundayText = Freeze(Color.FromRgb(0xE0, 0x7A, 0x7A));
         private static readonly Brush SaturdayText = Freeze(Color.FromRgb(0x72, 0xA4, 0xE0));
         private static readonly Brush SingleFill = Freeze(Color.FromRgb(0x24, 0x31, 0x4C));
         private static readonly Brush MultiFill = Freeze(Color.FromRgb(0x2C, 0x4A, 0x86));
+        private static readonly Brush EvenMonthFill = Freeze(Color.FromRgb(0x1A, 0x22, 0x37));   // 月の境が分かるよう、偶数月の地を少し変える
+
+        private static readonly CultureInfo Japanese = CultureInfo.GetCultureInfo("ja-JP");
+
+        private enum Gesture { None, Move, ResizeStart, ResizeEnd }
 
         private readonly string _path;
-        private readonly AppSettings _settings;
         private readonly Action<string> _status;
 
         private List<ScheduleItem> _items = new List<ScheduleItem>();
         private DateTime _loadedStamp;
         private readonly List<List<ScheduleItem>> _undo = new List<List<ScheduleItem>>();
 
-        /// <summary>出している期間の基準。月なら 1 日、2週なら最初の週の日曜。</summary>
-        private DateTime _anchor;
-
         private readonly TextBlock _title = new TextBlock();
-        private readonly Button _monthButton;
-        private readonly Button _twoWeeksButton;
         private readonly ScrollViewer _scroll = new ScrollViewer();
         private readonly StackPanel _weeks = new StackPanel();
 
-        // 組んだ週ごとの、始まりの日と行（押した場所の日を求める）。日ごとのマス（なぞったところを塗る）
+        // 出している週（_firstWeek から _weekCount 週）と、その行（押した場所の日を求める）
+        private DateTime _firstWeek;
+        private int _weekCount;
         private readonly List<KeyValuePair<DateTime, Grid>> _rows = new List<KeyValuePair<DateTime, Grid>>();
-        private readonly Dictionary<DateTime, Border> _cells = new Dictionary<DateTime, Border>();
+        private bool _extending;
 
         private ScheduleItem _selected;
 
-        // なぞって日を選んでいる（予定を足す）
-        private DateTime? _selectFrom;
-        private DateTime? _selectTo;
-
-        // 予定をつかんで動かしている
+        // 帯をつかんでいる（動かす・延ばす）
+        private Gesture _gesture;
         private ScheduleItem _dragItem;
         private DateTime _dragFrom;
         private int _dragDelta;
-        private bool _dragMoved;
 
-        // 予定を足す・直す欄
+        // その日のマスで名前を打っている（足す）
+        private DateTime? _newOn;
+        private TextBox _newBox;
+
+        // 名前とメモを直す欄
         private readonly Grid _editorLayer = new Grid();
         private readonly TextBox _editTitle;
-        private readonly TextBox _editStart;
-        private readonly TextBox _editEnd;
         private readonly TextBox _editMemo;
-        private readonly TextBlock _editError = new TextBlock();
+        private readonly TextBlock _editDates = new TextBlock();
         private readonly Button _editDelete;
-        private ScheduleItem _editing;   // 直している予定。足すときは null
+        private ScheduleItem _editing;
         private bool _editorOpen;
 
-        public CalendarView(string path, AppSettings settings, Action<string> status)
+        public CalendarView(string path, Action<string> status)
         {
             _path = path;
-            _settings = settings;
             _status = status;
 
             Focusable = true;
             FocusVisualStyle = null;
             Background = Resource("SidebarBackground");
 
-            var today = DateTime.Today;
-            _anchor = _settings.CalendarTwoWeeks ? WeekStart(today) : new DateTime(today.Year, today.Month, 1);
-
-            // 上の段: ◀ 今日 ▶ 題 …… 月 2週
-            var bar = new DockPanel { Height = TopBarHeight, LastChildFill = false, Margin = new Thickness(12, 0, 12, 0) };
-            var prev = ToolButton("◀", "前へ（PageUp）");
-            prev.Click += delegate { Move(-1); };
-            var todayButton = ToolButton("今日", "今日を含む期間へ（Home）");
-            todayButton.Click += delegate { GoToday(); };
-            var next = ToolButton("▶", "次へ（PageDown）");
-            next.Click += delegate { Move(1); };
+            // 上の段: 見えている月 …… 今日
+            var bar = new DockPanel { Height = TopBarHeight, LastChildFill = false, Margin = new Thickness(16, 0, 12, 0) };
             _title.FontSize = 16;
-            _title.Margin = new Thickness(12, 0, 0, 0);
             _title.VerticalAlignment = VerticalAlignment.Center;
             _title.Foreground = Resource("TextPrimary");
-            foreach (var element in new UIElement[] { prev, todayButton, next, _title })
-            {
-                DockPanel.SetDock(element, Dock.Left);
-                bar.Children.Add(element);
-            }
-
-            _twoWeeksButton = ToolButton("2週", "今週と来週を出す");
-            _twoWeeksButton.Click += delegate { SetTwoWeeks(true); };
-            _monthButton = ToolButton("月", "1か月を出す");
-            _monthButton.Click += delegate { SetTwoWeeks(false); };
-            DockPanel.SetDock(_twoWeeksButton, Dock.Right);
-            DockPanel.SetDock(_monthButton, Dock.Right);
-            bar.Children.Add(_twoWeeksButton);
-            bar.Children.Add(_monthButton);
+            DockPanel.SetDock(_title, Dock.Left);
+            bar.Children.Add(_title);
+            var todayButton = ToolButton("今日", "今日の週へ（Home）");
+            todayButton.Click += delegate { ScrollToToday(); };
+            DockPanel.SetDock(todayButton, Dock.Right);
+            bar.Children.Add(todayButton);
 
             var barBorder = new Border
             {
@@ -133,7 +121,7 @@ namespace Tsuzuri.Views
                 header.ColumnDefinitions.Add(new ColumnDefinition());
                 var name = new TextBlock
                 {
-                    Text = CultureInfo.GetCultureInfo("ja-JP").DateTimeFormat.GetShortestDayName((DayOfWeek)d),
+                    Text = Japanese.DateTimeFormat.GetShortestDayName((DayOfWeek)d),
                     HorizontalAlignment = HorizontalAlignment.Center,
                     VerticalAlignment = VerticalAlignment.Center,
                     Foreground = d == 0 ? SundayText : d == 6 ? SaturdayText : Resource("TextMuted"),
@@ -147,12 +135,12 @@ namespace Tsuzuri.Views
             _weeks.MouseLeftButtonDown += OnWeeksDown;
             _weeks.MouseMove += OnWeeksMove;
             _weeks.MouseLeftButtonUp += OnWeeksUp;
-            _weeks.LostMouseCapture += delegate { EndGestures(false); };
+            _weeks.LostMouseCapture += delegate { EndGesture(false); };
 
             _scroll.Content = _weeks;
             _scroll.VerticalScrollBarVisibility = ScrollBarVisibility.Auto;
             _scroll.HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled;
-            _scroll.SizeChanged += delegate { FitRows(); };
+            _scroll.ScrollChanged += OnScrollChanged;
 
             var main = new DockPanel { LastChildFill = true };
             main.Children.Add(barBorder);
@@ -160,10 +148,7 @@ namespace Tsuzuri.Views
             main.Children.Add(_scroll);
             Children.Add(main);
 
-            // 予定を足す・直す欄（真ん中に重ねる）
             _editTitle = Field(false);
-            _editStart = Field(false);
-            _editEnd = Field(false);
             _editMemo = Field(true);
             _editDelete = ToolButton("削除", "この予定を消す（Ctrl+Z で戻せる）");
             Children.Add(BuildEditor());
@@ -171,7 +156,12 @@ namespace Tsuzuri.Views
             KeyDown += OnKey;
 
             Load();
+            _firstWeek = WeekStart(DateTime.Today).AddDays(-7 * WeeksBefore);
+            _weekCount = WeeksBefore + 1 + WeeksAfter;
             Rebuild();
+
+            // 並んでから、今週を上から2行目あたりに出す
+            Loaded += delegate { Dispatcher.BeginInvoke(new Action(ScrollToToday), DispatcherPriority.Loaded); };
         }
 
         // ---------------------------------------------------------------
@@ -183,14 +173,13 @@ namespace Tsuzuri.Views
             try
             {
                 _items = File.Exists(_path) ? ScheduleFile.Parse(File.ReadAllText(_path, Encoding.UTF8)) : new List<ScheduleItem>();
-                _loadedStamp = Stamp();
             }
             catch (Exception ex)
             {
                 _items = new List<ScheduleItem>();
-                _loadedStamp = Stamp();
                 _status("予定を読めませんでした: " + ex.Message);
             }
+            _loadedStamp = Stamp();
             if (_selected != null && !_items.Contains(_selected)) _selected = null;
         }
 
@@ -246,7 +235,7 @@ namespace Tsuzuri.Views
         }
 
         // ---------------------------------------------------------------
-        // 期間
+        // 並べる（週の行を下へずっと）
         // ---------------------------------------------------------------
 
         private static DateTime WeekStart(DateTime date)
@@ -254,91 +243,107 @@ namespace Tsuzuri.Views
             return date.Date.AddDays(-(int)date.DayOfWeek);
         }
 
-        private void Move(int step)
-        {
-            _anchor = _settings.CalendarTwoWeeks ? _anchor.AddDays(7 * step) : _anchor.AddMonths(step);
-            Rebuild();
-        }
-
-        private void GoToday()
-        {
-            var today = DateTime.Today;
-            _anchor = _settings.CalendarTwoWeeks ? WeekStart(today) : new DateTime(today.Year, today.Month, 1);
-            Rebuild();
-        }
-
-        private void SetTwoWeeks(bool twoWeeks)
-        {
-            if (_settings.CalendarTwoWeeks == twoWeeks) return;
-
-            // 今見ている所を引き継ぐ（月→2週は、今日がその月なら今週、違えばその月の最初の週。2週→月は、最初の週の月）
-            var today = DateTime.Today;
-            if (twoWeeks)
-                _anchor = today.Year == _anchor.Year && today.Month == _anchor.Month ? WeekStart(today) : WeekStart(_anchor);
-            else
-            {
-                var middle = _anchor.AddDays(3);
-                _anchor = new DateTime(middle.Year, middle.Month, 1);
-            }
-
-            _settings.CalendarTwoWeeks = twoWeeks;
-            _settings.Save();
-            Rebuild();
-        }
-
-        // ---------------------------------------------------------------
-        // 組む
-        // ---------------------------------------------------------------
-
+        /// <summary>出している週を全部組み直す（予定が変わったとき）。スクロールの位置は保つ。</summary>
         private void Rebuild()
         {
-            var twoWeeks = _settings.CalendarTwoWeeks;
-            DateTime first;
-            int weekCount;
-            if (twoWeeks)
-            {
-                first = _anchor;
-                weekCount = 2;
-                var last = first.AddDays(13);
-                _title.Text = first.ToString("yyyy年M月d日", CultureInfo.InvariantCulture) + " 〜 " +
-                              (last.Year == first.Year ? last.ToString("M月d日", CultureInfo.InvariantCulture) : last.ToString("yyyy年M月d日", CultureInfo.InvariantCulture));
-            }
-            else
-            {
-                first = WeekStart(_anchor);
-                var days = (int)_anchor.DayOfWeek + DateTime.DaysInMonth(_anchor.Year, _anchor.Month);
-                weekCount = (days + 6) / 7;
-                _title.Text = _anchor.ToString("yyyy年M月", CultureInfo.InvariantCulture);
-            }
-
-            Paint(_monthButton, !twoWeeks);
-            Paint(_twoWeeksButton, twoWeeks);
-
+            var offset = _scroll.VerticalOffset;
             _weeks.Children.Clear();
             _rows.Clear();
-            _cells.Clear();
-            for (var w = 0; w < weekCount; w++)
+            for (var w = 0; w < _weekCount; w++)
             {
-                var weekStart = first.AddDays(7 * w);
-                var row = BuildWeek(weekStart, twoWeeks);
+                var weekStart = _firstWeek.AddDays(7 * w);
+                var row = BuildWeek(weekStart);
                 _rows.Add(new KeyValuePair<DateTime, Grid>(weekStart, row));
                 _weeks.Children.Add(row);
             }
+            _scroll.ScrollToVerticalOffset(offset);
+            UpdateTitle();
 
-            FitRows();
-            PaintSelection();
+            if (_newBox != null)
+            {
+                var box = _newBox;
+                Dispatcher.BeginInvoke(new Action(delegate { if (ReferenceEquals(box, _newBox)) box.Focus(); }), DispatcherPriority.Loaded);
+            }
         }
 
-        /// <summary>週の行を画面の高さで等分する（予定が多い週は伸び、全体がスクロールする）。</summary>
-        private void FitRows()
+        /// <summary>端へスクロールしたら、その先の週を足す。上に足したときは、見えている所が動かないようにずらす。</summary>
+        private void OnScrollChanged(object sender, ScrollChangedEventArgs e)
         {
-            if (_rows.Count == 0) return;
-            var height = Math.Max(0, _scroll.ViewportHeight > 0 ? _scroll.ViewportHeight : _scroll.ActualHeight);
-            var each = Math.Floor(height / _rows.Count);
-            foreach (var row in _rows) row.Value.MinHeight = Math.Max(DayNumberHeight + LaneHeight * 2, each);
+            UpdateTitle();
+            if (_extending || _rows.Count == 0 || _scroll.ExtentHeight <= 0) return;
+
+            if (_scroll.VerticalOffset + _scroll.ViewportHeight > _scroll.ExtentHeight - ExtendMargin)
+            {
+                _extending = true;
+                for (var i = 0; i < WeeksPerExtend; i++)
+                {
+                    var weekStart = _firstWeek.AddDays(7 * _weekCount);
+                    var row = BuildWeek(weekStart);
+                    _rows.Add(new KeyValuePair<DateTime, Grid>(weekStart, row));
+                    _weeks.Children.Add(row);
+                    _weekCount++;
+                }
+                _extending = false;
+            }
+            else if (_scroll.VerticalOffset < ExtendMargin)
+            {
+                _extending = true;
+                var before = _scroll.ExtentHeight;
+                var offset = _scroll.VerticalOffset;
+                for (var i = 0; i < WeeksPerExtend; i++)
+                {
+                    _firstWeek = _firstWeek.AddDays(-7);
+                    var row = BuildWeek(_firstWeek);
+                    _rows.Insert(0, new KeyValuePair<DateTime, Grid>(_firstWeek, row));
+                    _weeks.Children.Insert(0, row);
+                    _weekCount++;
+                }
+                _weeks.UpdateLayout();
+                _scroll.ScrollToVerticalOffset(offset + (_weeks.ActualHeight - before));
+                _extending = false;
+            }
         }
 
-        private Grid BuildWeek(DateTime weekStart, bool twoWeeks)
+        /// <summary>上の段に、いちばん上に見えている週の月を出す。</summary>
+        private void UpdateTitle()
+        {
+            var shown = _rows.Count > 0 ? _rows[0].Key : WeekStart(DateTime.Today);
+            var top = 0.0;
+            foreach (var pair in _rows)
+            {
+                var height = pair.Value.ActualHeight;
+                if (top + height > _scroll.VerticalOffset + 1)
+                {
+                    shown = pair.Key;
+                    break;
+                }
+                top += height;
+            }
+            var middle = shown.AddDays(3);
+            _title.Text = middle.ToString("yyyy年M月", CultureInfo.InvariantCulture);
+        }
+
+        private void ScrollToToday()
+        {
+            var week = WeekStart(DateTime.Today);
+            if (week < _firstWeek || week >= _firstWeek.AddDays(7 * _weekCount))
+            {
+                _firstWeek = week.AddDays(-7 * WeeksBefore);
+                _weekCount = WeeksBefore + 1 + WeeksAfter;
+                Rebuild();
+                _weeks.UpdateLayout();
+            }
+
+            var top = 0.0;
+            foreach (var pair in _rows)
+            {
+                if (pair.Key == week) break;
+                top += pair.Value.ActualHeight;
+            }
+            _scroll.ScrollToVerticalOffset(Math.Max(0, top - RowMinHeight / 2));
+        }
+
+        private Grid BuildWeek(DateTime weekStart)
         {
             var weekEnd = weekStart.AddDays(6);
             var today = DateTime.Today;
@@ -364,39 +369,42 @@ namespace Tsuzuri.Views
                 placed.Add(Tuple.Create(pair.Key, pair.Value, lane, from, to));
             }
 
-            var row = new Grid();
+            // 名前を打っている日がこの週なら、その日の段の下に打つ欄を出す
+            var newColumn = _newOn.HasValue && _newOn.Value >= weekStart && _newOn.Value <= weekEnd ? (int)(_newOn.Value - weekStart).TotalDays : -1;
+            var lanes = laneEnds.Count + (newColumn >= 0 ? 1 : 0);
+
+            var row = new Grid { MinHeight = RowMinHeight };
             for (var d = 0; d < 7; d++) row.ColumnDefinitions.Add(new ColumnDefinition());
             row.RowDefinitions.Add(new RowDefinition { Height = new GridLength(DayNumberHeight) });
-            for (var i = 0; i < laneEnds.Count; i++) row.RowDefinitions.Add(new RowDefinition { Height = new GridLength(LaneHeight) });
+            for (var i = 0; i < lanes; i++) row.RowDefinitions.Add(new RowDefinition { Height = new GridLength(LaneHeight) });
             row.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star), MinHeight = 6 });
             var rowCount = row.RowDefinitions.Count;
 
             for (var d = 0; d < 7; d++)
             {
                 var date = weekStart.AddDays(d);
-                var outside = !twoWeeks && date.Month != _anchor.Month;
 
                 var cell = new Border
                 {
                     BorderBrush = Resource("BorderBrushSoft"),
                     BorderThickness = new Thickness(d == 0 ? 0 : 1, 0, 0, 1),
-                    Background = date == today ? Resource("AccentFill") : Brushes.Transparent,
+                    Background = date == today ? Resource("AccentFill") : date.Month % 2 == 0 ? EvenMonthFill : Brushes.Transparent,
                 };
                 Grid.SetColumn(cell, d);
                 Grid.SetRowSpan(cell, rowCount);
                 row.Children.Add(cell);
-                _cells[date] = cell;
 
+                // 月の初めの日は「12月1日」と出す（下へ続けて並べるので、どこから次の月かを分かるように）
+                var first = date.Day == 1;
                 var number = new TextBlock
                 {
-                    Text = date.Day == 1 || (d == 0 && twoWeeks && date == _anchor) ? date.ToString("M/d", CultureInfo.InvariantCulture) : date.Day.ToString(CultureInfo.InvariantCulture),
+                    Text = first ? date.ToString("M月d日", CultureInfo.InvariantCulture) : date.Day.ToString(CultureInfo.InvariantCulture),
                     Margin = new Thickness(6, 3, 6, 0),
-                    FontWeight = date == today ? FontWeights.Bold : FontWeights.Normal,
+                    FontWeight = date == today || first ? FontWeights.Bold : FontWeights.Normal,
                     Foreground = date == today ? Resource("AccentText")
                         : date.DayOfWeek == DayOfWeek.Sunday ? SundayText
                         : date.DayOfWeek == DayOfWeek.Saturday ? SaturdayText
                         : Resource("TextPrimary"),
-                    Opacity = outside ? 0.45 : 1,
                     IsHitTestVisible = false,
                 };
                 Grid.SetColumn(number, d);
@@ -412,18 +420,41 @@ namespace Tsuzuri.Views
                 row.Children.Add(bar);
             }
 
+            if (newColumn >= 0)
+            {
+                var box = NewBox();
+                Grid.SetRow(box, laneEnds.Count + 1);
+                Grid.SetColumn(box, newColumn);
+                row.Children.Add(box);
+            }
+
             return row;
         }
 
-        /// <summary>つかんで動かしている予定は、動かした先の形で出す。ほかはそのまま。</summary>
+        /// <summary>つかんでいる帯は、動かした・延ばした先の形で出す。ほかはそのまま。</summary>
         private KeyValuePair<ScheduleItem, ScheduleItem> Shifted(ScheduleItem item)
         {
             if (!ReferenceEquals(item, _dragItem) || _dragDelta == 0) return new KeyValuePair<ScheduleItem, ScheduleItem>(item, item);
+            return new KeyValuePair<ScheduleItem, ScheduleItem>(item, Apply(item, _gesture, _dragDelta));
+        }
 
+        private static ScheduleItem Apply(ScheduleItem item, Gesture gesture, int delta)
+        {
             var moved = item.Clone();
-            moved.Start = item.Start.AddDays(_dragDelta);
-            moved.End = item.End.AddDays(_dragDelta);
-            return new KeyValuePair<ScheduleItem, ScheduleItem>(item, moved);
+            switch (gesture)
+            {
+                case Gesture.Move:
+                    moved.Start = item.Start.AddDays(delta);
+                    moved.End = item.End.AddDays(delta);
+                    break;
+                case Gesture.ResizeEnd:
+                    moved.End = item.End.AddDays(delta) < item.Start ? item.Start : item.End.AddDays(delta);
+                    break;
+                case Gesture.ResizeStart:
+                    moved.Start = item.Start.AddDays(delta) > item.End ? item.End : item.Start.AddDays(delta);
+                    break;
+            }
+            return moved;
         }
 
         private Border BuildBar(ScheduleItem item, ScheduleItem shown, DateTime weekStart, DateTime weekEnd)
@@ -444,196 +475,274 @@ namespace Tsuzuri.Views
             var bar = new Border
             {
                 Child = text,
-                Tag = item,
                 Margin = new Thickness(startsHere ? 3 : 0, 1, endsHere ? 3 : 0, 1),
                 Padding = new Thickness(6, 0, 6, 0),
                 CornerRadius = new CornerRadius(startsHere ? 3 : 0, endsHere ? 3 : 0, endsHere ? 3 : 0, startsHere ? 3 : 0),
-                Background = item.Days > 1 ? MultiFill : SingleFill,
+                Background = shown.Days > 1 ? MultiFill : SingleFill,
                 BorderBrush = selected ? Resource("AccentBrush") : Brushes.Transparent,
                 BorderThickness = new Thickness(1),
                 Cursor = Cursors.Hand,
-                Opacity = ReferenceEquals(item, _dragItem) && _dragMoved ? 0.7 : 1,
+                Opacity = ReferenceEquals(item, _dragItem) && _dragDelta != 0 ? 0.75 : 1,
                 ToolTip = Tip(item),
             };
-            bar.MouseLeftButtonDown += (sender, e) => OnBarDown(item, e);
+
+            // 端に載せたら、延ばせる印（左右の矢印）にする。端は、その週で始まる・終わるときだけ
+            bar.MouseMove += (sender, e) =>
+            {
+                if (_gesture != Gesture.None) return;
+                bar.Cursor = EdgeOf(bar, e, startsHere, endsHere) != Gesture.Move ? Cursors.SizeWE : Cursors.Hand;
+            };
+            bar.MouseLeftButtonDown += (sender, e) => OnBarDown(item, bar, e, startsHere, endsHere);
             return bar;
+        }
+
+        private static Gesture EdgeOf(Border bar, MouseEventArgs e, bool startsHere, bool endsHere)
+        {
+            var x = e.GetPosition(bar).X;
+            if (endsHere && x >= bar.ActualWidth - EdgeGrip) return Gesture.ResizeEnd;
+            if (startsHere && x <= EdgeGrip) return Gesture.ResizeStart;
+            return Gesture.Move;
         }
 
         private static string Tip(ScheduleItem item)
         {
-            var dates = item.Start.ToString("M/d (ddd)", CultureInfo.GetCultureInfo("ja-JP"));
-            if (item.End > item.Start) dates += " 〜 " + item.End.ToString("M/d (ddd)", CultureInfo.GetCultureInfo("ja-JP"));
-            var tip = dates + "  " + item.Title;
+            var tip = Dates(item) + "  " + item.Title;
             var memo = item.Memo.Trim();
             if (memo.Length > 0) tip += "\n\n" + (memo.Length > 600 ? memo.Substring(0, 600) + "…" : memo);
             return tip;
         }
 
-        /// <summary>なぞっている日を塗る（組み直さずに、マスの地だけ変える）。</summary>
-        private void PaintSelection()
+        private static string Dates(ScheduleItem item)
         {
-            var today = DateTime.Today;
-            DateTime low = DateTime.MaxValue, high = DateTime.MinValue;
-            if (_selectFrom.HasValue && _selectTo.HasValue)
-            {
-                low = _selectFrom.Value < _selectTo.Value ? _selectFrom.Value : _selectTo.Value;
-                high = _selectFrom.Value < _selectTo.Value ? _selectTo.Value : _selectFrom.Value;
-            }
-
-            foreach (var pair in _cells)
-            {
-                pair.Value.Background = pair.Key >= low && pair.Key <= high ? Resource("SelectionFill")
-                    : pair.Key == today ? Resource("AccentFill")
-                    : Brushes.Transparent;
-            }
+            var dates = item.Start.ToString("yyyy/M/d (ddd)", Japanese);
+            if (item.End > item.Start) dates += " 〜 " + item.End.ToString("M/d (ddd)", Japanese) + "（" + item.Days + " 日）";
+            return dates;
         }
 
         // ---------------------------------------------------------------
         // マウス
         // ---------------------------------------------------------------
 
-        /// <summary>押した場所の日（_weeks の中の位置）。週の行の外なら null。</summary>
+        /// <summary>押した場所の日（_weeks の中の位置）。上下の外なら端の週に寄せる。</summary>
         private DateTime? DateAt(Point point)
         {
-            foreach (var pair in _rows)
-            {
-                var row = pair.Value;
-                var top = row.TranslatePoint(new Point(0, 0), _weeks).Y;
-                if (point.Y < top || point.Y >= top + row.ActualHeight) continue;
-                if (row.ActualWidth <= 0) return null;
+            if (_rows.Count == 0) return null;
 
-                var column = (int)Math.Floor(point.X / (row.ActualWidth / 7));
-                column = Math.Max(0, Math.Min(6, column));
-                return pair.Key.AddDays(column);
+            var top = 0.0;
+            var hit = _rows[_rows.Count - 1];
+            if (point.Y < 0) hit = _rows[0];
+            else
+            {
+                foreach (var pair in _rows)
+                {
+                    var height = pair.Value.ActualHeight;
+                    if (point.Y < top + height)
+                    {
+                        hit = pair;
+                        break;
+                    }
+                    top += height;
+                }
             }
 
-            // 上下の外へ出たら、端の週に寄せる（つかんで動かすとき、端の週の外でも止まらないように）
-            if (_rows.Count == 0) return null;
-            var edge = point.Y < 0 ? _rows[0] : _rows[_rows.Count - 1];
-            var width = edge.Value.ActualWidth;
+            var width = hit.Value.ActualWidth;
             if (width <= 0) return null;
-            return edge.Key.AddDays(Math.Max(0, Math.Min(6, (int)Math.Floor(point.X / (width / 7)))));
+            var column = Math.Max(0, Math.Min(6, (int)Math.Floor(point.X / (width / 7))));
+            return hit.Key.AddDays(column);
         }
 
-        private void OnBarDown(ScheduleItem item, MouseButtonEventArgs e)
+        private void OnBarDown(ScheduleItem item, Border bar, MouseButtonEventArgs e, bool startsHere, bool endsHere)
         {
             e.Handled = true;
-            Focus();
             if (_editorOpen) return;
+
+            // 押した端と日は、組み直す前に読む（マスで打っていた名前を足すと組み直し、この帯は画面から外れる）
+            var gesture = EdgeOf(bar, e, startsHere, endsHere);
+            var date = DateAt(e.GetPosition(_weeks));
+            CommitNew();
+            Focus();
 
             if (e.ClickCount == 2)
             {
-                OpenEditor(item, item.Start, item.End);
+                OpenEditor(item);
                 return;
             }
-
-            SetSelected(item);
-            var date = DateAt(e.GetPosition(_weeks));
             if (date == null) return;
 
+            if (!ReferenceEquals(_selected, item))
+            {
+                _selected = item;
+                Rebuild();
+            }
+
+            _gesture = gesture;
             _dragItem = item;
             _dragFrom = date.Value;
             _dragDelta = 0;
-            _dragMoved = false;
             _weeks.CaptureMouse();
         }
 
         private void OnWeeksDown(object sender, MouseButtonEventArgs e)
         {
-            Focus();
             if (_editorOpen) return;
+            if (_newBox != null && _newBox.IsMouseOver) return;   // 打っている欄の中を押した
 
             var date = DateAt(e.GetPosition(_weeks));
             if (date == null) return;
             e.Handled = true;
 
+            CommitNew();
+            Focus();
+
             if (e.ClickCount == 2)
             {
-                EndGestures(false);
-                OpenEditor(null, date.Value, date.Value);
-                return;
-            }
-
-            SetSelected(null);
-            _selectFrom = _selectTo = date;
-            PaintSelection();
-            _weeks.CaptureMouse();
-        }
-
-        private void OnWeeksMove(object sender, MouseEventArgs e)
-        {
-            if (!_weeks.IsMouseCaptured) return;
-            var date = DateAt(e.GetPosition(_weeks));
-            if (date == null) return;
-
-            if (_dragItem != null)
-            {
-                var delta = (int)(date.Value - _dragFrom).TotalDays;
-                if (delta == _dragDelta) return;
-                _dragDelta = delta;
-                _dragMoved = true;
+                // その日のマスで名前を打つ（1日の予定。何日かにするのは、あとで帯の端を引っぱる）
+                _selected = null;
+                _newOn = date.Value;
                 Rebuild();
                 return;
             }
 
-            if (_selectFrom != null && _selectTo != date)
+            if (_selected != null)
             {
-                _selectTo = date;
-                PaintSelection();
+                _selected = null;
+                Rebuild();
             }
+        }
+
+        private void OnWeeksMove(object sender, MouseEventArgs e)
+        {
+            if (!_weeks.IsMouseCaptured || _dragItem == null) return;
+
+            // 上下の端へ寄せたら、少しずつスクロールする（見えていない週まで延ばす・動かすため）
+            var inView = e.GetPosition(_scroll).Y;
+            if (inView < 24) _scroll.ScrollToVerticalOffset(_scroll.VerticalOffset - 16);
+            else if (inView > _scroll.ViewportHeight - 24) _scroll.ScrollToVerticalOffset(_scroll.VerticalOffset + 16);
+
+            var date = DateAt(e.GetPosition(_weeks));
+            if (date == null) return;
+            var delta = (int)(date.Value - _dragFrom).TotalDays;
+            if (delta == _dragDelta) return;
+            _dragDelta = delta;
+            Rebuild();
         }
 
         private void OnWeeksUp(object sender, MouseButtonEventArgs e)
         {
             if (!_weeks.IsMouseCaptured) return;
-            EndGestures(true);
+            EndGesture(true);
         }
 
-        /// <summary>つかむ・なぞるを終える。commit なら、動かした予定を保存し、なぞった何日かで予定を足す。</summary>
-        private void EndGestures(bool commit)
+        /// <summary>帯をつかむのを終える。commit なら、動かした・延ばした形を保存する。</summary>
+        private void EndGesture(bool commit)
         {
-            var dragItem = _dragItem;
+            var item = _dragItem;
+            var gesture = _gesture;
             var delta = _dragDelta;
-            var from = _selectFrom;
-            var to = _selectTo;
 
             _dragItem = null;
+            _gesture = Gesture.None;
             _dragDelta = 0;
-            _dragMoved = false;
-            _selectFrom = _selectTo = null;
             if (_weeks.IsMouseCaptured) _weeks.ReleaseMouseCapture();
+            if (item == null) return;
 
-            if (dragItem != null)
+            if (commit && delta != 0 && Fresh())
             {
-                if (commit && delta != 0 && Fresh())
+                var target = _items.FirstOrDefault(other => ReferenceEquals(other, item));
+                if (target != null)
                 {
-                    var target = _items.FirstOrDefault(item => ReferenceEquals(item, dragItem));
-                    if (target != null)
+                    var changed = Apply(target, gesture, delta);
+                    if (changed.Start != target.Start || changed.End != target.End)
                     {
                         Remember();
-                        target.Start = target.Start.AddDays(delta);
-                        target.End = target.End.AddDays(delta);
+                        target.Start = changed.Start;
+                        target.End = changed.End;
                         Save();
                     }
                 }
-                Rebuild();
-                return;
             }
-
-            PaintSelection();
-            if (commit && from.HasValue && to.HasValue && from.Value != to.Value)
-            {
-                var low = from.Value < to.Value ? from.Value : to.Value;
-                var high = from.Value < to.Value ? to.Value : from.Value;
-                OpenEditor(null, low, high);
-            }
+            Rebuild();
         }
 
-        private void SetSelected(ScheduleItem item)
+        // ---------------------------------------------------------------
+        // その日のマスで名前を打つ（足す）
+        // ---------------------------------------------------------------
+
+        private TextBox NewBox()
         {
-            if (ReferenceEquals(_selected, item)) return;
-            _selected = item;
+            if (_newBox != null) return Detach(_newBox);
+
+            var box = new TextBox
+            {
+                Margin = new Thickness(3, 1, 3, 1),
+                Padding = new Thickness(4, 0, 4, 0),
+                VerticalContentAlignment = VerticalAlignment.Center,
+                Background = Resource("PageBackground"),
+                Foreground = Resource("TextPrimary"),
+                CaretBrush = Resource("TextPrimary"),
+                BorderBrush = Resource("AccentBrush"),
+                BorderThickness = new Thickness(1),
+                ToolTip = "予定の名前（時間もここに）。Enter で足す、Esc でやめる。何日かにするのは、足したあとで帯の端を引っぱる",
+            };
+            box.KeyDown += (sender, e) =>
+            {
+                if (e.Key == Key.Enter)
+                {
+                    e.Handled = true;
+                    CommitNew();
+                }
+                else if (e.Key == Key.Escape)
+                {
+                    e.Handled = true;
+                    CancelNew();
+                }
+            };
+            box.LostKeyboardFocus += (sender, e) =>
+            {
+                // ほかの所を押した・別の窓へ移った。打った名前は足す（捨てない）
+                if (ReferenceEquals(box, _newBox) && !box.IsKeyboardFocusWithin && !_extending)
+                    Dispatcher.BeginInvoke(new Action(delegate { if (ReferenceEquals(box, _newBox) && !box.IsKeyboardFocusWithin) CommitNew(); }), DispatcherPriority.Input);
+            };
+            _newBox = box;
+            return box;
+        }
+
+        private static TextBox Detach(TextBox box)
+        {
+            var parent = box.Parent as Panel;
+            if (parent != null) parent.Children.Remove(box);
+            return box;
+        }
+
+        /// <summary>打っている名前で予定を足す（空ならやめる）。打っていなければ何もしない。</summary>
+        private void CommitNew()
+        {
+            if (_newBox == null || !_newOn.HasValue) return;
+
+            var title = ScheduleFile.OneLine(_newBox.Text);
+            var date = _newOn.Value;
+            _newBox = null;
+            _newOn = null;
+
+            if (title.Length > 0 && Fresh())
+            {
+                Remember();
+                var item = new ScheduleItem { Start = date, End = date, Title = title };
+                _items.Add(item);
+                _selected = item;
+                Save();
+            }
             Rebuild();
+            Focus();
+        }
+
+        private void CancelNew()
+        {
+            if (_newBox == null) return;
+            _newBox = null;
+            _newOn = null;
+            Rebuild();
+            Focus();
         }
 
         // ---------------------------------------------------------------
@@ -651,6 +760,7 @@ namespace Tsuzuri.Views
                 }
                 return;
             }
+            if (_newBox != null && _newBox.IsKeyboardFocusWithin) return;
 
             var ctrl = (Keyboard.Modifiers & ModifierKeys.Control) != 0;
             switch (e.Key)
@@ -663,7 +773,7 @@ namespace Tsuzuri.Views
                 case Key.Enter:
                     if (_selected == null) return;
                     e.Handled = true;
-                    OpenEditor(_selected, _selected.Start, _selected.End);
+                    OpenEditor(_selected);
                     break;
                 case Key.Z:
                     if (!ctrl) return;
@@ -672,21 +782,30 @@ namespace Tsuzuri.Views
                     break;
                 case Key.PageUp:
                     e.Handled = true;
-                    Move(-1);
+                    _scroll.PageUp();
                     break;
                 case Key.PageDown:
                     e.Handled = true;
-                    Move(1);
+                    _scroll.PageDown();
+                    break;
+                case Key.Up:
+                    e.Handled = true;
+                    _scroll.LineUp();
+                    break;
+                case Key.Down:
+                    e.Handled = true;
+                    _scroll.LineDown();
                     break;
                 case Key.Home:
                     e.Handled = true;
-                    GoToday();
+                    ScrollToToday();
                     break;
                 case Key.Escape:
                     // 選んでいる予定があれば、選ぶのをやめるだけ。無ければ外（カレンダーを閉じる）へ回す
                     if (_selected == null) return;
                     e.Handled = true;
-                    SetSelected(null);
+                    _selected = null;
+                    Rebuild();
                     break;
             }
         }
@@ -723,7 +842,7 @@ namespace Tsuzuri.Views
         }
 
         // ---------------------------------------------------------------
-        // 予定を足す・直す欄
+        // 名前とメモを直す欄（日付は帯で直す）
         // ---------------------------------------------------------------
 
         private UIElement BuildEditor()
@@ -732,34 +851,16 @@ namespace Tsuzuri.Views
             _editorLayer.Background = new SolidColorBrush(Color.FromArgb(0x80, 0, 0, 0));
 
             var panel = new StackPanel();
+            _editDates.Foreground = Resource("TextMuted");
+            _editDates.Margin = new Thickness(0, 0, 0, 10);
+            panel.Children.Add(_editDates);
             panel.Children.Add(Label("名前（時間もここに書く）"));
             panel.Children.Add(_editTitle);
-
-            var dates = new Grid { Margin = new Thickness(0, 10, 0, 0) };
-            dates.ColumnDefinitions.Add(new ColumnDefinition());
-            dates.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(12) });
-            dates.ColumnDefinitions.Add(new ColumnDefinition());
-            var startPanel = new StackPanel();
-            startPanel.Children.Add(Label("始まり"));
-            startPanel.Children.Add(_editStart);
-            var endPanel = new StackPanel();
-            endPanel.Children.Add(Label("終わり（1日なら同じ日）"));
-            endPanel.Children.Add(_editEnd);
-            Grid.SetColumn(endPanel, 2);
-            dates.Children.Add(startPanel);
-            dates.Children.Add(endPanel);
-            panel.Children.Add(dates);
 
             var memoLabel = Label("メモ（自由に。Ctrl+Enter で保存）");
             memoLabel.Margin = new Thickness(0, 10, 0, 4);
             panel.Children.Add(memoLabel);
             panel.Children.Add(_editMemo);
-
-            _editError.Foreground = SundayText;
-            _editError.Margin = new Thickness(0, 8, 0, 0);
-            _editError.TextWrapping = TextWrapping.Wrap;
-            _editError.Visibility = Visibility.Collapsed;
-            panel.Children.Add(_editError);
 
             var buttons = new DockPanel { Margin = new Thickness(0, 14, 0, 0), LastChildFill = false };
             _editDelete.Click += delegate
@@ -781,14 +882,12 @@ namespace Tsuzuri.Views
             buttons.Children.Add(cancel);
             panel.Children.Add(buttons);
 
-            // 名前・日付の Enter で保存。メモは Ctrl+Enter
-            foreach (var box in new[] { _editTitle, _editStart, _editEnd })
-                box.KeyDown += (sender, e) =>
-                {
-                    if (e.Key != Key.Enter) return;
-                    e.Handled = true;
-                    CommitEdit();
-                };
+            _editTitle.KeyDown += (sender, e) =>
+            {
+                if (e.Key != Key.Enter) return;
+                e.Handled = true;
+                CommitEdit();
+            };
             _editMemo.PreviewKeyDown += (sender, e) =>
             {
                 if (e.Key != Key.Enter || (Keyboard.Modifiers & ModifierKeys.Control) == 0) return;
@@ -796,7 +895,7 @@ namespace Tsuzuri.Views
                 CommitEdit();
             };
 
-            var box0 = new Border
+            _editorLayer.Children.Add(new Border
             {
                 Child = panel,
                 Width = 480,
@@ -807,20 +906,17 @@ namespace Tsuzuri.Views
                 BorderThickness = new Thickness(1),
                 HorizontalAlignment = HorizontalAlignment.Center,
                 VerticalAlignment = VerticalAlignment.Center,
-            };
-            _editorLayer.Children.Add(box0);
+            });
             return _editorLayer;
         }
 
-        private void OpenEditor(ScheduleItem item, DateTime start, DateTime end)
+        private void OpenEditor(ScheduleItem item)
         {
+            CommitNew();
             _editing = item;
-            _editTitle.Text = item != null ? item.Title : string.Empty;
-            _editStart.Text = start.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
-            _editEnd.Text = end.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
-            _editMemo.Text = item != null ? item.Memo.Replace("\n", Environment.NewLine) : string.Empty;
-            _editError.Visibility = Visibility.Collapsed;
-            _editDelete.Visibility = item != null ? Visibility.Visible : Visibility.Collapsed;
+            _editDates.Text = Dates(item);
+            _editTitle.Text = item.Title;
+            _editMemo.Text = item.Memo.Replace("\n", Environment.NewLine);
             _editorLayer.Visibility = Visibility.Visible;
             _editorOpen = true;
 
@@ -828,7 +924,7 @@ namespace Tsuzuri.Views
             {
                 _editTitle.Focus();
                 _editTitle.SelectAll();
-            }), System.Windows.Threading.DispatcherPriority.Loaded);
+            }), DispatcherPriority.Loaded);
         }
 
         private void CloseEditor()
@@ -839,67 +935,31 @@ namespace Tsuzuri.Views
             Focus();
         }
 
-        /// <summary>欄が開いているか（閉じる前に、保存するか見る。MainWindow.Calendar.cs）。</summary>
-        public bool IsEditing
-        {
-            get { return _editorOpen; }
-        }
-
         /// <summary>
-        /// 欄の中身を保存して閉じる。読めない日付などで保存できなければ、欄に知らせて false（欄は開いたまま）。
-        /// 欄が開いていなければ何もせず true。名前もメモも空なら、足すのはやめる（直していた予定はそのまま）。
+        /// 打ちかけを保存する（カレンダー・画面を閉じる前。MainWindow.Calendar.cs）。マスで打っている名前は足し、欄が開いていれば欄の中身を保存して閉じる。
+        /// 日付を打つ所は無くなったので、保存できないことは無い（いつも true）。
         /// </summary>
         public bool CommitEdit()
         {
+            CommitNew();
             if (!_editorOpen) return true;
 
-            var reference = _editing != null ? _editing.Start : DateTime.Today;
-            DateTime start, end;
-            if (!ScheduleFile.TryReadDate(_editStart.Text, reference, out start)) return EditError("始まりの日付を読めません。2026-11-21 か 11/21 の形で書いてください");
-            if (!ScheduleFile.TryReadDate(_editEnd.Text, start, out end)) return EditError("終わりの日付を読めません。2026-11-21 か 11/21 の形で書いてください");
-            if (end < start) return EditError("終わりが始まりより前です");
-
+            var editing = _editing;
             var title = ScheduleFile.OneLine(_editTitle.Text);
             var memo = (_editMemo.Text ?? string.Empty).Replace("\r\n", "\n").Replace('\r', '\n').Trim('\n');
-            var editing = _editing;
-
-            if (editing == null && title.Length == 0 && memo.Trim().Length == 0)
-            {
-                CloseEditor();
-                return true;
-            }
-
             CloseEditor();
-            if (!Fresh()) return true;
+            if (editing == null || !Fresh()) return true;
+
+            var target = _items.FirstOrDefault(other => ReferenceEquals(other, editing));
+            if (target == null || (target.Title == title && target.Memo == memo)) return true;
 
             Remember();
-            if (editing == null)
-            {
-                var item = new ScheduleItem { Start = start, End = end, Title = title, Memo = memo };
-                _items.Add(item);
-                _selected = item;
-            }
-            else
-            {
-                var target = _items.FirstOrDefault(other => ReferenceEquals(other, editing));
-                if (target == null) return true;
-                target.Start = start;
-                target.End = end;
-                target.Title = title;
-                target.Memo = memo;
-                _selected = target;
-            }
-
+            target.Title = title;
+            target.Memo = memo;
+            _selected = target;
             Save();
             Rebuild();
             return true;
-        }
-
-        private bool EditError(string message)
-        {
-            _editError.Text = message;
-            _editError.Visibility = Visibility.Visible;
-            return false;
         }
 
         // ---------------------------------------------------------------
@@ -916,12 +976,6 @@ namespace Tsuzuri.Views
                 VerticalAlignment = VerticalAlignment.Center,
                 Focusable = false,
             };
-        }
-
-        private static void Paint(Button button, bool on)
-        {
-            button.Background = on ? Resource("AccentFill") : Brushes.Transparent;
-            button.Foreground = Resource(on ? "AccentText" : "TextPrimary");
         }
 
         private static TextBlock Label(string text)
@@ -949,7 +1003,6 @@ namespace Tsuzuri.Views
             if (multiLine)
             {
                 box.AcceptsReturn = true;
-                box.AcceptsTab = false;
                 box.TextWrapping = TextWrapping.Wrap;
                 box.Height = 200;
                 box.VerticalScrollBarVisibility = ScrollBarVisibility.Auto;

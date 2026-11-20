@@ -86,7 +86,7 @@ namespace Tsuzuri
         {
             try
             {
-                if (Directory.Exists(WordPressTempRoot)) Directory.Delete(WordPressTempRoot, true);
+                DeleteTree(WordPressTempRoot);
             }
             catch (Exception)
             {
@@ -146,6 +146,30 @@ namespace Tsuzuri
             await LoadWordPressPost(site, id);
         }
 
+        /// <summary>
+        /// フォルダを中身ごと消す（2026-11-20）。記事の一時ファイルの隣には変更の記録の git（.名前/git）があり、
+        /// git の中身（objects）は読み取り専用なので、Directory.Delete はそこで断る。前はそのまま諦めていて、一時フォルダが消えずに溜まり、
+        /// 起動のたびに読み取り専用のファイルの数だけ例外が出ていた。読み取り専用を外してから消す。
+        /// </summary>
+        private static void DeleteTree(string path)
+        {
+            if (!Directory.Exists(path)) return;
+
+            foreach (var file in Directory.EnumerateFiles(path, "*", SearchOption.AllDirectories))
+            {
+                try
+                {
+                    var attributes = File.GetAttributes(file);
+                    if ((attributes & FileAttributes.ReadOnly) != 0) File.SetAttributes(file, attributes & ~FileAttributes.ReadOnly);
+                }
+                catch (Exception)
+                {
+                    // 消すときに断られる。残りは消す
+                }
+            }
+            Directory.Delete(path, true);
+        }
+
         /// <summary>この起動の一時フォルダを消す（エディタを閉じるとき）。消せなければ（AI の欄の claude が掴んでいる等）、次の起動で消す。</summary>
         private void DeleteWordPressSession()
         {
@@ -153,7 +177,7 @@ namespace Tsuzuri
 
             try
             {
-                if (Directory.Exists(_wordPressSession)) Directory.Delete(_wordPressSession, true);
+                DeleteTree(_wordPressSession);
             }
             catch (Exception)
             {

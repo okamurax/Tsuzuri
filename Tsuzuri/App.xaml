@@ -74,38 +74,6 @@
             </Setter>
         </Style>
 
-        <!-- ============ 「ランチャー」のタブ（2026-11-20）。画面のタブの並びの一番右（「＋」の左） ============ -->
-        <!-- 字は出さずアイコンだけで幅を狭く。見た目は画面のタブにそろえる（地は無し・薄い字、載せると地、
-             ランチャーを出している間は今の画面のタブと同じ色。Tag="Open"。MainWindow.Overlays.cs の PaintLauncherButton）。
-             青い地に白いアイコンも試したが、目立ち過ぎた -->
-        <Style x:Key="LauncherTabButton" TargetType="Button">
-            <Setter Property="Background" Value="Transparent" />
-            <Setter Property="Foreground" Value="{StaticResource TextMuted}" />
-            <Setter Property="BorderThickness" Value="0" />
-            <Setter Property="Cursor" Value="Hand" />
-            <Setter Property="Focusable" Value="False" />
-            <Setter Property="SnapsToDevicePixels" Value="True" />
-            <Setter Property="FocusVisualStyle" Value="{x:Null}" />
-            <Setter Property="Template">
-                <Setter.Value>
-                    <ControlTemplate TargetType="Button">
-                        <Border x:Name="Chrome" Background="{TemplateBinding Background}" CornerRadius="4" SnapsToDevicePixels="True">
-                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
-                        </Border>
-                        <ControlTemplate.Triggers>
-                            <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="Chrome" Property="Background" Value="{StaticResource HoverFill}" />
-                            </Trigger>
-                            <Trigger Property="Tag" Value="Open">
-                                <Setter TargetName="Chrome" Property="Background" Value="{StaticResource AccentFill}" />
-                                <Setter Property="Foreground" Value="{StaticResource AccentText}" />
-                            </Trigger>
-                        </ControlTemplate.Triggers>
-                    </ControlTemplate>
-                </Setter.Value>
-            </Setter>
-        </Style>
-
         <!-- ============ 青みのあるボタン ============ -->
         <!-- Mattermost の「三次」ボタンと同じく、青い字にごく薄い青の地。載せる・押すと地が濃くなる。
              作る・登録するといった、その場の主な操作に使う -->
@@ -141,6 +109,39 @@
                             </Trigger>
                             <Trigger Property="IsEnabled" Value="False">
                                 <Setter Property="Opacity" Value="0.4" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- ============ 「ランチャー」のタブ（2026-11-20）。画面のタブの並びの一番右（「＋」の左） ============ -->
+        <!-- 字は出さずアイコンだけで幅を狭く。見た目は画面のタブにそろえる（地は無し・薄い字、載せると地、
+             ランチャーを出している間は今の画面のタブと同じ色。Tag="Open"。MainWindow.Overlays.cs の PaintLauncherButton）。
+             青い地に白いアイコンも試したが、目立ち過ぎた。
+             AccentFill・AccentText を使うので、それより後ろに置く（前に置くと StaticResource が値を持たず、起動で落ちた） -->
+        <Style x:Key="LauncherTabButton" TargetType="Button">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="Foreground" Value="{StaticResource TextMuted}" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="Focusable" Value="False" />
+            <Setter Property="SnapsToDevicePixels" Value="True" />
+            <Setter Property="FocusVisualStyle" Value="{x:Null}" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="Chrome" Background="{TemplateBinding Background}" CornerRadius="4" SnapsToDevicePixels="True">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Chrome" Property="Background" Value="{StaticResource HoverFill}" />
+                            </Trigger>
+                            <Trigger Property="Tag" Value="Open">
+                                <Setter TargetName="Chrome" Property="Background" Value="{StaticResource AccentFill}" />
+                                <Setter Property="Foreground" Value="{StaticResource AccentText}" />
                             </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>

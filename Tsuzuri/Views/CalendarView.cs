@@ -21,7 +21,7 @@ namespace Tsuzuri.Views
     /// ・月・2週の切り替えは持たない。週の行が上下にずっと続き、スクロールした先を足していく（利用者の考え）
     /// ・日を2度押すと、その日のマスで名前を打つ（1日の予定）。帯の端を引っぱって延ばすと何日かになる。帯をつかんで別の日へ動かす
     /// ・予定を2度押すと、名前を直す欄（日付は欄では直さない。帯で直す。メモの欄は持たない。長い中身はアウトラインの見出しと結ぶ。2026-11-21）。Delete で消す。Ctrl+Z で戻す
-    /// ・アウトラインの見出しを日へドラッグすると、その見出しと結んだ予定になる（2026-11-20）。2度押すと文書のその見出しへ飛ぶ。
+    /// ・アウトラインの見出しを日へドラッグすると、その見出しと結んだ予定になる（2026-11-20）。2度押すと、リンク先と「見出しへ飛ぶ」の欄。
     ///   見出しの名前が変わっても追わない。見つからなければ印を付けるだけ（利用者の判断）
     /// ・週の下の境を引っぱると、その週だけ高さを広げられる（2026-11-21。考える週だけ広げる。2度押すと戻す）。広げた高さは app.json に覚える
     /// ・保存先を見張り、外（Claude・ほかの画面・同期）で書き換わったら、すぐ出し直す。増えた・変わった予定は少しの間光らせる（2026-11-21）
@@ -132,6 +132,9 @@ namespace Tsuzuri.Views
         // 名前を直す欄
         private readonly Grid _editorLayer = new Grid();
         private readonly TextBox _editTitle;
+        private readonly TextBlock _editLabel = new TextBlock();
+        private Button _editSave;
+        private Button _editJump;
         private readonly TextBlock _editDates = new TextBlock();
         private readonly Button _editDelete;
         private ScheduleItem _editing;
@@ -934,7 +937,7 @@ namespace Tsuzuri.Views
             if (item.IsLinked)
                 tip += "\n" + (found ? "見出し: " : "見出しが見つかりません（名前を変えた・消した）: ")
                        + Path.GetFileName(item.LinkFile) + " > " + item.LinkHeading
-                       + (found ? "\n2度押す（選んで Enter）とその見出しへ飛ぶ" : "\n直すときは、この予定を消してアウトラインからドラッグし直す");
+                       + (found ? "\n2度押すと、リンク先・見出しへ飛ぶ・削除の欄" : "\n直すときは、この予定を消してアウトラインからドラッグし直す");
             var memo = item.Memo.Trim();
             if (memo.Length > 0) tip += "\n\n" + (memo.Length > 600 ? memo.Substring(0, 600) + "…" : memo);
             return tip;
@@ -992,9 +995,8 @@ namespace Tsuzuri.Views
 
             if (e.ClickCount == 2)
             {
-                // 見出しと結んだ予定は、その見出しへ飛ぶ（中身は文書で見る。名前は見出しの文字のままなので、直す欄は出さない）
-                if (item.IsLinked) _openLink(item);
-                else OpenEditor(item);
+                // どの予定も欄を出す。見出しと結んだ予定は、名前の代わりにリンク先と「見出しへ飛ぶ」（2026-11-21。前は2度押すとすぐ飛び、消す入口が無かった）
+                OpenEditor(item);
                 return;
             }
             if (date == null) return;
@@ -1357,12 +1359,6 @@ namespace Tsuzuri.Views
                     e.Handled = true;
                     Delete(_selected);
                     break;
-                case Key.Enter:
-                    if (_selected == null) return;
-                    e.Handled = true;
-                    if (_selected.IsLinked) _openLink(_selected);   // 2度押すのと同じ
-                    else OpenEditor(_selected);
-                    break;
                 case Key.Z:
                     if (!ctrl) return;
                     e.Handled = true;
@@ -1446,7 +1442,9 @@ namespace Tsuzuri.Views
             _editDates.Foreground = Resource("TextMuted");
             _editDates.Margin = new Thickness(0, 0, 0, 10);
             panel.Children.Add(_editDates);
-            panel.Children.Add(Label("名前（時間もここに書く）"));
+            _editLabel.Foreground = Resource("TextMuted");
+            _editLabel.Margin = new Thickness(0, 0, 0, 4);
+            panel.Children.Add(_editLabel);
             panel.Children.Add(_editTitle);
 
             var buttons = new DockPanel { Margin = new Thickness(0, 14, 0, 0), LastChildFill = false };
@@ -1461,11 +1459,25 @@ namespace Tsuzuri.Views
 
             var save = new Button { Content = "保存", Style = (Style)Application.Current.FindResource("AccentButton"), MinWidth = 72 };
             save.Click += delegate { CommitEdit(); };
+            _editSave = save;
+
+            // 見出しと結んだ予定は、名前の代わりにリンク先を出し、保存の代わりに「見出しへ飛ぶ」（2026-11-21）
+            var jump = new Button { Content = "見出しへ飛ぶ", Style = (Style)Application.Current.FindResource("AccentButton"), MinWidth = 72 };
+            jump.Click += delegate
+            {
+                var item = _editing;
+                CloseEditor();
+                if (item != null) _openLink(item);
+            };
+            _editJump = jump;
+
             var cancel = ToolButton("キャンセル", "直さずに閉じる（Esc）");
             cancel.Click += delegate { CloseEditor(); };
             DockPanel.SetDock(save, Dock.Right);
+            DockPanel.SetDock(jump, Dock.Right);
             DockPanel.SetDock(cancel, Dock.Right);
             buttons.Children.Add(save);
+            buttons.Children.Add(jump);
             buttons.Children.Add(cancel);
             panel.Children.Add(buttons);
 
@@ -1473,7 +1485,8 @@ namespace Tsuzuri.Views
             {
                 if (e.Key != Key.Enter) return;
                 e.Handled = true;
-                CommitEdit();
+                if (_editing != null && _editing.IsLinked) _editJump.RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent));
+                else CommitEdit();
             };
 
             _editorLayer.Children.Add(new Border
@@ -1496,7 +1509,21 @@ namespace Tsuzuri.Views
             CommitNew();
             _editing = item;
             _editDates.Text = Dates(item);
-            _editTitle.Text = item.Title;
+            if (item.IsLinked)
+            {
+                // 名前は見出しの文字のまま（直せない）。代わりにリンク先を出す（選んで写せる）
+                _editLabel.Text = Found(item) ? "リンク先" : "リンク先（見出しが見つかりません。名前を変えたか消した）";
+                _editTitle.Text = LinkAddress(item);
+                _editTitle.IsReadOnly = true;
+            }
+            else
+            {
+                _editLabel.Text = "名前（時間もここに書く）";
+                _editTitle.Text = item.Title;
+                _editTitle.IsReadOnly = false;
+            }
+            _editSave.Visibility = item.IsLinked ? Visibility.Collapsed : Visibility.Visible;
+            _editJump.Visibility = item.IsLinked ? Visibility.Visible : Visibility.Collapsed;
             _editorLayer.Visibility = Visibility.Visible;
             _editorOpen = true;
 
@@ -1505,6 +1532,14 @@ namespace Tsuzuri.Views
                 _editTitle.Focus();
                 _editTitle.SelectAll();
             }), DispatcherPriority.Loaded);
+        }
+
+        /// <summary>見出しと結んだ予定のリンク先（ファイル › ページ › 見出し。ページが無ければ省く）。</summary>
+        private static string LinkAddress(ScheduleItem item)
+        {
+            var address = item.LinkFile;
+            if (!string.IsNullOrEmpty(item.LinkPage)) address += " › " + item.LinkPage;
+            return address + " › " + item.LinkHeading;
         }
 
         private void CloseEditor()
@@ -1525,6 +1560,11 @@ namespace Tsuzuri.Views
             if (!_editorOpen) return true;
 
             var editing = _editing;
+            if (editing != null && editing.IsLinked)
+            {
+                CloseEditor();   // 欄に出しているのはリンク先で、直すものは無い
+                return true;
+            }
             var title = ScheduleFile.OneLine(_editTitle.Text);
             CloseEditor();
             if (editing == null || !Fresh()) return true;

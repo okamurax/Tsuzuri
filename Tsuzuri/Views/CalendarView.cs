@@ -22,6 +22,7 @@ namespace Tsuzuri.Views
     /// ・予定を2度押すと、名前とメモを直す欄（日付は欄では直さない。帯で直す）。Delete で消す。Ctrl+Z で戻す
     /// ・アウトラインの見出しを日へドラッグすると、その見出しと結んだ予定になる（2026-11-20）。2度押すと文書のその見出しへ飛ぶ。
     ///   見出しの名前が変わっても追わない。見つからなければ印を付けるだけ（利用者の判断）
+    /// ・週の下の境を引っぱると、その週だけ高さを広げられる（2026-11-21。考える週だけ広げる。2度押すと戻す）。広げた高さは app.json に覚える
     /// ・直すたびにすぐ保存する（保存の操作は無い）。外で書き換わっていたら、直す前に読み直す
     /// 本文の場所に重ねて出す（MainWindow.Calendar.cs）。ランチャーと同じく、出すたびに作り、閉じたら捨てる。
     /// </summary>
@@ -38,12 +39,16 @@ namespace Tsuzuri.Views
         private const int WeeksPerExtend = 12;      // 端へスクロールしたら足す週
         private const double ExtendMargin = 600;    // 端からこれだけ手前まで来たら足す
         private const int UndoLimit = 50;
+        private const double WeekGrip = 6;          // 週の下の境のこの高さをつかむと、週の高さを変える
 
         private static readonly Brush SundayText = Freeze(Color.FromRgb(0xE0, 0x7A, 0x7A));
         private static readonly Brush SaturdayText = Freeze(Color.FromRgb(0x72, 0xA4, 0xE0));
         private static readonly Brush SingleFill = Freeze(Color.FromRgb(0x24, 0x31, 0x4C));
         private static readonly Brush MultiFill = Freeze(Color.FromRgb(0x2C, 0x4A, 0x86));
         private static readonly Brush EvenMonthFill = Freeze(Color.FromRgb(0x1A, 0x22, 0x37));   // 月の境が分かるよう、偶数月の地を少し変える
+        private static readonly Brush TodayFill = Freeze(Color.FromRgb(0x1F, 0x30, 0x55));       // 今日のマス（偶数月の地と見分けが付くように濃く）
+        private static readonly Brush TodayEdge = Freeze(Color.FromRgb(0x5D, 0x89, 0xEA));       // 今日のマスの枠と、日の数字の地（AccentText と同じ色）
+        private static readonly Brush GripHover = Freeze(Color.FromArgb(0x90, 0x5D, 0x89, 0xEA));
 
         private static readonly CultureInfo Japanese = CultureInfo.GetCultureInfo("ja-JP");
         private static readonly FontFamily IconFont = new FontFamily("Segoe Fluent Icons, Segoe MDL2 Assets");
@@ -54,6 +59,16 @@ namespace Tsuzuri.Views
         private readonly Action<string> _status;
         private readonly Func<ScheduleItem, bool> _linkFound;
         private readonly Action<ScheduleItem> _openLink;
+
+        // 高さを広げた週（週の始まりの日 → 高さ）。持ち主は MainWindow（app.json に覚える）。変えたら _weekHeightsChanged
+        private readonly Dictionary<DateTime, double> _weekHeights;
+        private readonly Action _weekHeightsChanged;
+
+        // 週の下の境を引っぱっている
+        private Grid _sizingRow;
+        private DateTime _sizingWeek;
+        private double _sizingFromY;
+        private double _sizingFromHeight;
 
         // 組み直しのたびに、結んだ見出しがあるかを1回だけ見る（見るのは MainWindow。ファイルの更新日時で覚えている）
         private readonly Dictionary<ScheduleItem, bool> _found = new Dictionary<ScheduleItem, bool>();
@@ -99,12 +114,16 @@ namespace Tsuzuri.Views
 
         /// <param name="linkFound">アウトラインから登録した予定の見出しが、今もあるか。</param>
         /// <param name="openLink">その見出しへ飛ぶ（カレンダーは閉じる）。</param>
-        public CalendarView(string path, Action<string> status, Func<ScheduleItem, bool> linkFound, Action<ScheduleItem> openLink)
+        /// <param name="weekHeights">高さを広げた週。ここで書き換え、そのたびに weekHeightsChanged を呼ぶ。</param>
+        public CalendarView(string path, Action<string> status, Func<ScheduleItem, bool> linkFound, Action<ScheduleItem> openLink,
+                            Dictionary<DateTime, double> weekHeights, Action weekHeightsChanged)
         {
             _path = path;
             _status = status;
             _linkFound = linkFound;
             _openLink = openLink;
+            _weekHeights = weekHeights ?? new Dictionary<DateTime, double>();
+            _weekHeightsChanged = weekHeightsChanged ?? delegate { };
 
             Focusable = true;
             FocusVisualStyle = null;
@@ -391,7 +410,8 @@ namespace Tsuzuri.Views
             var newColumn = _newOn.HasValue && _newOn.Value >= weekStart && _newOn.Value <= weekEnd ? (int)(_newOn.Value - weekStart).TotalDays : -1;
             var lanes = laneEnds.Count + (newColumn >= 0 ? 1 : 0);
 
-            var row = new Grid { MinHeight = RowMinHeight };
+            double tall;
+            var row = new Grid { MinHeight = _weekHeights.TryGetValue(weekStart, out tall) ? Math.Max(RowMinHeight, tall) : RowMinHeight };
             for (var d = 0; d < 7; d++) row.ColumnDefinitions.Add(new ColumnDefinition());
             row.RowDefinitions.Add(new RowDefinition { Height = new GridLength(DayNumberHeight) });
             for (var i = 0; i < lanes; i++) row.RowDefinitions.Add(new RowDefinition { Height = new GridLength(LaneHeight) });
@@ -415,19 +435,57 @@ namespace Tsuzuri.Views
 
                 // 月の初めの日は「12月1日」と出す（下へ続けて並べるので、どこから次の月かを分かるように）
                 var first = date.Day == 1;
+                var isToday = date == today;
                 var number = new TextBlock
                 {
                     Text = first ? date.ToString("M月d日", CultureInfo.InvariantCulture) : date.Day.ToString(CultureInfo.InvariantCulture),
-                    Margin = new Thickness(6, 3, 6, 0),
-                    FontWeight = date == today || first ? FontWeights.Bold : FontWeights.Normal,
-                    Foreground = date == today ? Resource("AccentText")
+                    Margin = isToday ? new Thickness(6, 0, 6, 0) : new Thickness(6, 3, 6, 0),
+                    FontWeight = isToday || first ? FontWeights.Bold : FontWeights.Normal,
+                    Foreground = isToday ? Brushes.White
                         : date.DayOfWeek == DayOfWeek.Sunday ? SundayText
                         : date.DayOfWeek == DayOfWeek.Saturday ? SaturdayText
                         : Resource("TextPrimary"),
                     IsHitTestVisible = false,
                 };
-                Grid.SetColumn(number, d);
-                row.Children.Add(number);
+
+                if (isToday)
+                {
+                    // 今日は目立たせる（2026-11-21。利用者の希望）: マスを太い枠で囲み、日の数字を色の地に白で出し、「今日」と添える
+                    var edge = new Border
+                    {
+                        BorderBrush = TodayEdge,
+                        BorderThickness = new Thickness(2),
+                        IsHitTestVisible = false,
+                    };
+                    Grid.SetColumn(edge, d);
+                    Grid.SetRowSpan(edge, rowCount);
+                    row.Children.Add(edge);
+
+                    var label = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(4, 3, 4, 0), IsHitTestVisible = false };
+                    label.Children.Add(new Border
+                    {
+                        Background = TodayEdge,
+                        CornerRadius = new CornerRadius(8),
+                        MinWidth = 22,
+                        Child = number,
+                        VerticalAlignment = VerticalAlignment.Top,
+                    });
+                    number.HorizontalAlignment = HorizontalAlignment.Center;
+                    label.Children.Add(new TextBlock
+                    {
+                        Text = "今日",
+                        Margin = new Thickness(6, 1, 0, 0),
+                        FontWeight = FontWeights.Bold,
+                        Foreground = TodayEdge,
+                    });
+                    Grid.SetColumn(label, d);
+                    row.Children.Add(label);
+                }
+                else
+                {
+                    Grid.SetColumn(number, d);
+                    row.Children.Add(number);
+                }
             }
 
             foreach (var entry in placed)
@@ -447,12 +505,88 @@ namespace Tsuzuri.Views
                 row.Children.Add(box);
             }
 
+            row.Children.Add(WeekGripFor(row, weekStart, rowCount));
             return row;
         }
 
         private static Brush BaseFill(DateTime date)
         {
-            return date == DateTime.Today ? Resource("AccentFill") : date.Month % 2 == 0 ? EvenMonthFill : Brushes.Transparent;
+            return date == DateTime.Today ? TodayFill : date.Month % 2 == 0 ? EvenMonthFill : Brushes.Transparent;
+        }
+
+        // ---------------------------------------------------------------
+        // 週の高さ（下の境を引っぱる。その週だけ広げる）
+        // ---------------------------------------------------------------
+
+        private Border WeekGripFor(Grid row, DateTime weekStart, int rowCount)
+        {
+            var grip = new Border
+            {
+                Height = WeekGrip,
+                VerticalAlignment = VerticalAlignment.Bottom,
+                Background = Brushes.Transparent,
+                Cursor = Cursors.SizeNS,
+                ToolTip = "引っぱって、この週の高さを変える（2度押すと元の高さ）",
+            };
+            Grid.SetRow(grip, rowCount - 1);
+            Grid.SetColumnSpan(grip, 7);
+
+            grip.MouseEnter += delegate { grip.Background = GripHover; };
+            grip.MouseLeave += delegate { if (!grip.IsMouseCaptured) grip.Background = Brushes.Transparent; };
+
+            grip.MouseLeftButtonDown += (sender, e) =>
+            {
+                e.Handled = true;   // 日を2度押したこと（予定を足す）にしない
+                if (e.ClickCount >= 2)
+                {
+                    if (_weekHeights.Remove(weekStart)) _weekHeightsChanged();
+                    row.MinHeight = RowMinHeight;
+                    return;
+                }
+                _sizingRow = row;
+                _sizingWeek = weekStart;
+                _sizingFromY = e.GetPosition(_weeks).Y;
+                _sizingFromHeight = row.ActualHeight;
+                grip.CaptureMouse();
+            };
+
+            grip.MouseMove += (sender, e) =>
+            {
+                if (!grip.IsMouseCaptured || _sizingRow != row) return;
+
+                // 下の端まで来たら送る（見えている所より高くできるように）
+                var inView = e.GetPosition(_scroll).Y;
+                if (inView > _scroll.ViewportHeight - 16) _scroll.ScrollToVerticalOffset(_scroll.VerticalOffset + 12);
+
+                row.MinHeight = Math.Max(RowMinHeight, _sizingFromHeight + e.GetPosition(_weeks).Y - _sizingFromY);
+            };
+
+            grip.MouseLeftButtonUp += (sender, e) =>
+            {
+                e.Handled = true;
+                if (grip.IsMouseCaptured) grip.ReleaseMouseCapture();
+            };
+
+            grip.LostMouseCapture += delegate
+            {
+                grip.Background = grip.IsMouseOver ? GripHover : Brushes.Transparent;
+                if (_sizingRow != row) return;
+                _sizingRow = null;
+
+                // 元の高さと変わらないなら覚えない（広げた週だけを持つ）
+                if (row.MinHeight <= RowMinHeight + 4)
+                {
+                    row.MinHeight = RowMinHeight;
+                    if (_weekHeights.Remove(_sizingWeek)) _weekHeightsChanged();
+                }
+                else
+                {
+                    _weekHeights[_sizingWeek] = Math.Round(row.MinHeight);
+                    _weekHeightsChanged();
+                }
+            };
+
+            return grip;
         }
 
         /// <summary>結んだ見出しがあるか（この組み直しの間は覚えておく）。直接打った予定はいつも true。</summary>
@@ -916,7 +1050,7 @@ namespace Tsuzuri.Views
                     ScrollToToday();
                     break;
                 case Key.Escape:
-                    // 選んでいる予定があれば、選ぶのをやめるだけ。無ければ外（カレンダーを閉じる）へ回す
+                    // 選んでいる予定があれば、選ぶのをやめる（カレンダーは閉じない。閉じるのはタブだけ）
                     if (_selected == null) return;
                     e.Handled = true;
                     _selected = null;

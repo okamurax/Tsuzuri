@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Windows;
@@ -46,7 +47,7 @@ namespace Tsuzuri
                     Height = 26,
                     Margin = new Thickness(0, 0, 4, 0),
                     VerticalAlignment = VerticalAlignment.Center,
-                    ToolTip = "カレンダー（Alt+C）。予定を週の行で下へずっと並べ、ここで直接打つ。もう一度押すか Esc で閉じる",
+                    ToolTip = "カレンダー（Alt+C）。予定を週の行で下へずっと並べ、ここで直接打つ。もう一度押すと閉じる（ほかを押しても閉じない）",
                 };
                 _calendarButton.Click += delegate { ToggleCalendar(); };
                 AccessKeyManager.Register("C", _calendarButton);
@@ -63,7 +64,9 @@ namespace Tsuzuri
             }
 
             CloseLauncher();
-            _calendar = new CalendarView(ScheduleFilePath, Status, ScheduleLinkFound, OpenScheduleLink);
+            var heights = ReadWeekHeights();
+            _calendar = new CalendarView(ScheduleFilePath, Status, ScheduleLinkFound, OpenScheduleLink,
+                                         heights, delegate { WriteWeekHeights(heights); });
             CalendarHost.Child = _calendar;
             CalendarHost.Visibility = Visibility.Visible;
             CalendarButton.Tag = "Open";
@@ -73,6 +76,34 @@ namespace Tsuzuri
             {
                 if (_calendar != null && !CalendarHost.IsKeyboardFocusWithin) _calendar.Focus();
             }), DispatcherPriority.Loaded);
+        }
+
+        /// <summary>高さを広げた週（app.json の calendarWeekHeights。「yyyy-MM-dd=高さ」）。読めない項目は捨てる。</summary>
+        private Dictionary<DateTime, double> ReadWeekHeights()
+        {
+            var heights = new Dictionary<DateTime, double>();
+            foreach (var entry in _settings.CalendarWeekHeights ?? new List<string>())
+            {
+                var parts = (entry ?? string.Empty).Split('=');
+                DateTime week;
+                double height;
+                if (parts.Length == 2
+                    && DateTime.TryParseExact(parts[0].Trim(), "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out week)
+                    && double.TryParse(parts[1].Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, out height)
+                    && height > 0 && height < 10000)
+                    heights[week.Date] = height;
+            }
+            return heights;
+        }
+
+        private void WriteWeekHeights(Dictionary<DateTime, double> heights)
+        {
+            var list = heights.OrderBy(pair => pair.Key)
+                              .Select(pair => pair.Key.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture) + "="
+                                              + Math.Round(pair.Value).ToString(CultureInfo.InvariantCulture))
+                              .ToList();
+            _settings.CalendarWeekHeights = list.Count > 0 ? list : null;
+            _settings.Save();
         }
 
         /// <summary>カレンダーを閉じる。マスで打っている名前・欄で直している中身は、先に保存する（打った文字を捨てない）。閉じたら true。</summary>
@@ -180,14 +211,6 @@ namespace Tsuzuri
 
             _calendar.DropHeading(owner.FilePath, owner.PageId ?? string.Empty, heading);
             return true;
-        }
-
-        /// <summary>カレンダーを出している間の Esc で閉じる。欄を閉じる・選ぶのをやめる Esc は、カレンダーが受け取る（Handled）ので、ここには来ない。</summary>
-        private void CalendarHost_KeyDown(object sender, KeyEventArgs e)
-        {
-            if (e.Key != Key.Escape || _calendar == null) return;
-            e.Handled = true;
-            CloseCalendar();
         }
     }
 }

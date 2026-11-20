@@ -91,10 +91,7 @@ namespace Tsuzuri
         /// </summary>
         private void CloseLauncherOnOutsideClick(object sender, MouseButtonEventArgs e)
         {
-            // カレンダーも同じ（SPEC 22章）。「カレンダー」のタブとカレンダーの中は除く。予定の欄で直すところがあれば閉じない（CloseCalendar）
-            // アウトラインは除く（見出しをカレンダーへドラッグして予定にするため。見出しを押して移るときは、OutlineItem_Click が閉じる）
-            if (_calendar != null && !IsInside(e.OriginalSource as DependencyObject, CalendarButton, CalendarHost)
-                && !IsInside(e.OriginalSource as DependencyObject, OutlineTree, OutlineTree)) CloseCalendar();
+            // カレンダーは外を押しても閉じない。「カレンダー」のタブ（Alt+C）でだけ出し入れする（2026-11-21。利用者の希望。SPEC 22章）
 
             if (_launcher == null) return;
             if (IsInside(e.OriginalSource as DependencyObject, LauncherButton, LauncherHost)) return;

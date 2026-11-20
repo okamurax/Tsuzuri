@@ -46,6 +46,13 @@ namespace Tsuzuri
         [DataMember(Name = "scheduleFile", EmitDefaultValue = false)]
         public string ScheduleFile { get; set; }
 
+        /// <summary>
+        /// カレンダーで高さを広げた週（2026-11-21）。「週の始まりの日（日曜。yyyy-MM-dd）=高さ」。広げていない週は持たない。
+        /// 予定のデータではなく見た目なので、予定.md ではなくここに置く。
+        /// </summary>
+        [DataMember(Name = "calendarWeekHeights", EmitDefaultValue = false)]
+        public List<string> CalendarWeekHeights { get; set; }
+
         /// <summary>ファイラーで最後に見ていたフォルダ。</summary>
         [DataMember(Name = "filerFolder")]
         public string FilerFolder { get; set; }

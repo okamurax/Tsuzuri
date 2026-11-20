@@ -252,7 +252,6 @@ namespace Tsuzuri
             // ランチャーを出している間に、その外（アウトライン・ツールバー等）を押したら閉じる。Esc でも閉じる（SPEC 4章）。
             PreviewMouseDown += CloseLauncherOnOutsideClick;
             LauncherHost.KeyDown += LauncherHost_KeyDown;
-            CalendarHost.KeyDown += CalendarHost_KeyDown;
 
             // アウトラインのドラッグで節を動かす（SPEC 7章）。木はページごとに作るので、つなぐのは HookOutlineTree で（2026-11-05）。
             HookOutlineTree(OutlineTree);

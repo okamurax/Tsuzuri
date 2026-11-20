@@ -568,7 +568,6 @@ namespace Tsuzuri
             var node = item.Tag as OutlineNode;
             if (node == null || Active == null) return;
 
-            CloseCalendar();   // カレンダーの下の本文で移っても見えないので閉じる（SPEC 22章）
             GoToOutlineNode(node);
         }
 

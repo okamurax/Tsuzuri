@@ -170,8 +170,9 @@ namespace Tsuzuri.Markdown
             // ・safe.directory=* … \\Mac\ 共有では持ち主が違って見え、git が「怪しい場所」として断るため
             // ・user.name / user.email … git の利用者の設定が無くても記録できるように
             // ・core.quotepath=false … 日本語のファイル名を \343... にしない
+            // ・commit.gpgsign=false … 利用者の全体設定で署名が有効だと、鍵の合言葉の入力待ちで止まるため（2026-11-20）
             var arguments = "-c safe.directory=* -c user.name=\"Tsuzuri\" -c user.email=tsuzuri@localhost"
-                            + " -c core.quotepath=false -c core.autocrlf=false"
+                            + " -c core.quotepath=false -c core.autocrlf=false -c commit.gpgsign=false"
                             + " --git-dir=" + Quote(gitDir) + " --work-tree=" + Quote(folder) + " " + command;
 
             var start = new ProcessStartInfo(git, arguments)
@@ -184,18 +185,31 @@ namespace Tsuzuri.Markdown
                 StandardOutputEncoding = new UTF8Encoding(false),
                 StandardErrorEncoding = new UTF8Encoding(false),
             };
+            start.EnvironmentVariables["GIT_TERMINAL_PROMPT"] = "0";   // 何かを尋ねて待たない
 
             using (var process = Process.Start(start))
             {
-                // 出力を読み切らないと、多いときに git が止まる。
+                // 出力を読み切らないと、多いときに git が止まる。読むのは裏で（2026-11-20。前は読み終わるまで待ってから
+                // WaitForExit していたので、git が止まると 60 秒の上限が効かず、記録のスレッドがずっと止まった）
                 var error = process.StandardError.ReadToEndAsync();
-                process.StandardOutput.ReadToEnd();
+                var output = process.StandardOutput.ReadToEndAsync();
 
                 if (!process.WaitForExit(60000))
                 {
                     try
                     {
                         process.Kill();
+                        process.WaitForExit(5000);
+                    }
+                    catch (Exception)
+                    {
+                    }
+
+                    // 止めた git の鍵（index.lock）が残ると、以後の記録がずっと失敗する。記録は1本のスレッドだけが書くので、残っているのは止めた git のもの
+                    try
+                    {
+                        var lockFile = Path.Combine(gitDir, "index.lock");
+                        if (File.Exists(lockFile)) File.Delete(lockFile);
                     }
                     catch (Exception)
                     {
@@ -203,6 +217,8 @@ namespace Tsuzuri.Markdown
 
                     throw new IOException("git が終わりません（" + command + "）");
                 }
+                process.WaitForExit();   // 出力を読み切るまで（時間切れ付きの WaitForExit は読み終わりを待たない）
+                output.Wait(5000);
 
                 if (check && process.ExitCode != 0)
                     throw new IOException("git " + command + ": " + error.Result.Trim());

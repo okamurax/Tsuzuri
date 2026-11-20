@@ -679,7 +679,6 @@ namespace Tsuzuri
             for (var i = 0; i < OpenWindows.Count; i++)
             {
                 WindowList.Children.Add(CreateWindowTab(OpenWindows[i], labels[i], OpenWindows.Count > 1));
-                if (ReferenceEquals(OpenWindows[i], this)) WindowList.Children.Add(LauncherButton);   // 今の画面のタブのすぐ右（2026-11-20）
                 WindowList.Children.Add(new Border
                 {
                     Width = WindowTabSeparatorWidth,
@@ -689,6 +688,8 @@ namespace Tsuzuri
                     Background = (Brush)FindResource("BorderBrushSoft"),
                 });
             }
+
+            WindowList.Children.Add(LauncherButton);   // タブの並びの一番右（「＋」の左。2026-11-20）
 
             var add = new Button
             {
@@ -705,8 +706,8 @@ namespace Tsuzuri
         private Button _launcherButton;
 
         /// <summary>
-        /// 「ランチャー」のタブ（2026-11-20。前はツールバーのボタン）。いつも今の画面のタブのすぐ右に置く（BuildWindowList）。
-        /// 押すとこの画面にランチャーを出し入れし、出している間は色を付ける（MainWindow.Overlays.cs）。Alt+L でも。
+        /// 「ランチャー」のタブ（2026-11-20。前はツールバーのボタン）。いつも画面のタブの並びの一番右（「＋」の左）に置く（BuildWindowList）。
+        /// 押すとこの画面にランチャーを出し入れし、出している間は今の画面のタブと同じ色にする（MainWindow.Overlays.cs）。Alt+L でも。
         /// ランチャーの外を押すと閉じるが、このボタンは除く（CloseLauncherOnOutsideClick）。
         /// </summary>
         private Button LauncherButton
@@ -714,7 +715,7 @@ namespace Tsuzuri
             get
             {
                 if (_launcherButton != null) return _launcherButton;
-                // 字は出さずアイコン（4つの四角）だけ。幅を狭く、青い地で見つけやすく（2026-11-20。見た目は App.xaml の LauncherTabButton）
+                // 字は出さずアイコン（4つの四角）だけで幅を狭く（2026-11-20。見た目は画面のタブにそろえる。App.xaml の LauncherTabButton）
                 _launcherButton = new Button
                 {
                     Content = new TextBlock { Text = "\uE8A9", FontFamily = IconFont, FontSize = 14, VerticalAlignment = VerticalAlignment.Center },

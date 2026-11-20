@@ -74,15 +74,13 @@
             </Setter>
         </Style>
 
-        <!-- ============ 「ランチャー」のタブ（2026-11-20）。画面のタブの段で、今の画面のタブのすぐ右 ============ -->
-        <!-- 字は出さずアイコンだけで幅を狭く、見つけやすいよう青い地に白いアイコン。載せると明るく、押すと濃く。
-             ランチャーを出している間は明るい地のまま（Tag="Open"。MainWindow.Overlays.cs の PaintLauncherButton） -->
-        <SolidColorBrush x:Key="LauncherTabFill"      Color="#3B69CF" />
-        <SolidColorBrush x:Key="LauncherTabFillHover" Color="#5A86E8" />
-        <SolidColorBrush x:Key="LauncherTabFillDown"  Color="#2F58B3" />
+        <!-- ============ 「ランチャー」のタブ（2026-11-20）。画面のタブの並びの一番右（「＋」の左） ============ -->
+        <!-- 字は出さずアイコンだけで幅を狭く。見た目は画面のタブにそろえる（地は無し・薄い字、載せると地、
+             ランチャーを出している間は今の画面のタブと同じ色。Tag="Open"。MainWindow.Overlays.cs の PaintLauncherButton）。
+             青い地に白いアイコンも試したが、目立ち過ぎた -->
         <Style x:Key="LauncherTabButton" TargetType="Button">
-            <Setter Property="Background" Value="{StaticResource LauncherTabFill}" />
-            <Setter Property="Foreground" Value="#FFFFFF" />
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="Foreground" Value="{StaticResource TextMuted}" />
             <Setter Property="BorderThickness" Value="0" />
             <Setter Property="Cursor" Value="Hand" />
             <Setter Property="Focusable" Value="False" />
@@ -95,14 +93,12 @@
                             <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
                         </Border>
                         <ControlTemplate.Triggers>
-                            <Trigger Property="Tag" Value="Open">
-                                <Setter TargetName="Chrome" Property="Background" Value="{StaticResource LauncherTabFillHover}" />
-                            </Trigger>
                             <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="Chrome" Property="Background" Value="{StaticResource LauncherTabFillHover}" />
+                                <Setter TargetName="Chrome" Property="Background" Value="{StaticResource HoverFill}" />
                             </Trigger>
-                            <Trigger Property="IsPressed" Value="True">
-                                <Setter TargetName="Chrome" Property="Background" Value="{StaticResource LauncherTabFillDown}" />
+                            <Trigger Property="Tag" Value="Open">
+                                <Setter TargetName="Chrome" Property="Background" Value="{StaticResource AccentFill}" />
+                                <Setter Property="Foreground" Value="{StaticResource AccentText}" />
                             </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>

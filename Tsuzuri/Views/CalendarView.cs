@@ -19,7 +19,7 @@ namespace Tsuzuri.Views
     /// ・時間の枠は持たない。予定は日に付き、時間は名前に書く（利用者の書き方）。何日かにまたがる予定は帯で出す
     /// ・月・2週の切り替えは持たない。週の行が上下にずっと続き、スクロールした先を足していく（利用者の考え）
     /// ・日を2度押すと、その日のマスで名前を打つ（1日の予定）。帯の端を引っぱって延ばすと何日かになる。帯をつかんで別の日へ動かす
-    /// ・予定を2度押すと、名前とメモを直す欄（日付は欄では直さない。帯で直す）。Delete で消す。Ctrl+Z で戻す
+    /// ・予定を2度押すと、名前を直す欄（日付は欄では直さない。帯で直す。メモの欄は持たない。長い中身はアウトラインの見出しと結ぶ。2026-11-21）。Delete で消す。Ctrl+Z で戻す
     /// ・アウトラインの見出しを日へドラッグすると、その見出しと結んだ予定になる（2026-11-20）。2度押すと文書のその見出しへ飛ぶ。
     ///   見出しの名前が変わっても追わない。見つからなければ印を付けるだけ（利用者の判断）
     /// ・週の下の境を引っぱると、その週だけ高さを広げられる（2026-11-21。考える週だけ広げる。2度押すと戻す）。広げた高さは app.json に覚える
@@ -109,10 +109,9 @@ namespace Tsuzuri.Views
         private DateTime? _newOn;
         private TextBox _newBox;
 
-        // 名前とメモを直す欄
+        // 名前を直す欄
         private readonly Grid _editorLayer = new Grid();
         private readonly TextBox _editTitle;
-        private readonly TextBox _editMemo;
         private readonly TextBlock _editDates = new TextBlock();
         private readonly Button _editDelete;
         private ScheduleItem _editing;
@@ -190,7 +189,6 @@ namespace Tsuzuri.Views
             Children.Add(main);
 
             _editTitle = Field(false);
-            _editMemo = Field(true);
             _editDelete = ToolButton("削除", "この予定を消す（Ctrl+Z で戻せる）");
             Children.Add(BuildEditor());
 
@@ -728,7 +726,7 @@ namespace Tsuzuri.Views
             if (item.IsLinked)
                 tip += "\n" + (found ? "見出し: " : "見出しが見つかりません（名前を変えた・消した）: ")
                        + Path.GetFileName(item.LinkFile) + " > " + item.LinkHeading
-                       + (found ? "\n2度押すとその見出しへ飛ぶ。メモは選んで Enter" : "\n直すときは、この予定を消してアウトラインからドラッグし直す");
+                       + (found ? "\n2度押す（選んで Enter）とその見出しへ飛ぶ" : "\n直すときは、この予定を消してアウトラインからドラッグし直す");
             var memo = item.Memo.Trim();
             if (memo.Length > 0) tip += "\n\n" + (memo.Length > 600 ? memo.Substring(0, 600) + "…" : memo);
             return tip;
@@ -786,7 +784,7 @@ namespace Tsuzuri.Views
 
             if (e.ClickCount == 2)
             {
-                // 見出しと結んだ予定は、その見出しへ飛ぶ（中身は文書で見る）。メモは選んで Enter
+                // 見出しと結んだ予定は、その見出しへ飛ぶ（中身は文書で見る。名前は見出しの文字のままなので、直す欄は出さない）
                 if (item.IsLinked) _openLink(item);
                 else OpenEditor(item);
                 return;
@@ -1140,7 +1138,8 @@ namespace Tsuzuri.Views
                 case Key.Enter:
                     if (_selected == null) return;
                     e.Handled = true;
-                    OpenEditor(_selected);
+                    if (_selected.IsLinked) _openLink(_selected);   // 2度押すのと同じ
+                    else OpenEditor(_selected);
                     break;
                 case Key.Z:
                     if (!ctrl) return;
@@ -1213,7 +1212,7 @@ namespace Tsuzuri.Views
         }
 
         // ---------------------------------------------------------------
-        // 名前とメモを直す欄（日付は帯で直す）
+        // 名前を直す欄（日付は帯で直す。メモの欄は 2026-11-21 にやめた。利用者の判断）
         // ---------------------------------------------------------------
 
         private UIElement BuildEditor()
@@ -1228,11 +1227,6 @@ namespace Tsuzuri.Views
             panel.Children.Add(Label("名前（時間もここに書く）"));
             panel.Children.Add(_editTitle);
 
-            var memoLabel = Label("メモ（自由に。Ctrl+Enter で保存）");
-            memoLabel.Margin = new Thickness(0, 10, 0, 4);
-            panel.Children.Add(memoLabel);
-            panel.Children.Add(_editMemo);
-
             var buttons = new DockPanel { Margin = new Thickness(0, 14, 0, 0), LastChildFill = false };
             _editDelete.Click += delegate
             {
@@ -1245,7 +1239,7 @@ namespace Tsuzuri.Views
 
             var save = new Button { Content = "保存", Style = (Style)Application.Current.FindResource("AccentButton"), MinWidth = 72 };
             save.Click += delegate { CommitEdit(); };
-            var cancel = ToolButton("やめる", "直さずに閉じる（Esc）");
+            var cancel = ToolButton("キャンセル", "直さずに閉じる（Esc）");
             cancel.Click += delegate { CloseEditor(); };
             DockPanel.SetDock(save, Dock.Right);
             DockPanel.SetDock(cancel, Dock.Right);
@@ -1256,12 +1250,6 @@ namespace Tsuzuri.Views
             _editTitle.KeyDown += (sender, e) =>
             {
                 if (e.Key != Key.Enter) return;
-                e.Handled = true;
-                CommitEdit();
-            };
-            _editMemo.PreviewKeyDown += (sender, e) =>
-            {
-                if (e.Key != Key.Enter || (Keyboard.Modifiers & ModifierKeys.Control) == 0) return;
                 e.Handled = true;
                 CommitEdit();
             };
@@ -1287,9 +1275,6 @@ namespace Tsuzuri.Views
             _editing = item;
             _editDates.Text = Dates(item);
             _editTitle.Text = item.Title;
-            _editTitle.IsReadOnly = item.IsLinked;   // 見出しと結んだ予定の名前は、見出しの文字のまま
-            if (item.IsLinked) _editDates.Text += "\n見出し: " + Path.GetFileName(item.LinkFile) + " > " + item.LinkHeading;
-            _editMemo.Text = item.Memo.Replace("\n", Environment.NewLine);
             _editorLayer.Visibility = Visibility.Visible;
             _editorOpen = true;
 
@@ -1319,16 +1304,14 @@ namespace Tsuzuri.Views
 
             var editing = _editing;
             var title = ScheduleFile.OneLine(_editTitle.Text);
-            var memo = (_editMemo.Text ?? string.Empty).Replace("\r\n", "\n").Replace('\r', '\n').Trim('\n');
             CloseEditor();
             if (editing == null || !Fresh()) return true;
 
             var target = _items.FirstOrDefault(other => ReferenceEquals(other, editing));
-            if (target == null || (target.Title == title && target.Memo == memo)) return true;
+            if (target == null || target.Title == title) return true;
 
             Remember();
-            target.Title = title;
-            target.Memo = memo;
+            target.Title = title;   // メモは画面では持たないが、保存先に書いてあれば消さずに残す
             _selected = target;
             Save();
             Rebuild();

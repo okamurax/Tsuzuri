@@ -160,6 +160,7 @@ namespace Tsuzuri
                     text.Append("（繰り返しの1回。").Append(rule != null ? rule.Describe(item.Start) : item.Repeat)
                         .Append("、").Append(Day(item.Start)).Append(" から。repeat: ").Append(item.Repeat).Append('）');
                 }
+                if (item.Notify.HasValue) text.Append("（通知 ").Append(ScheduleFile.NotifyText(item.Notify.Value)).Append('）');
                 if (item.IsLinked && AiGuard.IsGuarded(item.LinkFile))
                     text.Append("（AI に渡さない場所の文書の見出しと結んだ予定。名前は伏せた）\n");
                 else

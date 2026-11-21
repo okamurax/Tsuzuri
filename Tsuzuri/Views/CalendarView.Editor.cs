@@ -94,6 +94,15 @@ namespace Tsuzuri.Views
             panel.Children.Add(_editUntilLabel);
             panel.Children.Add(_editUntil);
 
+            // 通知の時刻（2026-11-21）。予定のある日のこの時刻にメール（送るのは同期先のカレンダー）
+            var notifyLabel = Label("通知の時刻（空なら通知しない。例 10:00・9:30。予定のある日のこの時刻にメール）");
+            notifyLabel.Margin = new Thickness(0, 12, 0, 4);
+            notifyLabel.TextWrapping = TextWrapping.Wrap;
+            panel.Children.Add(notifyLabel);
+            _editNotify.Width = 80;
+            _editNotify.HorizontalAlignment = HorizontalAlignment.Left;
+            panel.Children.Add(_editNotify);
+
             var buttons = new DockPanel { Margin = new Thickness(0, 16, 0, 0), LastChildFill = false };
             _editDelete.Click += delegate
             {
@@ -300,6 +309,7 @@ namespace Tsuzuri.Views
                     default: tag = "yearly"; break;
                 }
             }
+            _editNotify.Text = item.Notify.HasValue ? ScheduleFile.NotifyText(item.Notify.Value) : string.Empty;
             FillRepeatChoices(item, tag == "keep");
             SelectRepeatChoice(tag);
             if (_editDays.Count == 0) _editDays.Add(item.Start.DayOfWeek);
@@ -456,6 +466,18 @@ namespace Tsuzuri.Views
 
             string repeat;
             if (!ReadRepeat(editing, out repeat)) return false;
+            TimeSpan? notify = null;
+            var notifyText = _editNotify.Text.Trim();
+            if (notifyText.Length > 0)
+            {
+                TimeSpan time;
+                if (!ScheduleFile.TryReadNotify(notifyText, out time))
+                {
+                    _status("通知の時刻を読めませんでした（例 10:00・9:30・1030）: " + notifyText);
+                    return false;
+                }
+                notify = time;
+            }
             var title = _editTitle.Text;   // 結んだ予定の欄に出しているのはリンク先だが、Edit が名前を見出しの文字のままにする
             CloseEditor();
             var key = ScheduleBook.KeyOf(editing);
@@ -467,7 +489,7 @@ namespace Tsuzuri.Views
                 Gone();
                 return true;
             }
-            if (!_book.Edit(target, title, repeat)) return true;
+            if (!_book.Edit(target, title, repeat, notify)) return true;
 
             _selected = target;
             if (!target.IsRepeat) _selectedOriginal = null;

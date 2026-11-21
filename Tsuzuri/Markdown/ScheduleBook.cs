@@ -52,10 +52,11 @@ namespace Tsuzuri.Markdown
             return before;
         }
 
-        /// <summary>予定を見分ける形（日・名前・結んだ見出し・メモ・繰り返し）。読み直したあとに同じ予定を探す・増えた予定を探すのに使う。</summary>
+        /// <summary>予定を見分ける形（日・名前・結んだ見出し・メモ・通知・繰り返し）。読み直したあとに同じ予定を探す・増えた予定を探すのに使う。</summary>
         public static string KeyOf(ScheduleItem item)
         {
             return item.Start.Ticks + "|" + item.End.Ticks + "|" + item.Title + "|" + item.LinkFile + "|" + item.LinkPage + "|" + item.LinkHeading + "|" + item.Memo
+                   + "|" + (item.Notify.HasValue ? item.Notify.Value.Ticks.ToString(System.Globalization.CultureInfo.InvariantCulture) : string.Empty)
                    + "|" + item.Repeat + "|" + string.Join(",", item.Skips.Select(date => date.Ticks))
                    + "|" + string.Join(",", item.Moves.Select(pair => pair.Key.Ticks + ">" + pair.Value.Ticks));
         }
@@ -192,17 +193,19 @@ namespace Tsuzuri.Markdown
         }
 
         /// <summary>
-        /// 名前と繰り返しを直す（いつも全部の回）。結んだ予定の名前は見出しの文字のままにする（title は見ない）。
+        /// 名前・繰り返し・通知の時刻を直す（いつも全部の回）。結んだ予定の名前は見出しの文字のままにする（title は見ない）。
         /// 決まりが変わったら、もう回でない日の「消した」「動かした」は捨てる。
         /// </summary>
-        public bool Edit(ScheduleItem item, string title, string repeat)
+        public bool Edit(ScheduleItem item, string title, string repeat, TimeSpan? notify)
         {
             var name = item.IsLinked ? item.Title : ScheduleFile.OneLine(title);
             repeat = string.IsNullOrEmpty(repeat) ? null : repeat;
-            if (name == item.Title && repeat == item.Repeat) return false;
+            if (notify.HasValue) notify = new TimeSpan(notify.Value.Hours, notify.Value.Minutes, 0);
+            if (name == item.Title && repeat == item.Repeat && notify == item.Notify) return false;
 
             Remember();
             item.Title = name;   // メモは画面では持たないが、保存先に書いてあれば消さずに残す
+            item.Notify = notify;
             if (item.Repeat != repeat)
             {
                 item.Repeat = repeat;

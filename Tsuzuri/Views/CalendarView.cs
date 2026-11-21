@@ -156,6 +156,7 @@ namespace Tsuzuri.Views
         private readonly List<DayOfWeek> _editDays = new List<DayOfWeek>();
         private TextBlock _editUntilLabel;
         private readonly TextBox _editUntil;
+        private readonly TextBox _editNotify;
         private ScheduleItem _editing;
         private DateTime? _editingOriginal;   // 繰り返しの予定なら、欄を開いた回（決まりどおりの日）
         private bool _editorOpen;
@@ -269,6 +270,7 @@ namespace Tsuzuri.Views
             _editTitle = Field();
             _editInterval = Field();
             _editUntil = Field();
+            _editNotify = Field();
             _editDelete = ToolButton("削除", "この予定を消す（Ctrl+Z で戻せる）");
             _editDelete.Margin = new Thickness(0, 0, 6, 0);
             _editDeleteAll = ToolButton("全部消す", "繰り返しの予定を全部の回ごと消す（Ctrl+Z で戻せる）");
@@ -834,6 +836,14 @@ namespace Tsuzuri.Views
                     FontSize = 11,
                     Foreground = found ? Resource("AccentText") : SundayText,
                 });
+            // 通知のある予定は頭にベル（2026-11-21）
+            if (item.Notify.HasValue)
+                text.Inlines.Add(new System.Windows.Documents.Run("\uEA8F ")
+                {
+                    FontFamily = IconFont,
+                    FontSize = 11,
+                    Foreground = Resource("TextMuted"),
+                });
             // 繰り返しの予定は頭に繰り返しの印
             if (item.IsRepeat)
                 text.Inlines.Add(new System.Windows.Documents.Run("\uE8EE ")
@@ -911,6 +921,8 @@ namespace Tsuzuri.Views
                 tip += "\n繰り返し: " + (rule != null ? rule.Describe(item.Start) : item.Repeat + "（Tsuzuri で読めない決まり。1回目だけ出す）")
                        + (occ.Original.HasValue && occ.Original.Value != occ.Start ? "（この回は " + occ.Original.Value.ToString("M/d", CultureInfo.InvariantCulture) + " から動かした）" : string.Empty);
             }
+            if (item.Notify.HasValue)
+                tip += "\n通知: " + (item.IsRepeat ? "毎回" : item.Days > 1 ? "始まりの日" : "その日") + "の " + ScheduleFile.NotifyText(item.Notify.Value) + " にメール（Google カレンダーに送ったとき）";
             if (item.IsLinked)
                 tip += "\n" + (found ? "見出し: " : "見出しが見つかりません（名前を変えた・消した）: ")
                        + Path.GetFileName(item.LinkFile) + " > " + item.LinkHeading

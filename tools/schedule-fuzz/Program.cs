@@ -75,7 +75,7 @@ internal static class Program
     private static readonly string[] MemoLines =
     {
         "", " ", "　", "メモ", "## 2026-01-01 見出しの形", "## 議題", "\\## そのまま", "\\\\## 二つ", "##x", "# 予定",
-        "<!-- link: x | y | z -->", "<!-- repeat: FREQ=WEEKLY -->", "<!-- skip: 2026-01-08 -->", "<!-- move: 2026-01-15>2026-01-16 -->",
+        "<!-- link: x | y | z -->", "<!-- notify: 10:00 -->", "<!-- repeat: FREQ=WEEKLY -->", "<!-- skip: 2026-01-08 -->", "<!-- move: 2026-01-15>2026-01-16 -->",
         "<!-- tsuzuri-schedule: x -->", "- 箇条書き", "  字下げ", "\t", "10:00〜12:00", "## 2026-13-01 月が無い", "## 見出しだけ",
     };
 
@@ -131,6 +131,7 @@ internal static class Program
             item.LinkPage = Pick("", "p3", "p12");
             item.LinkHeading = Pick("見積", "a | b", "x --> y", " 前後に空白 ", "## h", "見出し -");
         }
+        if (Chance(30)) item.Notify = new TimeSpan(_random.Next(24), _random.Next(60), Chance(10) ? _random.Next(60) : 0);   // 秒は書くときに捨てる
         if (Chance(45))
         {
             item.Repeat = RandomRule(start);
@@ -154,6 +155,7 @@ internal static class Program
     {
         var expected = item.Clone();
         expected.Title = ScheduleFile.OneLine(item.Title);
+        if (item.Notify.HasValue) expected.Notify = new TimeSpan(item.Notify.Value.Hours, item.Notify.Value.Minutes, 0);
 
         var lines = (item.Memo ?? string.Empty).Replace("\r\n", "\n").Replace('\r', '\n').Split('\n').ToList();
         while (lines.Count > 0 && lines[0].Trim().Length == 0) lines.RemoveAt(0);
@@ -187,14 +189,14 @@ internal static class Program
     private static string Show(ScheduleItem item)
     {
         return D(item.Start) + "〜" + D(item.End) + " [" + item.Title + "] memo[" + item.Memo.Replace("\n", "⏎") + "] link[" + item.LinkFile + "|" + item.LinkPage + "|" + item.LinkHeading
-               + "] repeat[" + item.Repeat + "] skip[" + string.Join(",", item.Skips.Select(D)) + "] move[" + string.Join(",", item.Moves.Select(p => D(p.Key) + ">" + D(p.Value))) + "]";
+               + "] notify[" + item.Notify + "] repeat[" + item.Repeat + "] skip[" + string.Join(",", item.Skips.Select(D)) + "] move[" + string.Join(",", item.Moves.Select(p => D(p.Key) + ">" + D(p.Value))) + "]";
     }
 
     private static bool Same(ScheduleItem a, ScheduleItem b)
     {
         return a.Start == b.Start && a.End == b.End && a.Title == b.Title && a.Memo == b.Memo
                && (a.LinkFile ?? "") == (b.LinkFile ?? "") && (a.IsLinked ? a.LinkPage == b.LinkPage && a.LinkHeading == b.LinkHeading : !b.IsLinked)
-               && (a.Repeat ?? "") == (b.Repeat ?? "") && a.Skips.SequenceEqual(b.Skips) && a.Moves.SequenceEqual(b.Moves);
+               && a.Notify == b.Notify && (a.Repeat ?? "") == (b.Repeat ?? "") && a.Skips.SequenceEqual(b.Skips) && a.Moves.SequenceEqual(b.Moves);
     }
 
     private static void RoundTrip(int round)
@@ -230,7 +232,7 @@ internal static class Program
         "## 2026-01-01 x", "## 2026-01-01〜2026-01-03 y", "## 2026-01-05 ~ 2026-01-02 逆", "## 2026-02-30 無い日", "## 2026-01-01", "##  2026-01-01 二つの空白",
         "## 2026-1-1 短い", "<!-- link: a | b | c -->", "<!-- link: a | b -->", "<!-- repeat: FREQ=WEEKLY;BYDAY=TU -->", "<!-- repeat: FREQ=WEEKLY; BYDAY=TU -->",
         "<!-- skip: 2026-01-08 2026-01-15 -->", "<!-- skip: 2026-01-08 x -->", "<!-- skip:  -->", "<!-- move: 2026-01-08>2026-01-09 -->", "<!-- move: 2026-01-08>2026-01-09 2026-01-08>2026-01-10 -->",
-        "<!-- move: 2026-01-08 -->", "メモ", "", " ", "\\## x", "# 予定", ScheduleFile.Marker, "\r", "## 見出し", "### 2026-01-01 三つ",
+        "<!-- move: 2026-01-08 -->", "<!-- notify: 10:00 -->", "<!-- notify: 9:5 -->", "<!-- notify: 24:00 -->", "<!-- notify: 7:30 -->", "メモ", "", " ", "\\## x", "# 予定", ScheduleFile.Marker, "\r", "## 見出し", "### 2026-01-01 三つ",
     };
 
     private static void Garbage(int round)
@@ -489,10 +491,12 @@ internal static class Program
                 {
                     var repeat = Chance(30) ? null : RandomRule(item.Start);
                     var title = Chance(50) ? item.Title : Title();
-                    what = "直す [" + title + "] " + repeat + " " + Show(item);
+                    var notify = Chance(50) ? item.Notify : Chance(40) ? (TimeSpan?)null : new TimeSpan(_random.Next(24), _random.Next(60), 0);
+                    what = "直す [" + title + "] " + repeat + " 通知 " + notify + " " + Show(item);
                     var oldRepeat = item.Repeat;
                     var oldTitle = item.Title;
-                    changed = book.Edit(item, title, repeat);
+                    changed = book.Edit(item, title, repeat, notify);
+                    if (item.Notify != notify) Ng(round, "通知の時刻が直らない", what + "\n→ " + Show(item));
                     // 決まりを変えたときだけ、回でない日の「消した」「動かした」を捨てる（変えていなければ、元からある物はそのまま。数えるときに見ないだけ）
                     var rule = ScheduleRepeat.Parse(item.Repeat);
                     if (item.Repeat != oldRepeat && rule != null

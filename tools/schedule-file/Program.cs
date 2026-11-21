@@ -139,6 +139,21 @@ internal static class Program
         };
         Check(Same(ScheduleFile.Parse(ScheduleFile.Serialize(rangeLike)), rangeLike), "範囲の形で始まる名前\n" + ScheduleFile.Serialize(rangeLike));
 
+        // 通知の時刻（2026-11-21）
+        var notified = ScheduleFile.Parse("## 2026-01-04 定例\n<!-- notify: 9:05 -->\n<!-- repeat: FREQ=WEEKLY;BYDAY=SU -->\nメモ\n");
+        Check(notified.Count == 1 && notified[0].Notify == new TimeSpan(9, 5, 0) && notified[0].IsRepeat && notified[0].Memo == "メモ", "通知の行を読む");
+        Check(ScheduleFile.Serialize(notified).Contains("## 2026-01-04 定例\n<!-- notify: 09:05 -->\n<!-- repeat: FREQ=WEEKLY;BYDAY=SU -->\n"), "通知の行を書く\n" + ScheduleFile.Serialize(notified));
+        var badNotify = ScheduleFile.Parse("## 2026-01-04 x\n<!-- notify: 24:00 -->\n");
+        Check(badNotify[0].Notify == null && badNotify[0].Memo == "<!-- notify: 24:00 -->", "読めない時刻はメモのまま");
+        foreach (var pair in new[] { Tuple.Create("10:00", "10:00"), Tuple.Create("9:30", "09:30"), Tuple.Create("10", "10:00"), Tuple.Create("1030", "10:30"),
+                                     Tuple.Create("930", "09:30"), Tuple.Create("10時", "10:00"), Tuple.Create("10時半", "10:30"), Tuple.Create("10時15分", "10:15"),
+                                     Tuple.Create("１０：００", "10:00"), Tuple.Create("٣", ""), Tuple.Create("10：00", "10:00"), Tuple.Create("24:00", ""), Tuple.Create("9:60", ""), Tuple.Create("x", ""), Tuple.Create("", "") })
+        {
+            TimeSpan time;
+            var ok = ScheduleFile.TryReadNotify(pair.Item1, out time);
+            Check(pair.Item2.Length > 0 ? ok && ScheduleFile.NotifyText(time) == pair.Item2 : !ok, "時刻の欄: " + pair.Item1 + " → " + (ok ? ScheduleFile.NotifyText(time) : "読めない"));
+        }
+
         // 名前の改行
         Check(ScheduleFile.OneLine(" a\r\n b \n") == "a b", "名前の改行");
 

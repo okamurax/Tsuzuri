@@ -45,6 +45,12 @@ namespace Tsuzuri.Markdown
         /// <summary>繰り返しのうち、動かした回（決まりどおりの日 → 動かした先の始まりの日）。</summary>
         public SortedDictionary<DateTime, DateTime> Moves = new SortedDictionary<DateTime, DateTime>();
 
+        /// <summary>
+        /// 通知の時刻（その日の 0:00 からの時間。2026-11-21）。予定のある日（繰り返しなら毎回、何日かなら始まりの日）のこの時刻にメールを送る。
+        /// 送るのは同期先のカレンダー（Google など）。Tsuzuri は時刻を持つだけ。通知しなければ null。
+        /// </summary>
+        public TimeSpan? Notify;
+
         public bool IsRepeat
         {
             get { return !string.IsNullOrEmpty(Repeat); }
@@ -56,7 +62,7 @@ namespace Tsuzuri.Markdown
             {
                 Start = Start, End = End, Title = Title, Memo = Memo,
                 LinkFile = LinkFile, LinkPage = LinkPage, LinkHeading = LinkHeading,
-                Repeat = Repeat, Skips = new List<DateTime>(Skips), Moves = new SortedDictionary<DateTime, DateTime>(Moves),
+                Notify = Notify, Repeat = Repeat, Skips = new List<DateTime>(Skips), Moves = new SortedDictionary<DateTime, DateTime>(Moves),
             };
         }
 
@@ -82,13 +88,14 @@ namespace Tsuzuri.Markdown
     ///
     ///   ## 2026-11-26 見積の作成
     ///   &lt;!-- link: D:\案件\見積.md | p3 | 見積の作成 --&gt;   ← アウトラインの見出しから登録した予定（見出しのすぐ下の行）
+    ///   &lt;!-- notify: 10:00 --&gt;                              ← 通知の時刻（2026-11-21）
     ///
     ///   ## 2026-11-24 10:00 定例
     ///   &lt;!-- repeat: FREQ=WEEKLY;BYDAY=TU --&gt;              ← 繰り返し（RRULE。ScheduleRepeat。2026-11-21）
     ///   &lt;!-- skip: 2026-12-29 2027-01-05 --&gt;               ← 消した回
     ///   &lt;!-- move: 2026-12-08&gt;2026-12-09 --&gt;              ← 動かした回（元の日&gt;動かした先）
     ///
-    /// 見出しのすぐ下の link・repeat・skip・move の行（どの順でもよい。書くときはこの順）は予定の中身で、メモではない。
+    /// 見出しのすぐ下の link・notify・repeat・skip・move の行（どの順でもよい。書くときはこの順）は予定の中身で、メモではない。
     ///
     /// 予定1つが見出し1つ。見出しは「日付（〜終わりの日）」と名前。最初の予定より前の行は読み飛ばし、書くときは決まった頭を付ける。
     /// メモの中の「## 」で始まる行は、書くときに頭に \ を付け、読むときに外す（予定の見出しと見分けるため。\ が付いた行も1つ足して1つ外す）。
@@ -106,6 +113,9 @@ namespace Tsuzuri.Markdown
 
         // アウトラインの見出しから登録した予定の、見出しの場所（予定の見出しのすぐ下の行）。ファイル | ページ | 見出しの文字
         private static readonly Regex LinkRe = new Regex(@"^<!-- link: (.+?) \| (.*?) \| (.*) -->$", RegexOptions.Compiled);
+
+        // 通知の時刻（見出しのすぐ下の行。2026-11-21）。0:00〜23:59
+        private static readonly Regex NotifyRe = new Regex(@"^<!-- notify: ([0-9]{1,2}):([0-9]{2}) -->$", RegexOptions.Compiled);
 
         // 繰り返しの決まり・消した回・動かした回（見出しのすぐ下の行。2026-11-21）
         private static readonly Regex RepeatRe = new Regex(@"^<!-- repeat: ([A-Za-z0-9=;,\-]+) -->$", RegexOptions.Compiled);
@@ -166,6 +176,14 @@ namespace Tsuzuri.Markdown
                 item.LinkFile = match.Groups[1].Value;
                 item.LinkPage = match.Groups[2].Value;
                 item.LinkHeading = match.Groups[3].Value;
+                return true;
+            }
+            if (!item.Notify.HasValue && (match = NotifyRe.Match(line)).Success)
+            {
+                var hour = int.Parse(match.Groups[1].Value, CultureInfo.InvariantCulture);
+                var minute = int.Parse(match.Groups[2].Value, CultureInfo.InvariantCulture);
+                if (hour > 23 || minute > 59) return false;
+                item.Notify = new TimeSpan(hour, minute, 0);
                 return true;
             }
             if (!item.IsRepeat && (match = RepeatRe.Match(line)).Success)
@@ -234,6 +252,8 @@ namespace Tsuzuri.Markdown
                 if (item.IsLinked)
                     text.Append("<!-- link: ").Append(Plain(item.LinkFile)).Append(" | ").Append(Plain(item.LinkPage))
                         .Append(" | ").Append(Plain(item.LinkHeading)).Append(" -->\n");
+                if (item.Notify.HasValue && item.Notify.Value >= TimeSpan.Zero && item.Notify.Value < TimeSpan.FromDays(1))
+                    text.Append("<!-- notify: ").Append(NotifyText(item.Notify.Value)).Append(" -->\n");
                 if (item.IsRepeat && RepeatRe.IsMatch("<!-- repeat: " + item.Repeat + " -->"))
                 {
                     text.Append("<!-- repeat: ").Append(item.Repeat).Append(" -->\n");
@@ -265,6 +285,39 @@ namespace Tsuzuri.Markdown
         }
 
         /// <summary>名前は1行（改行は空白にする）。</summary>
+        /// <summary>通知の時刻を「HH:mm」で（秒は捨てる）。</summary>
+        public static string NotifyText(TimeSpan time)
+        {
+            return time.Hours.ToString("00", CultureInfo.InvariantCulture) + ":" + time.Minutes.ToString("00", CultureInfo.InvariantCulture);
+        }
+
+        /// <summary>通知の時刻の欄（10:00・9:30・10・1030・10時・10時半・10時15分）。読めなければ false。</summary>
+        public static bool TryReadNotify(string text, out TimeSpan time)
+        {
+            time = TimeSpan.Zero;
+            // 日本語の入力のまま打った全角の数字も読む（\d は全角の数字にも当たるので、読み替えてから [0-9] で見る）
+            var half = new StringBuilder();
+            foreach (var c in text ?? string.Empty) half.Append(c >= '０' && c <= '９' ? (char)('0' + (c - '０')) : c);
+            text = half.ToString().Trim().Replace('：', ':').Replace("時半", ":30").Replace("時", ":").TrimEnd('分').TrimEnd(':');
+            int hour, minute;
+            var match = Regex.Match(text, @"^([0-9]{1,2})(?::([0-9]{1,2}))?$");
+            if (match.Success)
+            {
+                hour = int.Parse(match.Groups[1].Value, CultureInfo.InvariantCulture);
+                minute = match.Groups[2].Success ? int.Parse(match.Groups[2].Value, CultureInfo.InvariantCulture) : 0;
+            }
+            else if (Regex.IsMatch(text, @"^[0-9]{3,4}$"))
+            {
+                var number = int.Parse(text, CultureInfo.InvariantCulture);
+                hour = number / 100;
+                minute = number % 100;
+            }
+            else return false;
+            if (hour > 23 || minute > 59) return false;
+            time = new TimeSpan(hour, minute, 0);
+            return true;
+        }
+
         public static string OneLine(string text)
         {
             return Regex.Replace(text ?? string.Empty, @"\s*[\r\n]+\s*", " ").Trim();

@@ -34,7 +34,7 @@ namespace Tsuzuri.Views
         private const double DayHeaderHeight = 24;
         private const double DayNumberHeight = 22;
         private const double LaneHeight = 22;
-        private const double RowMinHeight = 112;   // 週の高さの元（「高さを戻す」で戻る値）
+        private const double RowMinHeight = 112;   // 週の高さの元（戻すアイコンで戻る値）
         private const double RowHeightStep = 28;   // 上の段の＋－で一律に変える量
         private const double RowHeightMax = 560;
         private const double EdgeGrip = 7;          // 帯の端のこの幅をつかむと延ばす・縮める
@@ -204,19 +204,19 @@ namespace Tsuzuri.Views
             bar.Children.Add(todayButton);
 
             // 全部の週の高さを戻す（2026-11-21）。＋－で変えた高さも、引っぱって広げた週も。どちらも元のままなら押せない
-            _resetHeights = ToolButton("高さを戻す", "全部の週を元の高さに戻す（＋－で変えた高さも、引っぱって広げた週も）");
-            _resetHeights.Margin = new Thickness(0, 0, 6, 0);
+            _resetHeights = IconButton("\uE72C", "全部の週を元の高さに戻す（＋－で変えた高さも、引っぱって広げた週も）");
+            _resetHeights.Margin = new Thickness(0, 0, 8, 0);
             _resetHeights.Click += delegate { ResetWeekHeights(); };
             DockPanel.SetDock(_resetHeights, Dock.Right);
             bar.Children.Add(_resetHeights);
 
             // 全部の週を一律に高く・低くする（2026-11-21。引っぱって1週ずつ広げるのとは別に）
-            _taller = ToolButton("＋", "全部の週を高くする");
-            _taller.Margin = new Thickness(0, 0, 6, 0);
+            _taller = IconButton("\uE710", "全部の週を高くする");
+            _taller.Margin = new Thickness(0, 0, 2, 0);
             _taller.Click += delegate { SetRowHeight(_rowHeight + RowHeightStep); };
             DockPanel.SetDock(_taller, Dock.Right);
             bar.Children.Add(_taller);
-            _shorter = ToolButton("－", "全部の週を低くする");
+            _shorter = IconButton("\uE738", "全部の週を低くする");
             _shorter.Margin = new Thickness(0, 0, 2, 0);
             _shorter.Click += delegate { SetRowHeight(_rowHeight - RowHeightStep); };
             DockPanel.SetDock(_shorter, Dock.Right);
@@ -941,6 +941,16 @@ namespace Tsuzuri.Views
                 VerticalAlignment = VerticalAlignment.Center,
                 Focusable = false,
             };
+        }
+
+        /// <summary>上の段の、アイコンだけのボタン（週の高さの －・＋・戻す）。</summary>
+        private static Button IconButton(string glyph, string tip)
+        {
+            var button = ToolButton(glyph, tip);
+            button.FontFamily = IconFont;
+            button.FontSize = 12;
+            button.Padding = new Thickness(7, 5, 7, 5);
+            return button;
         }
 
         private static TextBlock Label(string text)

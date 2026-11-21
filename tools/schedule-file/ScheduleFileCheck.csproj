@@ -9,5 +9,6 @@
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="../../Tsuzuri/Markdown/ScheduleFile.cs" />
+    <Compile Include="../../Tsuzuri/Markdown/ScheduleRepeat.cs" />
   </ItemGroup>
 </Project>

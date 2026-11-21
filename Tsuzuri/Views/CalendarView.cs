@@ -113,6 +113,7 @@ namespace Tsuzuri.Views
         private bool _extending;
 
         private ScheduleItem _selected;
+        private DateTime? _selectedOriginal;   // 繰り返しの予定なら、選んでいる回（決まりどおりの日）
 
         // 選んでいる日（押した日から、なぞった・Shift で押した日まで）。AI に渡す（2026-11-21。日付の話をするため）
         private DateTime? _dayAnchor;
@@ -122,6 +123,8 @@ namespace Tsuzuri.Views
         // 帯をつかんでいる（動かす・延ばす）
         private Gesture _gesture;
         private ScheduleItem _dragItem;
+        private DateTime? _dragOriginal;   // 繰り返しの予定なら、つかんでいる回（決まりどおりの日）
+        private DateTime _dragShownStart;  // つかんだときに出ていた、その回の始まりの日
         private DateTime _dragFrom;
         private int _dragDelta;
 
@@ -129,15 +132,25 @@ namespace Tsuzuri.Views
         private DateTime? _newOn;
         private TextBox _newBox;
 
-        // 名前を直す欄
+        // 名前と繰り返しを直す欄
         private readonly Grid _editorLayer = new Grid();
         private readonly TextBox _editTitle;
         private readonly TextBlock _editLabel = new TextBlock();
-        private Button _editSave;
         private Button _editJump;
         private readonly TextBlock _editDates = new TextBlock();
         private readonly Button _editDelete;
+        private readonly Button _editDeleteAll;
+        private readonly ComboBox _editRepeat = new ComboBox();
+        private readonly StackPanel _editIntervalRow = new StackPanel();
+        private readonly TextBox _editInterval;
+        private readonly TextBlock _editIntervalUnit = new TextBlock();
+        private readonly StackPanel _editWeekDays = new StackPanel();
+        private readonly Border[] _editDayChips = new Border[7];
+        private readonly List<DayOfWeek> _editDays = new List<DayOfWeek>();
+        private TextBlock _editUntilLabel;
+        private readonly TextBox _editUntil;
         private ScheduleItem _editing;
+        private DateTime? _editingOriginal;   // 繰り返しの予定なら、欄を開いた回（決まりどおりの日）
         private bool _editorOpen;
 
         /// <param name="linkFound">アウトラインから登録した予定の見出しが、今もあるか。</param>
@@ -232,7 +245,11 @@ namespace Tsuzuri.Views
             Children.Add(main);
 
             _editTitle = Field(false);
+            _editInterval = Field(false);
+            _editUntil = Field(false);
             _editDelete = ToolButton("削除", "この予定を消す（Ctrl+Z で戻せる）");
+            _editDelete.Margin = new Thickness(0, 0, 6, 0);
+            _editDeleteAll = ToolButton("全部消す", "繰り返しの予定を全部の回ごと消す（Ctrl+Z で戻せる）");
             Children.Add(BuildEditor());
 
             KeyDown += OnKey;
@@ -386,7 +403,9 @@ namespace Tsuzuri.Views
         /// <summary>予定を見分ける形（日・名前・結んだ見出し・メモ）。読み直したときに、増えた・変わった予定を探す。</summary>
         private static string KeyOf(ScheduleItem item)
         {
-            return item.Start.Ticks + "|" + item.End.Ticks + "|" + item.Title + "|" + item.LinkFile + "|" + item.LinkPage + "|" + item.LinkHeading + "|" + item.Memo;
+            return item.Start.Ticks + "|" + item.End.Ticks + "|" + item.Title + "|" + item.LinkFile + "|" + item.LinkPage + "|" + item.LinkHeading + "|" + item.Memo
+                   + "|" + item.Repeat + "|" + string.Join(",", item.Skips.Select(date => date.Ticks))
+                   + "|" + string.Join(",", item.Moves.Select(pair => pair.Key.Ticks + ">" + pair.Value.Ticks));
         }
 
         /// <summary>外で書き換わって読み直したとき。増えた・変わった予定を光らせ、上の段に何件変わったかを出す。</summary>
@@ -423,12 +442,19 @@ namespace Tsuzuri.Views
             // 見えていない週で変わった予定があれば、押すとそこへ
             DateTime first, last;
             VisibleRange(out first, out last);
-            var outside = added.Where(item => item.End < first || item.Start > last).OrderBy(item => item.Start).FirstOrDefault();
-            _noticeDate = outside != null ? outside.Start : (DateTime?)null;
-            if (outside != null) message += "（" + outside.Start.ToString("M/d", CultureInfo.InvariantCulture) + " へ ›）";
+            // 繰り返しの予定は、見えている週に回が無ければ、次の回（無ければ1回目）
+            DateTime? outside = null;
+            foreach (var item in added)
+            {
+                if (ScheduleRepeat.Occurrences(item, first, last).Count > 0) continue;
+                var next = ScheduleRepeat.Occurrences(item, last.AddDays(1), last.AddDays(800)).Select(occ => (DateTime?)occ.Start).Min() ?? item.Start;
+                if (!outside.HasValue || next < outside.Value) outside = next;
+            }
+            _noticeDate = outside;
+            if (outside.HasValue) message += "（" + outside.Value.ToString("M/d", CultureInfo.InvariantCulture) + " へ ›）";
 
             _notice.Content = message;
-            _notice.IsHitTestVisible = outside != null;
+            _notice.IsHitTestVisible = outside.HasValue;
             _notice.Visibility = Visibility.Visible;
             _noticeTimer.Stop();
             _noticeTimer.Start();
@@ -556,17 +582,16 @@ namespace Tsuzuri.Views
             var weekEnd = weekStart.AddDays(6);
             var today = DateTime.Today;
 
-            // 予定を段に割り振る（始まりの早い順、同じなら長い順。空いている一番上の段へ）
-            var shown = _items.Select(item => Shifted(item))
-                              .Where(pair => pair.Value.Start <= weekEnd && pair.Value.End >= weekStart)
-                              .OrderBy(pair => pair.Value.Start).ThenByDescending(pair => pair.Value.Days)
+            // この週に掛かる回（繰り返しの予定は、この週の分だけ数える）を、段に割り振る（始まりの早い順、同じなら長い順。空いている一番上の段へ）
+            var shown = ShownIn(weekStart, weekEnd)
+                              .OrderBy(occ => occ.Start).ThenByDescending(occ => occ.Days)
                               .ToList();
             var laneEnds = new List<int>();
-            var placed = new List<Tuple<ScheduleItem, ScheduleItem, int, int, int>>();   // 元・出す形・段・始まりの列・終わりの列
-            foreach (var pair in shown)
+            var placed = new List<Tuple<ScheduleOccurrence, int, int, int>>();   // 回・段・始まりの列・終わりの列
+            foreach (var occ in shown)
             {
-                var from = Math.Max(0, (int)(pair.Value.Start - weekStart).TotalDays);
-                var to = Math.Min(6, (int)(pair.Value.End - weekStart).TotalDays);
+                var from = Math.Max(0, (int)(occ.Start - weekStart).TotalDays);
+                var to = Math.Min(6, (int)(occ.End - weekStart).TotalDays);
                 var lane = laneEnds.FindIndex(end => end < from);
                 if (lane < 0)
                 {
@@ -574,7 +599,7 @@ namespace Tsuzuri.Views
                     laneEnds.Add(to);
                 }
                 else laneEnds[lane] = to;
-                placed.Add(Tuple.Create(pair.Key, pair.Value, lane, from, to));
+                placed.Add(Tuple.Create(occ, lane, from, to));
             }
 
             // 名前を打っている日がこの週なら、その日の段の下に打つ欄を出す
@@ -661,10 +686,10 @@ namespace Tsuzuri.Views
 
             foreach (var entry in placed)
             {
-                var bar = BuildBar(entry.Item1, entry.Item2, weekStart, weekEnd);
-                Grid.SetRow(bar, entry.Item3 + 1);
-                Grid.SetColumn(bar, entry.Item4);
-                Grid.SetColumnSpan(bar, entry.Item5 - entry.Item4 + 1);
+                var bar = BuildBar(entry.Item1, weekStart, weekEnd);
+                Grid.SetRow(bar, entry.Item2 + 1);
+                Grid.SetColumn(bar, entry.Item3);
+                Grid.SetColumnSpan(bar, entry.Item4 - entry.Item3 + 1);
                 row.Children.Add(bar);
             }
 
@@ -824,11 +849,37 @@ namespace Tsuzuri.Views
             return found;
         }
 
-        /// <summary>つかんでいる帯は、動かした・延ばした先の形で出す。ほかはそのまま。</summary>
-        private KeyValuePair<ScheduleItem, ScheduleItem> Shifted(ScheduleItem item)
+        /// <summary>
+        /// from〜to に掛かる回。つかんでいる帯は、動かした・延ばした先の形で出す（繰り返しの予定を動かすときは、その回だけ。延ばすときは全部の回）。
+        /// 回の Item は、いつも _items の中の予定（選ぶ・つかむ・消すの相手）。
+        /// </summary>
+        private List<ScheduleOccurrence> ShownIn(DateTime from, DateTime to)
         {
-            if (!ReferenceEquals(item, _dragItem) || _dragDelta == 0) return new KeyValuePair<ScheduleItem, ScheduleItem>(item, item);
-            return new KeyValuePair<ScheduleItem, ScheduleItem>(item, Apply(item, _gesture, _dragDelta));
+            var list = new List<ScheduleOccurrence>();
+            var spread = Math.Abs(_dragDelta);
+            foreach (var item in _items)
+            {
+                var dragging = ReferenceEquals(item, _dragItem) && _dragDelta != 0;
+                var moveOne = dragging && item.IsRepeat && _gesture == Gesture.Move;
+                var source = dragging && !moveOne ? Apply(item, _gesture, _dragDelta) : item;
+                foreach (var occ in ScheduleRepeat.Occurrences(source, from.AddDays(-spread), to.AddDays(spread)))
+                {
+                    occ.Item = item;
+                    if (moveOne && occ.Original == _dragOriginal)
+                    {
+                        occ.Start = occ.Start.AddDays(_dragDelta);
+                        occ.End = occ.End.AddDays(_dragDelta);
+                    }
+                    if (occ.Start <= to && occ.End >= from) list.Add(occ);
+                }
+            }
+            return list;
+        }
+
+        /// <summary>選んでいる帯か（繰り返しの予定なら、選んだ回だけ）。</summary>
+        private bool IsSelected(ScheduleOccurrence occ)
+        {
+            return ReferenceEquals(occ.Item, _selected) && (!occ.IsRepeat || occ.Original == _selectedOriginal);
         }
 
         private static ScheduleItem Apply(ScheduleItem item, Gesture gesture, int delta)
@@ -850,11 +901,13 @@ namespace Tsuzuri.Views
             return moved;
         }
 
-        private Border BuildBar(ScheduleItem item, ScheduleItem shown, DateTime weekStart, DateTime weekEnd)
+        private Border BuildBar(ScheduleOccurrence occ, DateTime weekStart, DateTime weekEnd)
         {
-            var startsHere = shown.Start >= weekStart;
-            var endsHere = shown.End <= weekEnd;
-            var selected = ReferenceEquals(item, _selected);
+            var item = occ.Item;
+            var startsHere = occ.Start >= weekStart;
+            var endsHere = occ.End <= weekEnd;
+            var selected = IsSelected(occ);
+            var startGrip = startsHere && !occ.IsRepeat;   // 繰り返しの予定は、右の端（全部の回の長さ）だけ引っぱれる
 
             var found = Found(item);
             var text = new TextBlock
@@ -872,6 +925,14 @@ namespace Tsuzuri.Views
                     FontSize = 11,
                     Foreground = found ? Resource("AccentText") : SundayText,
                 });
+            // 繰り返しの予定は頭に繰り返しの印
+            if (item.IsRepeat)
+                text.Inlines.Add(new System.Windows.Documents.Run("\uE8EE ")
+                {
+                    FontFamily = IconFont,
+                    FontSize = 11,
+                    Foreground = Resource("TextMuted"),
+                });
             text.Inlines.Add(new System.Windows.Documents.Run((item.Title.Length > 0 ? item.Title : "（名前なし）") + (item.Memo.Trim().Length > 0 ? "  ≡" : string.Empty)));
 
             var bar = new Border
@@ -880,21 +941,21 @@ namespace Tsuzuri.Views
                 Margin = new Thickness(startsHere ? 3 : 0, 1, endsHere ? 3 : 0, 1),
                 Padding = new Thickness(6, 0, 6, 0),
                 CornerRadius = new CornerRadius(startsHere ? 3 : 0, endsHere ? 3 : 0, endsHere ? 3 : 0, startsHere ? 3 : 0),
-                Background = FlashFill(item, shown.Days > 1 ? MultiFill : SingleFill),
+                Background = FlashFill(item, occ.Days > 1 ? MultiFill : SingleFill),
                 BorderBrush = selected ? Resource("AccentBrush") : Brushes.Transparent,
                 BorderThickness = new Thickness(1),
                 Cursor = Cursors.Hand,
-                Opacity = ReferenceEquals(item, _dragItem) && _dragDelta != 0 ? 0.75 : 1,
-                ToolTip = Tip(item, found),
+                Opacity = ReferenceEquals(item, _dragItem) && _dragDelta != 0 && (!occ.IsRepeat || _gesture != Gesture.Move || occ.Original == _dragOriginal) ? 0.75 : 1,
+                ToolTip = Tip(occ, found),
             };
 
             // 端に載せたら、延ばせる印（左右の矢印）にする。端は、その週で始まる・終わるときだけ
             bar.MouseMove += (sender, e) =>
             {
                 if (_gesture != Gesture.None) return;
-                bar.Cursor = EdgeOf(bar, e, startsHere, endsHere) != Gesture.Move ? Cursors.SizeWE : Cursors.Hand;
+                bar.Cursor = EdgeOf(bar, e, startGrip, endsHere) != Gesture.Move ? Cursors.SizeWE : Cursors.Hand;
             };
-            bar.MouseLeftButtonDown += (sender, e) => OnBarDown(item, bar, e, startsHere, endsHere);
+            bar.MouseLeftButtonDown += (sender, e) => OnBarDown(occ, bar, e, startGrip, endsHere);
             return bar;
         }
 
@@ -931,9 +992,16 @@ namespace Tsuzuri.Views
             return Gesture.Move;
         }
 
-        private static string Tip(ScheduleItem item, bool found)
+        private static string Tip(ScheduleOccurrence occ, bool found)
         {
-            var tip = Dates(item) + "  " + item.Title;
+            var item = occ.Item;
+            var tip = Dates(occ.Start, occ.End) + "  " + item.Title;
+            if (item.IsRepeat)
+            {
+                var rule = ScheduleRepeat.Parse(item.Repeat);
+                tip += "\n繰り返し: " + (rule != null ? rule.Describe(item.Start) : item.Repeat + "（Tsuzuri で読めない決まり。1回目だけ出す）")
+                       + (occ.Original.HasValue && occ.Original.Value != occ.Start ? "（この回は " + occ.Original.Value.ToString("M/d", CultureInfo.InvariantCulture) + " から動かした）" : string.Empty);
+            }
             if (item.IsLinked)
                 tip += "\n" + (found ? "見出し: " : "見出しが見つかりません（名前を変えた・消した）: ")
                        + Path.GetFileName(item.LinkFile) + " > " + item.LinkHeading
@@ -943,10 +1011,10 @@ namespace Tsuzuri.Views
             return tip;
         }
 
-        private static string Dates(ScheduleItem item)
+        private static string Dates(DateTime start, DateTime end)
         {
-            var dates = item.Start.ToString("yyyy/M/d (ddd)", Japanese);
-            if (item.End > item.Start) dates += " 〜 " + item.End.ToString("M/d (ddd)", Japanese) + "（" + item.Days + " 日）";
+            var dates = start.ToString("yyyy/M/d (ddd)", Japanese);
+            if (end > start) dates += " 〜 " + end.ToString("M/d (ddd)", Japanese) + "（" + ((int)(end - start).TotalDays + 1) + " 日）";
             return dates;
         }
 
@@ -982,8 +1050,9 @@ namespace Tsuzuri.Views
             return hit.Key.AddDays(column);
         }
 
-        private void OnBarDown(ScheduleItem item, Border bar, MouseButtonEventArgs e, bool startsHere, bool endsHere)
+        private void OnBarDown(ScheduleOccurrence occ, Border bar, MouseButtonEventArgs e, bool startsHere, bool endsHere)
         {
+            var item = occ.Item;
             e.Handled = true;
             if (_editorOpen) return;
 
@@ -996,20 +1065,23 @@ namespace Tsuzuri.Views
             if (e.ClickCount == 2)
             {
                 // どの予定も欄を出す。見出しと結んだ予定は、名前の代わりにリンク先と「見出しへ飛ぶ」（2026-11-21。前は2度押すとすぐ飛び、消す入口が無かった）
-                OpenEditor(item);
+                OpenEditor(item, occ.Original, occ.Start, occ.End);
                 return;
             }
             if (date == null) return;
 
             ClearDays();   // 予定を選んだら、日を選ぶのはやめる
-            if (!ReferenceEquals(_selected, item))
+            if (!IsSelected(occ))
             {
                 _selected = item;
+                _selectedOriginal = occ.Original;
                 Rebuild();
             }
 
             _gesture = gesture;
             _dragItem = item;
+            _dragOriginal = occ.Original;
+            _dragShownStart = occ.Start;
             _dragFrom = date.Value;
             _dragDelta = 0;
             _weeks.CaptureMouse();
@@ -1101,10 +1173,22 @@ namespace Tsuzuri.Views
             if (_weeks.IsMouseCaptured) _weeks.ReleaseMouseCapture();
             if (item == null) return;
 
+            var original = _dragOriginal;
+            var shownStart = _dragShownStart;
+            _dragOriginal = null;
             if (commit && delta != 0 && Fresh())
             {
                 var target = _items.FirstOrDefault(other => ReferenceEquals(other, item));
-                if (target != null)
+                if (target != null && target.IsRepeat && original.HasValue && gesture == Gesture.Move)
+                {
+                    // 繰り返しの予定を動かすと、その回だけ動く。元の日へ戻したら、動かした記録を消す
+                    var to = shownStart.AddDays(delta);
+                    Remember();
+                    if (to == original.Value) target.Moves.Remove(original.Value);
+                    else target.Moves[original.Value] = to;
+                    Save();
+                }
+                else if (target != null)
                 {
                     var changed = Apply(target, gesture, delta);
                     if (changed.Start != target.Start || changed.End != target.End)
@@ -1185,6 +1269,7 @@ namespace Tsuzuri.Views
                 var item = new ScheduleItem { Start = date, End = date, Title = title };
                 _items.Add(item);
                 _selected = item;
+                _selectedOriginal = null;
                 Save();
             }
             Rebuild();
@@ -1247,6 +1332,7 @@ namespace Tsuzuri.Views
             };
             _items.Add(item);
             _selected = item;
+            _selectedOriginal = null;
             Save();
             Rebuild();
             Focus();
@@ -1285,6 +1371,19 @@ namespace Tsuzuri.Views
         public ScheduleItem SelectedItem
         {
             get { return _selected != null ? _selected.Clone() : null; }
+        }
+
+        /// <summary>選んでいる回の始まり・終わりの日（繰り返しの予定なら、その回。動かした回は動かした先）。選んでいなければ null。</summary>
+        public Tuple<DateTime, DateTime> SelectedDates
+        {
+            get
+            {
+                if (_selected == null) return null;
+                if (!_selected.IsRepeat || !_selectedOriginal.HasValue) return Tuple.Create(_selected.Start, _selected.End);
+                DateTime start;
+                if (!_selected.Moves.TryGetValue(_selectedOriginal.Value, out start)) start = _selectedOriginal.Value;
+                return Tuple.Create(start, start.AddDays((_selected.End - _selected.Start).TotalDays));
+            }
         }
 
         /// <summary>見えている日の範囲（いちばん上に見えている週の日曜から、いちばん下に見えている週の土曜まで）。並ぶ前は今週。</summary>
@@ -1357,7 +1456,7 @@ namespace Tsuzuri.Views
                 case Key.Delete:
                     if (_selected == null) return;
                     e.Handled = true;
-                    Delete(_selected);
+                    Delete(_selected, _selectedOriginal);   // 繰り返しの予定は、選んだ回だけ
                     break;
                 case Key.Z:
                     if (!ctrl) return;
@@ -1398,13 +1497,25 @@ namespace Tsuzuri.Views
             }
         }
 
-        private void Delete(ScheduleItem item)
+        /// <summary>予定を消す。繰り返しの予定で original（その回の決まりどおりの日）があれば、その回だけ消す。</summary>
+        private void Delete(ScheduleItem item, DateTime? original)
         {
             if (!Fresh()) return;
             var target = _items.FirstOrDefault(other => ReferenceEquals(other, item));
             if (target == null) return;
 
             Remember();
+            if (target.IsRepeat && original.HasValue)
+            {
+                target.Moves.Remove(original.Value);
+                if (!target.Skips.Contains(original.Value)) target.Skips.Add(original.Value);
+                target.Skips.Sort();
+                Save();
+                if (ReferenceEquals(_selected, target)) _selected = null;
+                Rebuild();
+                _status("この回だけ消しました（Ctrl+Z で戻せます）: " + original.Value.ToString("M/d", CultureInfo.InvariantCulture) + " " + target.Title);
+                return;
+            }
             _items.Remove(target);
             Save();
             if (ReferenceEquals(_selected, target)) _selected = null;
@@ -1430,7 +1541,8 @@ namespace Tsuzuri.Views
         }
 
         // ---------------------------------------------------------------
-        // 名前を直す欄（日付は帯で直す。メモの欄は 2026-11-21 にやめた。利用者の判断）
+        // 名前と繰り返しを直す欄（日付は帯で直す。メモの欄は 2026-11-21 にやめた。利用者の判断）
+        // 繰り返しは、直すといつも全部の回が変わる（利用者の判断。この回だけ変えるのは、帯で動かすか消すだけ）
         // ---------------------------------------------------------------
 
         private UIElement BuildEditor()
@@ -1441,53 +1553,122 @@ namespace Tsuzuri.Views
             var panel = new StackPanel();
             _editDates.Foreground = Resource("TextMuted");
             _editDates.Margin = new Thickness(0, 0, 0, 10);
+            _editDates.TextWrapping = TextWrapping.Wrap;
             panel.Children.Add(_editDates);
             _editLabel.Foreground = Resource("TextMuted");
             _editLabel.Margin = new Thickness(0, 0, 0, 4);
             panel.Children.Add(_editLabel);
             panel.Children.Add(_editTitle);
 
-            var buttons = new DockPanel { Margin = new Thickness(0, 14, 0, 0), LastChildFill = false };
+            // 繰り返し: 種類・間隔・曜日・終わりの日
+            var repeatLabel = Label("繰り返し（直すと全部の回が変わる）");
+            repeatLabel.Margin = new Thickness(0, 12, 0, 4);
+            panel.Children.Add(repeatLabel);
+            _editRepeat.Style = (Style)Application.Current.FindResource("DarkComboBox");
+            _editRepeat.SelectionChanged += delegate { UpdateRepeatFields(); };
+            panel.Children.Add(_editRepeat);
+
+            _editIntervalRow.Orientation = Orientation.Horizontal;
+            _editIntervalRow.Margin = new Thickness(0, 8, 0, 0);
+            _editInterval.Width = 56;
+            _editInterval.HorizontalContentAlignment = HorizontalAlignment.Right;
+            _editIntervalRow.Children.Add(_editInterval);
+            _editIntervalUnit.Margin = new Thickness(8, 0, 0, 0);
+            _editIntervalUnit.VerticalAlignment = VerticalAlignment.Center;
+            _editIntervalUnit.Foreground = Resource("TextPrimary");
+            _editIntervalRow.Children.Add(_editIntervalUnit);
+            panel.Children.Add(_editIntervalRow);
+
+            _editWeekDays.Orientation = Orientation.Horizontal;
+            _editWeekDays.Margin = new Thickness(0, 8, 0, 0);
+            for (var d = 0; d < 7; d++)
+            {
+                var day = (DayOfWeek)d;
+                var chip = new Border
+                {
+                    Width = 34,
+                    Height = 28,
+                    Margin = new Thickness(0, 0, 4, 0),
+                    CornerRadius = new CornerRadius(4),
+                    BorderThickness = new Thickness(1),
+                    Cursor = Cursors.Hand,
+                    Child = new TextBlock
+                    {
+                        Text = Japanese.DateTimeFormat.GetShortestDayName(day),
+                        HorizontalAlignment = HorizontalAlignment.Center,
+                        VerticalAlignment = VerticalAlignment.Center,
+                        Foreground = d == 0 ? SundayText : d == 6 ? SaturdayText : Resource("TextPrimary"),
+                    },
+                };
+                chip.MouseLeftButtonDown += (sender, e) =>
+                {
+                    e.Handled = true;
+                    if (!_editDays.Remove(day)) _editDays.Add(day);
+                    PaintWeekDays();
+                };
+                _editDayChips[d] = chip;
+                _editWeekDays.Children.Add(chip);
+            }
+            panel.Children.Add(_editWeekDays);
+
+            _editUntilLabel = Label("終わりの日（空なら無期限。例 2027-03-31・3/31）");
+            _editUntilLabel.Margin = new Thickness(0, 8, 0, 4);
+            panel.Children.Add(_editUntilLabel);
+            panel.Children.Add(_editUntil);
+
+            var buttons = new DockPanel { Margin = new Thickness(0, 16, 0, 0), LastChildFill = false };
             _editDelete.Click += delegate
             {
                 var item = _editing;
+                var original = _editingOriginal;
                 CloseEditor();
-                if (item != null) Delete(item);
+                if (item != null) Delete(item, original);
             };
             DockPanel.SetDock(_editDelete, Dock.Left);
             buttons.Children.Add(_editDelete);
-
-            var save = new Button { Content = "保存", Style = (Style)Application.Current.FindResource("AccentButton"), MinWidth = 72 };
-            save.Click += delegate { CommitEdit(); };
-            _editSave = save;
-
-            // 見出しと結んだ予定は、名前の代わりにリンク先を出し、保存の代わりに「見出しへ飛ぶ」（2026-11-21）
-            var jump = new Button { Content = "見出しへ飛ぶ", Style = (Style)Application.Current.FindResource("AccentButton"), MinWidth = 72 };
-            jump.Click += delegate
+            _editDeleteAll.Click += delegate
             {
                 var item = _editing;
                 CloseEditor();
+                if (item != null) Delete(item, null);
+            };
+            DockPanel.SetDock(_editDeleteAll, Dock.Left);
+            buttons.Children.Add(_editDeleteAll);
+
+            var save = new Button { Content = "保存", Style = (Style)Application.Current.FindResource("AccentButton"), MinWidth = 72 };
+            save.Click += delegate { CommitEdit(); };
+
+            // 見出しと結んだ予定は、名前の代わりにリンク先を出し、「見出しへ飛ぶ」も置く（2026-11-21）
+            var jump = ToolButton("見出しへ飛ぶ", "文書のその見出しへ（カレンダーは閉じる）");
+            jump.Margin = new Thickness(0, 0, 6, 0);
+            jump.Click += delegate
+            {
+                var item = _editing;
+                if (!CommitEdit()) return;   // 繰り返しを変えていれば保存してから（終わりの日が読めなければ飛ばない）
                 if (item != null) _openLink(item);
             };
             _editJump = jump;
 
             var cancel = ToolButton("キャンセル", "直さずに閉じる（Esc）");
+            cancel.Margin = new Thickness(0, 0, 6, 0);
             cancel.Click += delegate { CloseEditor(); };
             DockPanel.SetDock(save, Dock.Right);
-            DockPanel.SetDock(jump, Dock.Right);
             DockPanel.SetDock(cancel, Dock.Right);
+            DockPanel.SetDock(jump, Dock.Right);
             buttons.Children.Add(save);
-            buttons.Children.Add(jump);
             buttons.Children.Add(cancel);
+            buttons.Children.Add(jump);
             panel.Children.Add(buttons);
 
-            _editTitle.KeyDown += (sender, e) =>
+            KeyEventHandler enter = (sender, e) =>
             {
                 if (e.Key != Key.Enter) return;
                 e.Handled = true;
-                if (_editing != null && _editing.IsLinked) _editJump.RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent));
-                else CommitEdit();
+                CommitEdit();
             };
+            _editTitle.KeyDown += enter;
+            _editInterval.KeyDown += enter;
+            _editUntil.KeyDown += enter;
 
             _editorLayer.Children.Add(new Border
             {
@@ -1504,11 +1685,86 @@ namespace Tsuzuri.Views
             return _editorLayer;
         }
 
-        private void OpenEditor(ScheduleItem item)
+        /// <summary>繰り返しの種類の選び肢（始まりの日から作る。「毎月 24日」「毎月 第4火曜」…）。読めない決まりなら「そのまま」も。</summary>
+        private void FillRepeatChoices(ScheduleItem item, bool keep)
+        {
+            var start = item.Start;
+            var nth = (start.Day - 1) / 7 + 1;
+            var dayName = Japanese.DateTimeFormat.GetShortestDayName(start.DayOfWeek);
+            var rule = ScheduleRepeat.Parse(item.Repeat);
+            _editRepeat.Items.Clear();
+            if (keep)
+                _editRepeat.Items.Add(new ComboBoxItem
+                {
+                    Content = "そのまま（" + (rule != null ? rule.Describe(start) : "Tsuzuri で読めない決まり: " + item.Repeat) + "）",
+                    Tag = "keep",
+                });
+            _editRepeat.Items.Add(new ComboBoxItem { Content = "なし", Tag = "none" });
+            _editRepeat.Items.Add(new ComboBoxItem { Content = "毎日", Tag = "daily" });
+            _editRepeat.Items.Add(new ComboBoxItem { Content = "平日（月〜金）", Tag = "weekdays" });
+            _editRepeat.Items.Add(new ComboBoxItem { Content = "毎週（曜日を選ぶ）", Tag = "weekly" });
+            _editRepeat.Items.Add(new ComboBoxItem { Content = "毎月 " + start.Day + "日", Tag = "monthday" });
+            if (nth <= 4) _editRepeat.Items.Add(new ComboBoxItem { Content = "毎月 第" + nth + dayName + "曜", Tag = "monthnth" });
+            if (start.AddDays(7).Month != start.Month) _editRepeat.Items.Add(new ComboBoxItem { Content = "毎月 最終" + dayName + "曜", Tag = "monthlast" });
+            _editRepeat.Items.Add(new ComboBoxItem { Content = "毎年 " + start.Month + "月" + start.Day + "日", Tag = "yearly" });
+        }
+
+        private string RepeatChoice
+        {
+            get
+            {
+                var choice = _editRepeat.SelectedItem as ComboBoxItem;
+                return choice != null ? (string)choice.Tag : "none";
+            }
+        }
+
+        private void SelectRepeatChoice(string tag)
+        {
+            foreach (ComboBoxItem choice in _editRepeat.Items)
+            {
+                if ((string)choice.Tag != tag) continue;
+                _editRepeat.SelectedItem = choice;
+                return;
+            }
+            _editRepeat.SelectedIndex = 0;
+        }
+
+        /// <summary>選んだ種類に合わせて、間隔・曜日・終わりの日を出し入れする。</summary>
+        private void UpdateRepeatFields()
+        {
+            var choice = RepeatChoice;
+            var repeats = choice != "none" && choice != "keep";
+            _editIntervalRow.Visibility = repeats && choice != "weekdays" ? Visibility.Visible : Visibility.Collapsed;
+            _editIntervalUnit.Text = choice == "daily" ? "日ごと" : choice == "weekly" ? "週ごと" : choice == "yearly" ? "年ごと" : "か月ごと";
+            _editWeekDays.Visibility = choice == "weekly" ? Visibility.Visible : Visibility.Collapsed;
+            _editUntilLabel.Visibility = repeats ? Visibility.Visible : Visibility.Collapsed;
+            _editUntil.Visibility = repeats ? Visibility.Visible : Visibility.Collapsed;
+            PaintWeekDays();
+        }
+
+        private void PaintWeekDays()
+        {
+            for (var d = 0; d < 7; d++)
+            {
+                var on = _editDays.Contains((DayOfWeek)d);
+                _editDayChips[d].Background = on ? Resource("AccentFill") : Brushes.Transparent;
+                _editDayChips[d].BorderBrush = on ? TodayEdge : Resource("InputBorder");
+            }
+        }
+
+        private void OpenEditor(ScheduleItem item, DateTime? original, DateTime shownStart, DateTime shownEnd)
         {
             CommitNew();
             _editing = item;
-            _editDates.Text = Dates(item);
+            _editingOriginal = original;
+
+            var rule = ScheduleRepeat.Parse(item.Repeat);
+            var dates = Dates(shownStart, shownEnd);
+            if (item.IsRepeat)
+                dates += "\n繰り返し: " + (rule != null ? rule.Describe(item.Start) : item.Repeat) + "（" + item.Start.ToString("yyyy/M/d", CultureInfo.InvariantCulture) + " から）"
+                         + (original.HasValue && original.Value != shownStart ? "\nこの回は " + original.Value.ToString("M/d (ddd)", Japanese) + " から動かした" : string.Empty);
+            _editDates.Text = dates;
+
             if (item.IsLinked)
             {
                 // 名前は見出しの文字のまま（直せない）。代わりにリンク先を出す（選んで写せる）
@@ -1522,15 +1778,55 @@ namespace Tsuzuri.Views
                 _editTitle.Text = item.Title;
                 _editTitle.IsReadOnly = false;
             }
-            _editSave.Visibility = item.IsLinked ? Visibility.Collapsed : Visibility.Visible;
             _editJump.Visibility = item.IsLinked ? Visibility.Visible : Visibility.Collapsed;
+
+            // 繰り返し。欄の選び肢で同じ決まりを作れないもの（読めない決まり・Claude が書いた「始まりの日と違う日付の毎月」など）は「そのまま」を選んでおく
+            // （選び肢に当てはめて保存すると、決まりが変わってしまうため）
+            _editDays.Clear();
+            _editInterval.Text = rule != null ? rule.Interval.ToString(CultureInfo.InvariantCulture) : "1";
+            _editUntil.Text = rule != null && rule.Until.HasValue ? rule.Until.Value.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture) : string.Empty;
+            string tag;
+            if (!item.IsRepeat) tag = "none";
+            else if (rule == null) tag = "keep";
+            else
+            {
+                var start = item.Start;
+                var nth = (start.Day - 1) / 7 + 1;
+                switch (rule.Kind)
+                {
+                    case RepeatKind.Daily: tag = "daily"; break;
+                    case RepeatKind.Weekly:
+                        _editDays.AddRange(rule.WeekDays.Count > 0 ? rule.WeekDays : new List<DayOfWeek> { start.DayOfWeek });
+                        var weekdays = rule.Interval == 1 && _editDays.Count == 5 && !_editDays.Contains(DayOfWeek.Sunday) && !_editDays.Contains(DayOfWeek.Saturday);
+                        tag = weekdays ? "weekdays" : "weekly";
+                        break;
+                    case RepeatKind.MonthlyDay:
+                        tag = rule.MonthDay == 0 || rule.MonthDay == start.Day ? "monthday" : "keep";
+                        break;
+                    case RepeatKind.MonthlyNth:
+                        if (rule.NthDay != start.DayOfWeek) tag = "keep";
+                        else if (rule.Nth < 0) tag = start.AddDays(7).Month != start.Month ? "monthlast" : "keep";
+                        else tag = rule.Nth == nth && nth <= 4 ? "monthnth" : "keep";
+                        break;
+                    default: tag = "yearly"; break;
+                }
+            }
+            FillRepeatChoices(item, tag == "keep");
+            SelectRepeatChoice(tag);
+            if (_editDays.Count == 0) _editDays.Add(item.Start.DayOfWeek);
+            UpdateRepeatFields();
+
+            // 消す: 繰り返しなら「この回だけ」と「全部」
+            _editDelete.Content = item.IsRepeat && original.HasValue ? "この回だけ消す" : "削除";
+            _editDeleteAll.Visibility = item.IsRepeat && original.HasValue ? Visibility.Visible : Visibility.Collapsed;
+
             _editorLayer.Visibility = Visibility.Visible;
             _editorOpen = true;
 
             Dispatcher.BeginInvoke(new Action(delegate
             {
                 _editTitle.Focus();
-                _editTitle.SelectAll();
+                if (!_editTitle.IsReadOnly) _editTitle.SelectAll();
             }), DispatcherPriority.Loaded);
         }
 
@@ -1547,12 +1843,112 @@ namespace Tsuzuri.Views
             _editorLayer.Visibility = Visibility.Collapsed;
             _editorOpen = false;
             _editing = null;
+            _editingOriginal = null;
             Focus();
         }
 
         /// <summary>
+        /// 欄の繰り返しを、保存先に書く決まりにする。なしなら null。読めない決まりを「そのまま」なら元の決まり。
+        /// 終わりの日が読めなければ false（欄は閉じない）。
+        /// </summary>
+        private bool ReadRepeat(ScheduleItem item, out string repeat, out DateTime start)
+        {
+            repeat = null;
+            start = item.Start;
+            var choice = RepeatChoice;
+            if (choice == "none") return true;
+            if (choice == "keep")
+            {
+                repeat = item.Repeat;
+                return true;
+            }
+
+            int interval;
+            if (!int.TryParse(_editInterval.Text.Trim(), NumberStyles.None, CultureInfo.InvariantCulture, out interval) || interval < 1 || interval > 999) interval = 1;
+
+            DateTime? until = null;
+            var untilText = _editUntil.Text.Trim();
+            if (untilText.Length > 0)
+            {
+                DateTime parsed;
+                if (!TryReadDate(untilText, start, out parsed))
+                {
+                    _status("終わりの日を読めませんでした（例 2027-03-31・2027/3/31・3/31）: " + untilText);
+                    return false;
+                }
+                until = parsed;
+            }
+
+            var rule = new ScheduleRepeat { Interval = interval, Until = until };
+            switch (choice)
+            {
+                case "daily": rule.Kind = RepeatKind.Daily; break;
+                case "weekdays":
+                    rule.Kind = RepeatKind.Weekly;
+                    rule.Interval = 1;
+                    rule.WeekDays = new List<DayOfWeek> { DayOfWeek.Monday, DayOfWeek.Tuesday, DayOfWeek.Wednesday, DayOfWeek.Thursday, DayOfWeek.Friday };
+                    break;
+                case "weekly":
+                    rule.Kind = RepeatKind.Weekly;
+                    rule.WeekDays = _editDays.Count > 0 ? _editDays.OrderBy(day => day).ToList() : new List<DayOfWeek> { start.DayOfWeek };
+                    break;
+                case "monthday":
+                    rule.Kind = RepeatKind.MonthlyDay;
+                    rule.MonthDay = start.Day;
+                    break;
+                case "monthnth":
+                    rule.Kind = RepeatKind.MonthlyNth;
+                    rule.Nth = (start.Day - 1) / 7 + 1;
+                    rule.NthDay = start.DayOfWeek;
+                    break;
+                case "monthlast":
+                    rule.Kind = RepeatKind.MonthlyNth;
+                    rule.Nth = -1;
+                    rule.NthDay = start.DayOfWeek;
+                    break;
+                default:
+                    rule.Kind = RepeatKind.Yearly;
+                    break;
+            }
+
+            // 毎週で、始まりの日がどの曜日でもなければ、始まりを次の選んだ曜日へ送る（始まりの日はいつも1回目に数えるので、選んでいない曜日に1回出てしまう）
+            if (rule.Kind == RepeatKind.Weekly)
+                while (!rule.WeekDays.Contains(start.DayOfWeek)) start = start.AddDays(1);
+
+            if (until.HasValue && until.Value < start)
+            {
+                _status("終わりの日が始まりの日（" + start.ToString("yyyy/M/d", CultureInfo.InvariantCulture) + "）より前です");
+                return false;
+            }
+            repeat = rule.ToString();
+            return true;
+        }
+
+        /// <summary>終わりの日の欄（2027-03-31・2027/3/31・3/31）。年が無ければ、始まりの日以降で最初のその月日。</summary>
+        private static bool TryReadDate(string text, DateTime start, out DateTime date)
+        {
+            var formats = new[] { "yyyy-M-d", "yyyy/M/d", "yyyy.M.d", "yyyyMMdd" };
+            if (DateTime.TryParseExact(text, formats, CultureInfo.InvariantCulture, DateTimeStyles.None, out date)) return true;
+            DateTime monthDay;
+            if (DateTime.TryParseExact(text, new[] { "M/d", "M-d", "M.d" }, CultureInfo.InvariantCulture, DateTimeStyles.None, out monthDay))
+            {
+                try
+                {
+                    date = new DateTime(start.Year, monthDay.Month, monthDay.Day);
+                    if (date < start) date = date.AddYears(1);
+                    return true;
+                }
+                catch (ArgumentOutOfRangeException)
+                {
+                    return false;
+                }
+            }
+            return false;
+        }
+
+        /// <summary>
         /// 打ちかけを保存する（カレンダー・画面を閉じる前。MainWindow.Calendar.cs）。マスで打っている名前は足し、欄が開いていれば欄の中身を保存して閉じる。
-        /// 日付を打つ所は無くなったので、保存できないことは無い（いつも true）。
+        /// 終わりの日を読めなければ、欄は開いたまま false（閉じるのをやめる）。
         /// </summary>
         public bool CommitEdit()
         {
@@ -1560,21 +1956,36 @@ namespace Tsuzuri.Views
             if (!_editorOpen) return true;
 
             var editing = _editing;
-            if (editing != null && editing.IsLinked)
+            if (editing == null)
             {
-                CloseEditor();   // 欄に出しているのはリンク先で、直すものは無い
+                CloseEditor();
                 return true;
             }
-            var title = ScheduleFile.OneLine(_editTitle.Text);
+
+            string repeat;
+            DateTime start;
+            if (!ReadRepeat(editing, out repeat, out start)) return false;
+            var title = editing.IsLinked ? editing.Title : ScheduleFile.OneLine(_editTitle.Text);   // 結んだ予定の欄に出しているのはリンク先
             CloseEditor();
-            if (editing == null || !Fresh()) return true;
+            if (!Fresh()) return true;
 
             var target = _items.FirstOrDefault(other => ReferenceEquals(other, editing));
-            if (target == null || target.Title == title) return true;
+            if (target == null || (target.Title == title && target.Repeat == repeat && target.Start == start)) return true;
 
             Remember();
             target.Title = title;   // メモは画面では持たないが、保存先に書いてあれば消さずに残す
+            if (start != target.Start)
+            {
+                target.End = target.End.AddDays((start - target.Start).TotalDays);
+                target.Start = start;
+            }
+            if (target.Repeat != repeat)
+            {
+                target.Repeat = repeat;
+                ScheduleRepeat.Prune(target);   // もう回でない日の「消した」「動かした」は捨てる
+            }
             _selected = target;
+            if (!target.IsRepeat) _selectedOriginal = null;
             Save();
             Rebuild();
             return true;

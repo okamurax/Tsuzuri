@@ -137,10 +137,18 @@ namespace Tsuzuri
             }
 
             var item = calendar.SelectedItem;
-            if (item != null)
+            var dates = calendar.SelectedDates;
+            if (item != null && dates != null)
             {
-                text.Append("  選んでいる予定: ").Append(Day(item.Start));
-                if (item.End > item.Start) text.Append("〜").Append(Day(item.End));
+                // 繰り返しの予定は、選んだ回の日と、決まり（保存先の repeat の行と同じ RRULE）
+                text.Append("  選んでいる予定: ").Append(Day(dates.Item1));
+                if (dates.Item2 > dates.Item1) text.Append("〜").Append(Day(dates.Item2));
+                if (item.IsRepeat)
+                {
+                    var rule = ScheduleRepeat.Parse(item.Repeat);
+                    text.Append("（繰り返しの1回。").Append(rule != null ? rule.Describe(item.Start) : item.Repeat)
+                        .Append("、").Append(Day(item.Start)).Append(" から。repeat: ").Append(item.Repeat).Append('）');
+                }
                 if (item.IsLinked && AiGuard.IsGuarded(item.LinkFile))
                     text.Append("（AI に渡さない場所の文書の見出しと結んだ予定。名前は伏せた）\n");
                 else
@@ -166,7 +174,7 @@ namespace Tsuzuri
             if (_calendar == null) return true;
             if (!_calendar.CommitEdit())
             {
-                Status("予定の欄に直すところがあります。直して保存するか、「やめる」を押してください");
+                Status("予定の欄に直すところがあります。直して保存するか、「キャンセル」を押してください");
                 return false;
             }
 

@@ -253,8 +253,7 @@ namespace DrawingEditor
 
         /// <summary>
         /// この版が読み書きできる図の版（2026-10-27）。これより新しい版の図は開かない（DrawingEditorHost）。
-        /// 2 で点線・矢印を足した（2026-11-07）。書くときは、点線・矢印を使っている図だけ 2 にする（使っていなければ前の版でも開ける。Write）。
-        /// 文字の背景は前からある fill を使うので、版は上げない（前の版でも消えずに残る。描かれないだけ）。
+        /// 2 で点線・矢印を足した（2026-11-07）。書くときはいつもこの版（いつも最新の版だけを動かすので、前の版で開けるようにはしない。2026-11-21）。
         /// </summary>
         public const int SupportedVersion = 2;
 
@@ -277,7 +276,7 @@ namespace DrawingEditor
         /// <summary>
         /// 文字の大きさ・線の太さの基準: 紙（基準）の 1mm が図の何 mm か（2026-10-19）。ボードの大きさを変えても変わらない
         /// （前は「ボードの幅 ÷ 160」で、ボードを変えると文字・線の見え方まで変わった）。
-        /// 何も描いていない間は、ボードの大きさに合わせて変わる（DrawingCanvas）。無い図（前の版）は、開いたときのボードから決める。
+        /// 何も描いていない間は、ボードの大きさに合わせて変わる（DrawingCanvas）。無い・数でない図（AI や手で書いた JSON）は、開いたときのボードから決める。
         /// </summary>
         [DataMember(Name = "unit", Order = 7, EmitDefaultValue = false)] public double Unit = 1;
 
@@ -330,7 +329,7 @@ namespace DrawingEditor
                     }
                     if (shape.Type == Kinds.Image && string.IsNullOrEmpty(shape.Image)) continue;   // 中身の無い画像は描けない
                     if (shape.Type == Kinds.Text && shape.Size <= 0) shape.Size = Geometry.DefaultTextSize;
-                    if (string.IsNullOrEmpty(shape.Id)) shape.Id = Shape.NewId();   // Id の無い図形（前の版）
+                    if (string.IsNullOrEmpty(shape.Id)) shape.Id = Shape.NewId();   // Id の無い図形（AI や手で書いた JSON）
                     if (shape.Points != null && (shape.Type != Kinds.Line || shape.Points.Count % 2 != 0 || shape.Points.Count == 0)) shape.Points = null;
                     if (!shape.CanDash) shape.Dash = false;
                     if (shape.Type != Kinds.Line) shape.ArrowStart = shape.ArrowEnd = false;
@@ -340,8 +339,7 @@ namespace DrawingEditor
 
             file.Shapes = shapes;
 
-            // ボードの無い図（ボードを足す前の版で描いたもの）は、図形のある範囲に 5mm の余白を足した範囲にする。
-            // 手で書き換えた JSON などで、数でない値（NaN・∞）のときも同じ（2026-10-27）。
+            // ボードの無い・数でない（NaN・∞）図（AI や手で書いた JSON）は、図形のある範囲に 5mm の余白を足した範囲にする（2026-10-27）。
             if (!(file.BoardWidth > 0) || !(file.BoardHeight > 0) || !Geometry.IsFinite(file.BoardWidth) || !Geometry.IsFinite(file.BoardHeight)
                 || !Geometry.IsFinite(file.BoardX) || !Geometry.IsFinite(file.BoardY))
             {
@@ -355,7 +353,7 @@ namespace DrawingEditor
             // ボードは決まった大きさの中に収める（大きすぎると画像を作れない。2026-10-27）。
             file.Board = Geometry.ClampBoard(file.Board);
 
-            // 基準の無い図（前の版）は、ボードの幅から（前と同じ見え方）。
+            // 基準の無い・数でない図（AI や手で書いた JSON）は、ボードの幅から。
             if (!(file.Unit > 0) || !Geometry.IsFinite(file.Unit)) file.Unit = file.BoardWidth / Geometry.OutputWidth;
 
             return file;
@@ -363,7 +361,7 @@ namespace DrawingEditor
 
         public string Write()
         {
-            Version = Shapes.Any(shape => shape.Dash || shape.ArrowStart || shape.ArrowEnd) ? 2 : 1;
+            Version = SupportedVersion;
 
             using (var stream = new MemoryStream())
             {
@@ -528,7 +526,7 @@ namespace DrawingEditor
             result.LineB = result.B + result.Normal * shape.Offset;
             result.Outward = shape.Offset >= 0 ? result.Normal : -result.Normal;
             result.Label = FormatLength(result.Length);
-            result.TextSize = shape.Size > 0 ? shape.Size : DimensionTextSize;   // 大きさを持たない寸法線（前の版）は既定の大きさ
+            result.TextSize = shape.Size > 0 ? shape.Size : DimensionTextSize;   // 大きさを書いていない寸法線（AI や手で書いた JSON）は既定の大きさ
             return result;
         }
 

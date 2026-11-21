@@ -205,7 +205,7 @@ Mac では、XAML を除いた C# のコンパイルだけを `bash tools/check-
 
 | ファイル | 中身 |
 |---|---|
-| `app.json` | ウィンドウの位置、仕切りの位置、前回開いていたファイル、ランチャーの登録、カレンダーの予定の保存先（`scheduleFile`）と広げた週の高さ（`calendarWeekHeights`）、開いていた画面（タブ）・AI の会話のタブなど。自動で作る。仮想マシンで画面がちらつくときは、終了してから `"softwareRendering": true` にすると GPU を使わずに描く。`"perfLog": true` にすると、打ってから画面に出るまでの時間と、ページを移るときの時間を exe の隣の `perf.log` に書く（遅さの原因を探すため） |
+| `app.json` | ウィンドウの位置、仕切りの位置、前回開いていたファイル、ランチャーの登録、カレンダーの予定の保存先（`scheduleFile`）と週の高さ（全部の週は `calendarRowHeight`、広げた週は `calendarWeekHeights`）、開いていた画面（タブ）・AI の会話のタブなど。自動で作る。仮想マシンで画面がちらつくときは、終了してから `"softwareRendering": true` にすると GPU を使わずに描く。`"perfLog": true` にすると、打ってから画面に出るまでの時間と、ページを移るときの時間を exe の隣の `perf.log` に書く（遅さの原因を探すため） |
 | `wordpress.json` | WordPress の接続先とアプリケーションパスワード。WordPress を使うときだけ自分で書く |
 | `ssh/` | AI の欄から SSH でつなぐ接続先の一覧 `config.txt` と鍵。使うときだけ自分で置く（Tsuzuri が `%LOCALAPPDATA%\Tsuzuri\ssh` に写して使う） |
 

@@ -34,7 +34,9 @@ namespace Tsuzuri.Views
         private const double DayHeaderHeight = 24;
         private const double DayNumberHeight = 22;
         private const double LaneHeight = 22;
-        private const double RowMinHeight = 112;
+        private const double RowMinHeight = 112;   // 週の高さの元（「高さを戻す」で戻る値）
+        private const double RowHeightStep = 28;   // 上の段の＋－で一律に変える量
+        private const double RowHeightMax = 560;
         private const double EdgeGrip = 7;          // 帯の端のこの幅をつかむと延ばす・縮める
         private const int WeeksBefore = 8;          // 初めに出す、今週より前の週
         private const int WeeksAfter = 26;          // 初めに出す、今週より後の週
@@ -67,7 +69,12 @@ namespace Tsuzuri.Views
         // 高さを広げた週（週の始まりの日 → 高さ）。持ち主は MainWindow（app.json に覚える）。変えたら _weekHeightsChanged
         private readonly Dictionary<DateTime, double> _weekHeights;
         private readonly Action _weekHeightsChanged;
+        // 全部の週の高さ（上の段の＋－で一律に変える。2026-11-21）。広げた週は、これとその週の高さの大きいほう
+        private double _rowHeight;
+        private readonly Action<double> _rowHeightChanged;
         private readonly Button _resetHeights;
+        private readonly Button _shorter;
+        private readonly Button _taller;
 
         // 週の下の境を引っぱっている
         private Grid _sizingRow;
@@ -156,8 +163,9 @@ namespace Tsuzuri.Views
         /// <param name="headingsOf">文書の見出しの文字（全部のページ）。文書が無い・読めなければ null。</param>
         /// <param name="openLink">その見出しへ飛ぶ（カレンダーは閉じる）。</param>
         /// <param name="weekHeights">高さを広げた週。ここで書き換え、そのたびに weekHeightsChanged を呼ぶ。</param>
+        /// <param name="rowHeight">全部の週の高さ（0 なら元の高さ）。上の段の＋－で変えるたびに rowHeightChanged を呼ぶ（元の高さなら 0）。</param>
         public CalendarView(string path, Action<string> status, Func<string, HashSet<string>> headingsOf, Action<ScheduleItem> openLink,
-                            Dictionary<DateTime, double> weekHeights, Action weekHeightsChanged)
+                            Dictionary<DateTime, double> weekHeights, Action weekHeightsChanged, double rowHeight, Action<double> rowHeightChanged)
         {
             _path = path;
             _status = status;
@@ -165,6 +173,8 @@ namespace Tsuzuri.Views
             _openLink = openLink;
             _weekHeights = weekHeights ?? new Dictionary<DateTime, double>();
             _weekHeightsChanged = weekHeightsChanged ?? delegate { };
+            _rowHeight = rowHeight > 0 ? Math.Max(RowMinHeight, Math.Min(RowHeightMax, rowHeight)) : RowMinHeight;
+            _rowHeightChanged = rowHeightChanged ?? delegate { };
 
             Focusable = true;
             FocusVisualStyle = null;
@@ -193,12 +203,24 @@ namespace Tsuzuri.Views
             DockPanel.SetDock(todayButton, Dock.Right);
             bar.Children.Add(todayButton);
 
-            // 広げた週を全部元の高さに戻す（2026-11-21）。広げた週が無ければ押せない
-            _resetHeights = ToolButton("高さを戻す", "広げた週を全部、元の高さに戻す");
+            // 全部の週の高さを戻す（2026-11-21）。＋－で変えた高さも、引っぱって広げた週も。どちらも元のままなら押せない
+            _resetHeights = ToolButton("高さを戻す", "全部の週を元の高さに戻す（＋－で変えた高さも、引っぱって広げた週も）");
             _resetHeights.Margin = new Thickness(0, 0, 6, 0);
             _resetHeights.Click += delegate { ResetWeekHeights(); };
             DockPanel.SetDock(_resetHeights, Dock.Right);
             bar.Children.Add(_resetHeights);
+
+            // 全部の週を一律に高く・低くする（2026-11-21。引っぱって1週ずつ広げるのとは別に）
+            _taller = ToolButton("＋", "全部の週を高くする");
+            _taller.Margin = new Thickness(0, 0, 6, 0);
+            _taller.Click += delegate { SetRowHeight(_rowHeight + RowHeightStep); };
+            DockPanel.SetDock(_taller, Dock.Right);
+            bar.Children.Add(_taller);
+            _shorter = ToolButton("－", "全部の週を低くする");
+            _shorter.Margin = new Thickness(0, 0, 2, 0);
+            _shorter.Click += delegate { SetRowHeight(_rowHeight - RowHeightStep); };
+            DockPanel.SetDock(_shorter, Dock.Right);
+            bar.Children.Add(_shorter);
             UpdateResetHeights();
 
             var barBorder = new Border
@@ -452,7 +474,7 @@ namespace Tsuzuri.Views
             var lanes = laneEnds.Count + (newColumn >= 0 ? 1 : 0);
 
             double tall;
-            var row = new Grid { MinHeight = _weekHeights.TryGetValue(weekStart, out tall) ? Math.Max(RowMinHeight, tall) : RowMinHeight };
+            var row = new Grid { MinHeight = _weekHeights.TryGetValue(weekStart, out tall) ? Math.Max(_rowHeight, tall) : _rowHeight };
             for (var d = 0; d < 7; d++) row.ColumnDefinitions.Add(new ColumnDefinition());
             row.RowDefinitions.Add(new RowDefinition { Height = new GridLength(DayNumberHeight) });
             for (var i = 0; i < lanes; i++) row.RowDefinitions.Add(new RowDefinition { Height = new GridLength(LaneHeight) });
@@ -594,15 +616,74 @@ namespace Tsuzuri.Views
 
         private void UpdateResetHeights()
         {
-            _resetHeights.IsEnabled = _weekHeights.Count > 0;
+            _resetHeights.IsEnabled = _weekHeights.Count > 0 || _rowHeight != RowMinHeight;
+            _shorter.IsEnabled = _rowHeight > RowMinHeight;
+            _taller.IsEnabled = _rowHeight < RowHeightMax;
         }
 
         private void ResetWeekHeights()
         {
-            if (_weekHeights.Count == 0) return;
-            _weekHeights.Clear();
-            WeekHeightsChanged();
-            foreach (var pair in _rows) pair.Value.MinHeight = RowMinHeight;
+            if (_weekHeights.Count == 0 && _rowHeight == RowMinHeight) return;
+            KeepTopWeek(delegate
+            {
+                _weekHeights.Clear();
+                _rowHeight = RowMinHeight;
+                _rowHeightChanged(0);
+                WeekHeightsChanged();
+                foreach (var pair in _rows) pair.Value.MinHeight = RowMinHeight;
+            });
+        }
+
+        /// <summary>全部の週の高さを変える（広げた週は、その週の高さより低くはしない）。</summary>
+        private void SetRowHeight(double height)
+        {
+            height = Math.Max(RowMinHeight, Math.Min(RowHeightMax, height));
+            if (height == _rowHeight) return;
+            KeepTopWeek(delegate
+            {
+                _rowHeight = height;
+                _rowHeightChanged(height == RowMinHeight ? 0 : height);
+                UpdateResetHeights();
+                foreach (var pair in _rows)
+                {
+                    double tall;
+                    pair.Value.MinHeight = _weekHeights.TryGetValue(pair.Key, out tall) ? Math.Max(_rowHeight, tall) : _rowHeight;
+                }
+            });
+        }
+
+        /// <summary>高さを変えても、いちばん上に見えている週の同じ所が上に出たままになるようにする。</summary>
+        private void KeepTopWeek(Action change)
+        {
+            DateTime? anchor = null;
+            var ratio = 0.0;
+            var top = 0.0;
+            foreach (var pair in _rows)
+            {
+                var height = pair.Value.ActualHeight;
+                if (height > 0 && top + height > _scroll.VerticalOffset)
+                {
+                    anchor = pair.Key;
+                    ratio = (_scroll.VerticalOffset - top) / height;
+                    break;
+                }
+                top += height;
+            }
+
+            change();
+            if (!anchor.HasValue) return;
+
+            _weeks.UpdateLayout();
+            top = 0.0;
+            foreach (var pair in _rows)
+            {
+                if (pair.Key == anchor.Value)
+                {
+                    _scroll.ScrollToVerticalOffset(Math.Max(0, top + ratio * pair.Value.ActualHeight));
+                    return;
+                }
+                top += pair.Value.ActualHeight;
+            }
         }
 
         private Border WeekGripFor(Grid row, DateTime weekStart, int rowCount)
@@ -627,7 +708,7 @@ namespace Tsuzuri.Views
                 if (e.ClickCount >= 2)
                 {
                     if (_weekHeights.Remove(weekStart)) WeekHeightsChanged();
-                    row.MinHeight = RowMinHeight;
+                    row.MinHeight = _rowHeight;
                     return;
                 }
                 _sizingRow = row;
@@ -645,7 +726,7 @@ namespace Tsuzuri.Views
                 var inView = e.GetPosition(_scroll).Y;
                 if (inView > _scroll.ViewportHeight - 16) _scroll.ScrollToVerticalOffset(_scroll.VerticalOffset + 12);
 
-                row.MinHeight = Math.Max(RowMinHeight, _sizingFromHeight + e.GetPosition(_weeks).Y - _sizingFromY);
+                row.MinHeight = Math.Max(_rowHeight, _sizingFromHeight + e.GetPosition(_weeks).Y - _sizingFromY);
             };
 
             grip.MouseLeftButtonUp += (sender, e) =>
@@ -660,10 +741,10 @@ namespace Tsuzuri.Views
                 if (_sizingRow != row) return;
                 _sizingRow = null;
 
-                // 元の高さと変わらないなら覚えない（広げた週だけを持つ）
-                if (row.MinHeight <= RowMinHeight + 4)
+                // 全部の週の高さと変わらないなら覚えない（広げた週だけを持つ）
+                if (row.MinHeight <= _rowHeight + 4)
                 {
-                    row.MinHeight = RowMinHeight;
+                    row.MinHeight = _rowHeight;
                     if (_weekHeights.Remove(_sizingWeek)) WeekHeightsChanged();
                 }
                 else

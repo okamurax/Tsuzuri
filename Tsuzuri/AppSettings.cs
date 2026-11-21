@@ -53,6 +53,10 @@ namespace Tsuzuri
         [DataMember(Name = "calendarWeekHeights", EmitDefaultValue = false)]
         public List<string> CalendarWeekHeights { get; set; }
 
+        /// <summary>カレンダーの全部の週の高さ（2026-11-21。上の段の＋－で変える）。元の高さなら持たない。広げた週は、これとその週の高さの大きいほう。</summary>
+        [DataMember(Name = "calendarRowHeight", EmitDefaultValue = false)]
+        public double? CalendarRowHeight { get; set; }
+
         /// <summary>ファイラーで最後に見ていたフォルダ。</summary>
         [DataMember(Name = "filerFolder")]
         public string FilerFolder { get; set; }

@@ -70,7 +70,8 @@ namespace Tsuzuri
             CloseLauncher();
             var heights = ReadWeekHeights();
             _calendar = new CalendarView(ScheduleFilePath, Status, ScheduleHeadings, OpenScheduleLink,
-                                         heights, delegate { WriteWeekHeights(heights); });
+                                         heights, delegate { WriteWeekHeights(heights); },
+                                         _settings.CalendarRowHeight ?? 0, WriteRowHeight);
             CalendarHost.Child = _calendar;
             CalendarHost.Visibility = Visibility.Visible;
             CalendarButton.Tag = "Open";
@@ -98,6 +99,13 @@ namespace Tsuzuri
                     heights[week.Date] = height;
             }
             return heights;
+        }
+
+        /// <summary>全部の週の高さ（app.json の calendarRowHeight）。元の高さなら持たない。</summary>
+        private void WriteRowHeight(double height)
+        {
+            _settings.CalendarRowHeight = height > 0 ? Math.Round(height) : (double?)null;
+            _settings.Save();
         }
 
         private void WriteWeekHeights(Dictionary<DateTime, double> heights)

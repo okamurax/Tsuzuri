@@ -130,6 +130,15 @@ internal static class Program
         ScheduleRepeat.Prune(prune);
         Check(prune.Skips.Count == 0 && prune.Moves.Count == 0, "Prune");
 
+        // 名前が範囲の形で始まる1日の予定（2026-11-21 のレビュー。読み戻すと何日かの予定になっていた）
+        var rangeLike = new List<ScheduleItem>
+        {
+            new ScheduleItem { Start = D(2026, 1, 1), End = D(2026, 1, 1), Title = "〜2026-01-05 x" },
+            new ScheduleItem { Start = D(2026, 1, 2), End = D(2026, 1, 2), Title = "~ 2026-01-09" },
+            new ScheduleItem { Start = D(2026, 1, 3), End = D(2026, 1, 3), Title = "2026-01-04 から" },
+        };
+        Check(Same(ScheduleFile.Parse(ScheduleFile.Serialize(rangeLike)), rangeLike), "範囲の形で始まる名前\n" + ScheduleFile.Serialize(rangeLike));
+
         // 名前の改行
         Check(ScheduleFile.OneLine(" a\r\n b \n") == "a b", "名前の改行");
 

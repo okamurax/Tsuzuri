@@ -63,7 +63,7 @@ namespace Tsuzuri.Views
 
         private readonly string _path;
         private readonly Action<string> _status;
-        private readonly Func<ScheduleItem, bool> _linkFound;
+        private readonly Func<string, HashSet<string>> _headingsOf;
         private readonly Action<ScheduleItem> _openLink;
 
         // 高さを広げた週（週の始まりの日 → 高さ）。持ち主は MainWindow（app.json に覚える）。変えたら _weekHeightsChanged
@@ -77,15 +77,18 @@ namespace Tsuzuri.Views
         private double _sizingFromY;
         private double _sizingFromHeight;
 
-        // 組み直しのたびに、結んだ見出しがあるかを1回だけ見る（見るのは MainWindow。ファイルの更新日時で覚えている）
-        private readonly Dictionary<ScheduleItem, bool> _found = new Dictionary<ScheduleItem, bool>();
+        // 組み直しのたびに、結んだ文書の見出しを文書ごとに1回だけ集める（集めるのは MainWindow。閉じている文書はファイルの更新日時で覚えている）。
+        // 前は帯ごとに尋ねていて、開いている文書は帯の数だけ全ページを解析し直した（ドラッグで1日動かすたびに組み直すので重かった）
+        private readonly Dictionary<string, HashSet<string>> _found = new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase);
 
         // 日のマス（アウトラインから落とす先を塗る）と、落とす先の日
         private readonly Dictionary<DateTime, Border> _cells = new Dictionary<DateTime, Border>();
         private DateTime? _dropOn;
 
         private List<ScheduleItem> _items = new List<ScheduleItem>();
-        private DateTime _loadedStamp;
+        private DateTime _loadedStamp;   // 読んだ・書いたときの更新日時（見張りのきっかけだけに使う。変わったかは中身で決める）
+        private string _loadedText;      // 読んだ・書いたときの中身。null なら、まだ読めていない（直さない）
+        private DateTime _builtDay;      // 組んだときの今日（日付が変わったら組み直す）
         private readonly List<List<ScheduleItem>> _undo = new List<List<ScheduleItem>>();
 
         private readonly TextBlock _title = new TextBlock();
@@ -153,15 +156,15 @@ namespace Tsuzuri.Views
         private DateTime? _editingOriginal;   // 繰り返しの予定なら、欄を開いた回（決まりどおりの日）
         private bool _editorOpen;
 
-        /// <param name="linkFound">アウトラインから登録した予定の見出しが、今もあるか。</param>
+        /// <param name="headingsOf">文書の見出しの文字（全部のページ）。文書が無い・読めなければ null。</param>
         /// <param name="openLink">その見出しへ飛ぶ（カレンダーは閉じる）。</param>
         /// <param name="weekHeights">高さを広げた週。ここで書き換え、そのたびに weekHeightsChanged を呼ぶ。</param>
-        public CalendarView(string path, Action<string> status, Func<ScheduleItem, bool> linkFound, Action<ScheduleItem> openLink,
+        public CalendarView(string path, Action<string> status, Func<string, HashSet<string>> headingsOf, Action<ScheduleItem> openLink,
                             Dictionary<DateTime, double> weekHeights, Action weekHeightsChanged)
         {
             _path = path;
             _status = status;
-            _linkFound = linkFound;
+            _headingsOf = headingsOf;
             _openLink = openLink;
             _weekHeights = weekHeights ?? new Dictionary<DateTime, double>();
             _weekHeightsChanged = weekHeightsChanged ?? delegate { };
@@ -262,7 +265,11 @@ namespace Tsuzuri.Views
                 if (!ReloadIfChanged()) _reloadTimer.Start();   // 打っている・つかんでいる最中なら、終わるまで待って読む
             };
             _pollTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(2) };
-            _pollTimer.Tick += delegate { if (Stamp() != _loadedStamp && !_reloadTimer.IsEnabled) _reloadTimer.Start(); };
+            _pollTimer.Tick += delegate
+            {
+                if ((Stamp() != _loadedStamp || _loadedText == null) && !_reloadTimer.IsEnabled) _reloadTimer.Start();
+                if (DateTime.Today != _builtDay && !Busy) Rebuild();   // 開いたまま日付が変わったら、今日の印を移す
+            };
             _noticeTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(NoticeSeconds) };
             _noticeTimer.Tick += delegate
             {
@@ -285,19 +292,33 @@ namespace Tsuzuri.Views
         // 読み書き
         // ---------------------------------------------------------------
 
-        private void Load()
+        /// <summary>
+        /// 保存先の中身を読む。無ければ空。読めなければ（ほかのソフトが書いている最中など）false。
+        /// 読めないときに空として扱うと、次に直したときに空のまま保存して、予定が全部消える（2026-11-21 のレビューで見つけた）。
+        /// </summary>
+        private bool TryRead(out string text)
         {
             try
             {
-                _items = File.Exists(_path) ? ScheduleFile.Parse(File.ReadAllText(_path, Encoding.UTF8)) : new List<ScheduleItem>();
+                text = File.Exists(_path) ? File.ReadAllText(_path, Encoding.UTF8) : string.Empty;
+                return true;
             }
             catch (Exception ex)
             {
-                _items = new List<ScheduleItem>();
-                _status("予定を読めませんでした: " + ex.Message);
+                text = null;
+                _status("予定を読めませんでした（少しして読み直します。それまで予定は直せません）: " + ex.Message);
+                return false;
             }
+        }
+
+        /// <summary>初めに読む。読めなければ空のまま出し、直せないようにする（見張りが読めるまで読み直す）。</summary>
+        private void Load()
+        {
+            string text;
             _loadedStamp = Stamp();
-            if (_selected != null && !_items.Contains(_selected)) _selected = null;
+            if (!TryRead(out text)) return;
+            _items = ScheduleFile.Parse(text);
+            _loadedText = text;
         }
 
         private DateTime Stamp()
@@ -313,15 +334,37 @@ namespace Tsuzuri.Views
         }
 
         /// <summary>
-        /// 直す前に呼ぶ。外（Claude・ほかの画面のカレンダー）で書き換わっていたら読み直して false（今の操作はやめる。読み直した中身で、もう一度してもらう）。
+        /// 直す前に呼ぶ。外（Claude・ほかの画面のカレンダー）で書き換わっていたら読み直す（変わったかは中身で決める。更新日時は秒単位の場所もあり、
+        /// 同じ秒の書き換えを見落として上書きしたため）。読めなければ false（直さない）。
+        /// 読み直したあとは、直す相手を Current で探し直す（前は読み直したら操作ごとやめていて、打った名前や落とした見出しが消えた）。
         /// </summary>
-        private bool Fresh()
+        private bool Sync()
         {
-            if (Stamp() == _loadedStamp) return true;
+            string text;
+            if (!TryRead(out text)) return false;
+            _loadedStamp = Stamp();
+            if (text != _loadedText) ReloadFrom(text);
+            return true;
+        }
 
-            ReloadKeepingSelection();
-            _status("予定が外で書き換えられていたので、読み直しました。もう一度操作してください");
-            return false;
+        /// <summary>読み直したあとの、直す相手（同じ物が無ければ、読み直す前と同じ形の予定。無ければ null）。</summary>
+        private ScheduleItem Current(ScheduleItem item, string key)
+        {
+            if (_items.Contains(item)) return item;
+            return _items.FirstOrDefault(other => KeyOf(other) == key);
+        }
+
+        /// <summary>直す相手が外で変わった・消えたので、やめたことを知らせる。</summary>
+        private void Gone()
+        {
+            _status("その予定は外で変わったか消えていたので、やめました（読み直した予定で、もう一度してください）");
+            Rebuild();
+        }
+
+        /// <summary>打っている・欄で直している・つかんでいる最中か（この間は読み直さない・組み直さない）。</summary>
+        private bool Busy
+        {
+            get { return _editorOpen || _newBox != null || _dragItem != null || _selectingDays || _sizingRow != null; }
         }
 
         /// <summary>直す前の中身を覚える（Ctrl+Z）。</summary>
@@ -333,14 +376,21 @@ namespace Tsuzuri.Views
 
         private void Save()
         {
+            if (_loadedText == null)
+            {
+                _status("予定を読めていないので、保存しません");   // 読めないまま書くと、読めなかった予定が消える
+                return;
+            }
             var temp = _path + ".saving";
             try
             {
                 var folder = Path.GetDirectoryName(_path);
                 if (!string.IsNullOrEmpty(folder)) Directory.CreateDirectory(folder);
-                File.WriteAllText(temp, ScheduleFile.Serialize(_items), new UTF8Encoding(false));
+                var text = ScheduleFile.Serialize(_items);
+                File.WriteAllText(temp, text, new UTF8Encoding(false));
                 if (File.Exists(_path)) PageDocument.ReplaceWith(temp, _path);
                 else File.Move(temp, _path);
+                _loadedText = text;
                 _loadedStamp = Stamp();
             }
             catch (Exception ex)
@@ -472,6 +522,7 @@ namespace Tsuzuri.Views
         /// <summary>出している週を全部組み直す（予定が変わったとき）。スクロールの位置は保つ。</summary>
         private void Rebuild()
         {
+            _builtDay = DateTime.Today;
             var offset = _scroll.VerticalOffset;
             _weeks.Children.Clear();
             _rows.Clear();
@@ -835,18 +886,20 @@ namespace Tsuzuri.Views
         private bool Found(ScheduleItem item)
         {
             if (!item.IsLinked) return true;
-            bool found;
-            if (_found.TryGetValue(item, out found)) return found;
-            try
+            HashSet<string> headings;
+            if (!_found.TryGetValue(item.LinkFile, out headings))
             {
-                found = _linkFound(item);
+                try
+                {
+                    headings = _headingsOf(item.LinkFile);
+                }
+                catch (Exception)
+                {
+                    headings = null;   // 読めない文書（閉じていないフェンス・共有フォルダが切れた等）は、見つからないものとする
+                }
+                _found[item.LinkFile] = headings;
             }
-            catch (Exception)
-            {
-                found = false;
-            }
-            _found[item] = found;
-            return found;
+            return headings != null && headings.Contains(item.LinkHeading);
         }
 
         /// <summary>
@@ -1176,10 +1229,16 @@ namespace Tsuzuri.Views
             var original = _dragOriginal;
             var shownStart = _dragShownStart;
             _dragOriginal = null;
-            if (commit && delta != 0 && Fresh())
+            var key = KeyOf(item);
+            if (commit && delta != 0 && Sync())
             {
-                var target = _items.FirstOrDefault(other => ReferenceEquals(other, item));
-                if (target != null && target.IsRepeat && original.HasValue && gesture == Gesture.Move)
+                var target = Current(item, key);
+                if (target == null)
+                {
+                    Gone();
+                    return;
+                }
+                if (target.IsRepeat && original.HasValue && gesture == Gesture.Move)
                 {
                     // 繰り返しの予定を動かすと、その回だけ動く。元の日へ戻したら、動かした記録を消す
                     var to = shownStart.AddDays(delta);
@@ -1188,7 +1247,7 @@ namespace Tsuzuri.Views
                     else target.Moves[original.Value] = to;
                     Save();
                 }
-                else if (target != null)
+                else
                 {
                     var changed = Apply(target, gesture, delta);
                     if (changed.Start != target.Start || changed.End != target.End)
@@ -1263,7 +1322,7 @@ namespace Tsuzuri.Views
             _newBox = null;
             _newOn = null;
 
-            if (title.Length > 0 && Fresh())
+            if (title.Length > 0 && Sync())   // 足すのは、外で書き換わっていても読み直した中身に足せばよい
             {
                 Remember();
                 var item = new ScheduleItem { Start = date, End = date, Title = title };
@@ -1317,9 +1376,10 @@ namespace Tsuzuri.Views
         {
             var date = _dropOn;
             ClearDrop();
-            if (!date.HasValue || !Fresh()) return;
-
+            if (!date.HasValue) return;
             CommitNew();
+            if (!Sync()) return;
+
             Remember();
             var item = new ScheduleItem
             {
@@ -1409,27 +1469,32 @@ namespace Tsuzuri.Views
 
         /// <summary>
         /// 保存先が外（Claude など）で書き換わっていたら読み直して出し直す。打ちかけ・欄で直している最中・帯をつかんでいる最中は読み直さない
-        /// （そのときは、次に直すときに Fresh が読み直す）。
+        /// （そのときは、次に直すときに Sync が読み直す）。
         /// </summary>
         /// <returns>読み直した・読み直す要が無かったら true。打っている最中などで待つなら false（見張りが少し後にまた呼ぶ）。</returns>
         public bool ReloadIfChanged()
         {
-            if (Stamp() == _loadedStamp) return true;
-            if (_editorOpen || _newBox != null || _dragItem != null || _selectingDays || _sizingRow != null) return false;
+            if (Stamp() == _loadedStamp && _loadedText != null) return true;
+            if (Busy) return false;
 
-            ReloadKeepingSelection();
+            string text;
+            if (!TryRead(out text)) return false;   // 書いている最中など。少しして読み直す
+            _loadedStamp = Stamp();
+            if (text != _loadedText) ReloadFrom(text);
             return true;
         }
 
-        /// <summary>外で書き換わった保存先を読み直す。選んでいた予定は、同じ形の予定があれば選んだままにし、増えた・変わった予定を光らせる。</summary>
-        private void ReloadKeepingSelection()
+        /// <summary>外で書き換わった中身で出し直す。選んでいた予定は、同じ形の予定があれば選んだままにし、増えた・変わった予定を光らせる。</summary>
+        private void ReloadFrom(string text)
         {
             var before = _items;
+            var firstRead = _loadedText == null;
             var selectedKey = _selected != null ? KeyOf(_selected) : null;
-            Load();
-            _undo.Clear();
-            if (selectedKey != null) _selected = _items.FirstOrDefault(item => KeyOf(item) == selectedKey);
-            MarkChanges(before);
+            _items = ScheduleFile.Parse(text);
+            _loadedText = text;
+            _undo.Clear();   // 外の書き換えを戻してしまわないため
+            _selected = selectedKey != null ? _items.FirstOrDefault(item => KeyOf(item) == selectedKey) : null;
+            if (!firstRead) MarkChanges(before);
             Rebuild();
         }
 
@@ -1500,9 +1565,14 @@ namespace Tsuzuri.Views
         /// <summary>予定を消す。繰り返しの予定で original（その回の決まりどおりの日）があれば、その回だけ消す。</summary>
         private void Delete(ScheduleItem item, DateTime? original)
         {
-            if (!Fresh()) return;
-            var target = _items.FirstOrDefault(other => ReferenceEquals(other, item));
-            if (target == null) return;
+            var key = KeyOf(item);
+            if (!Sync()) return;
+            var target = Current(item, key);
+            if (target == null)
+            {
+                Gone();
+                return;
+            }
 
             Remember();
             if (target.IsRepeat && original.HasValue)
@@ -1530,7 +1600,12 @@ namespace Tsuzuri.Views
                 _status("戻せる操作がありません");
                 return;
             }
-            if (!Fresh()) return;
+            if (!Sync()) return;
+            if (_undo.Count == 0)
+            {
+                _status("予定が外で書き換えられていたので、戻せる操作はありません");   // 読み直すと戻す記録は捨てる
+                return;
+            }
 
             _items = _undo[_undo.Count - 1];
             _undo.RemoveAt(_undo.Count - 1);
@@ -1982,10 +2057,16 @@ namespace Tsuzuri.Views
             if (!ReadRepeat(editing, out repeat, out start)) return false;
             var title = editing.IsLinked ? editing.Title : ScheduleFile.OneLine(_editTitle.Text);   // 結んだ予定の欄に出しているのはリンク先
             CloseEditor();
-            if (!Fresh()) return true;
+            var key = KeyOf(editing);
+            if (!Sync()) return true;
 
-            var target = _items.FirstOrDefault(other => ReferenceEquals(other, editing));
-            if (target == null || (target.Title == title && target.Repeat == repeat && target.Start == start)) return true;
+            var target = Current(editing, key);
+            if (target == null)
+            {
+                Gone();
+                return true;
+            }
+            if (target.Title == title && target.Repeat == repeat && target.Start == start) return true;
 
             Remember();
             target.Title = title;   // メモは画面では持たないが、保存先に書いてあれば消さずに残す

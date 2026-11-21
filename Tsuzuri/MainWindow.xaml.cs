@@ -467,7 +467,7 @@ namespace Tsuzuri
             {
                 e.Cancel = true;
                 if (!IsOnScreen) BringForward(FrontWindow(), true);
-                Status("予定の欄に直すところがあります。直して保存するか、「やめる」を押してから閉じてください");
+                Status("予定の欄に直すところがあります。直して保存するか、「キャンセル」を押してから閉じてください");
                 return;
             }
 

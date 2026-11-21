@@ -112,6 +112,9 @@ namespace Tsuzuri.Markdown
         private static readonly Regex SkipRe = new Regex(@"^<!-- skip: ([0-9\- ]+) -->$", RegexOptions.Compiled);
         private static readonly Regex MoveRe = new Regex(@"^<!-- move: ([0-9\-> ]+) -->$", RegexOptions.Compiled);
 
+        // 名前が範囲の続きに読めてしまう形（「〜2026-01-05 …」）
+        private static readonly Regex RangeLikeRe = new Regex(@"^[〜~]\s*\d{4}-\d{2}-\d{2}", RegexOptions.Compiled);
+
         // メモの中の「## 」「\## 」「\\## 」…。書くときに \ を1つ足し、読むときに1つ外す（\ の付いた行を書いても、読み戻すと同じになる）
         private static readonly Regex EscapedRe = new Regex(@"^\\*## ", RegexOptions.Compiled);
 
@@ -223,8 +226,9 @@ namespace Tsuzuri.Markdown
             foreach (var item in items.OrderBy(item => item.Start))
             {
                 text.Append('\n').Append("## ").Append(item.Start.ToString(DateFormat, CultureInfo.InvariantCulture));
-                if (item.End > item.Start) text.Append('〜').Append(item.End.ToString(DateFormat, CultureInfo.InvariantCulture));
                 var title = OneLine(item.Title);
+                // 1日の予定でも、名前が「〜2026-01-05」のように範囲の形で始まるなら、終わりの日を書く（書かないと、読み戻すと何日かの予定になる）
+                if (item.End > item.Start || RangeLikeRe.IsMatch(title)) text.Append('〜').Append(item.End.ToString(DateFormat, CultureInfo.InvariantCulture));
                 if (title.Length > 0) text.Append(' ').Append(title);
                 text.Append('\n');
                 if (item.IsLinked)

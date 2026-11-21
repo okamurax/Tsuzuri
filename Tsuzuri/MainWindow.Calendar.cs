@@ -69,7 +69,7 @@ namespace Tsuzuri
 
             CloseLauncher();
             var heights = ReadWeekHeights();
-            _calendar = new CalendarView(ScheduleFilePath, Status, ScheduleLinkFound, OpenScheduleLink,
+            _calendar = new CalendarView(ScheduleFilePath, Status, ScheduleHeadings, OpenScheduleLink,
                                          heights, delegate { WriteWeekHeights(heights); });
             CalendarHost.Child = _calendar;
             CalendarHost.Visibility = Visibility.Visible;
@@ -199,26 +199,26 @@ namespace Tsuzuri
             new Dictionary<string, KeyValuePair<DateTime, HashSet<string>>>(StringComparer.OrdinalIgnoreCase);
 
         /// <summary>
-        /// 結んだ見出しが、その文書のどこか（どのページでも。ブックマークと同じ探し方）にあるか。
+        /// 結んだ文書の見出しの文字（どのページでも。ブックマークと同じ探し方）。文書が無ければ null。カレンダーが組み直すたびに、文書ごとに1回呼ぶ。
         /// どこかの画面で開いていれば、その中身（保存していない編集も）で見る。閉じていればファイルを読む（更新日時で覚える）。
         /// </summary>
-        private bool ScheduleLinkFound(ScheduleItem item)
+        private HashSet<string> ScheduleHeadings(string file)
         {
             foreach (var window in OpenWindows)
             {
-                var open = window.FindOpenDocument(item.LinkFile);
-                if (open != null) return HeadingsOf(open).Contains(item.LinkHeading);
+                var open = window.FindOpenDocument(file);
+                if (open != null) return HeadingsOf(open);
             }
 
-            if (!File.Exists(item.LinkFile)) return false;
-            var stamp = File.GetLastWriteTimeUtc(item.LinkFile);
+            if (!File.Exists(file)) return null;
+            var stamp = File.GetLastWriteTimeUtc(file);
             KeyValuePair<DateTime, HashSet<string>> cached;
-            if (!HeadingCache.TryGetValue(item.LinkFile, out cached) || cached.Key != stamp)
+            if (!HeadingCache.TryGetValue(file, out cached) || cached.Key != stamp)
             {
-                cached = new KeyValuePair<DateTime, HashSet<string>>(stamp, HeadingsOf(PageDocument.Load(item.LinkFile)));
-                HeadingCache[item.LinkFile] = cached;
+                cached = new KeyValuePair<DateTime, HashSet<string>>(stamp, HeadingsOf(PageDocument.Load(file)));
+                HeadingCache[file] = cached;
             }
-            return cached.Value.Contains(item.LinkHeading);
+            return cached.Value;
         }
 
         private static HashSet<string> HeadingsOf(PageDocument document)

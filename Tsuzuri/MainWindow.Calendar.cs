@@ -25,7 +25,7 @@ namespace Tsuzuri
 
         /// <summary>
         /// 予定の保存先。app.json の scheduleFile。無ければ app.json の隣の schedule.md。
-        /// 人が直接開かないファイルなので、名前に日本語を使わない（2026-11-21。前は 予定.md。あれば初めに schedule.md へ名前を変える）。
+        /// 人が直接開かないファイルなので、名前に日本語を使わない（2026-11-21。前は 予定.md。前の名前からの移し替えは持たない）。
         /// </summary>
         private string ScheduleFilePath
         {
@@ -33,20 +33,7 @@ namespace Tsuzuri
             {
                 var path = _settings.ScheduleFile;
                 if (!string.IsNullOrWhiteSpace(path)) return Environment.ExpandEnvironmentVariables(path.Trim());
-
-                var folder = Path.GetDirectoryName(AppSettings.StorePath) ?? ".";
-                var current = Path.Combine(folder, "schedule.md");
-                var old = Path.Combine(folder, "予定.md");   // 前の名前
-                try
-                {
-                    if (!File.Exists(current) && File.Exists(old)) File.Move(old, current);
-                }
-                catch (Exception ex)
-                {
-                    Status("予定の保存先の名前を schedule.md に変えられませんでした（前の名前のまま使います）: " + ex.Message);
-                    return old;
-                }
-                return current;
+                return Path.Combine(Path.GetDirectoryName(AppSettings.StorePath) ?? ".", "schedule.md");
             }
         }
 

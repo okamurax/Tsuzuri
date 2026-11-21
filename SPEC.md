@@ -2294,9 +2294,15 @@ WPF 標準のコントロールはそのままだと明るい前提の見た目�
       UNPROTECTED PRIVATE KEY FILE で鍵を使わず、`known_hosts` も書けなかった。そこで会話を始めるたびに（claude を起動するとき）、
       エディタが `ssh` フォルダの中身を写し、フォルダとファイルを本人だけが触れる権限（継承を切る）にする。元で消したファイルは写した先からも消す。
       `known_hosts` は写した先で育てる（元から写さない・消さない）。Claude には、権限を変えたり鍵を写したりせず、断られたら知らせるよう伝える
-    - `config.txt` は1行1つ。`auth` は `publickey` か `password` で、欄の形が違う。OpenSSH の `config` の形ではないので、Claude が行を読んで `ssh` の引数を組み立てる
+    - `config.txt` は1行1つ。`auth` は `publickey`・`password`・`via` で、欄の形が違う。OpenSSH の `config` の形ではないので、Claude が行を読んで `ssh` の引数を組み立てる
       - 鍵: `名称 | ホスト:ポート | auth=publickey | user=ユーザー名 | keyfile=キーファイル名`（例: `web | example.com:22 | auth=publickey | user=xxxx | keyfile=mysite.pem`）
       - パスワード: `名称 | ホスト:ポート | auth=password | user=ユーザー名 | passwd=パスワード`
+      - 通って入る（2026-11-21）: `名称 | ホスト:ポート | auth=via | via=通る接続先の名称 | user=ユーザー名`（例: `lab | 192.168.0.10:22 | auth=via | via=pve | user=xxxx`）。
+        Proxmox の中の仮想マシンのように、直接は入れず、ほかの接続先の中から ssh で入るもの。via の行のとおりにそこへつなぎ、そのコマンドとして
+        `ssh -o BatchMode=yes -o StrictHostKeyChecking=accept-new -p ポート ユーザー@ホスト '…'` を動かす。中の ssh は通る接続先に置いてある鍵で入る
+        （Windows 側に鍵を置かない。新しい鍵を作って登録するより手間が少ない、と利用者が選んだ）。通るのは1段だけ。`ssh-session.ps1` も同じに入る
+    - **`config.txt` は UTF-8 にして写す**（2026-11-21）。UTF-8 として読めなければ ANSI（日本語の Windows なら Shift_JIS）として読み直す。
+      メモ帳などで Shift_JIS で保存されていると、askpass が UTF-8 として読み、日本語の名称の行を見つけられずパスワードを渡せなかった
     - ssh は Windows のもの（`System32\OpenSSH\ssh.exe`）を使わせる。Git の ssh は `.cmd` の askpass を動かせず、鍵の権限の見方も違うため
     - 共通の引数: `-p <ポート> -o UserKnownHostsFile=<写した先>\known_hosts -o StrictHostKeyChecking=accept-new <ユーザー>@<ホスト> "コマンド"`。
       Claude のコマンドは画面で答えられないので、初めてのサーバーの「信頼するか」は accept-new で受け入れる（覚えた鍵と違えば断る）

@@ -174,9 +174,10 @@ namespace Tsuzuri
   利用者が置く元は「{ssh-source}」で、エディタが会話を始めるたびに、本人だけが読める権限にしてここへ写している
   （元は Mac の共有フォルダのことがあり、そこの鍵は Windows の ssh に断られるため）。使うのはここのもの。元のフォルダは使わず、どちらも書き換えない。
   ここに無ければ、利用者がまだ置いていないか、置いたあとに会話を始め直していない。
-  - 接続先はそのフォルダの config.txt に1行1つ。| で区切った欄の形は auth の値で2通り:
+  - 接続先はそのフォルダの config.txt に1行1つ。| で区切った欄の形は auth の値で3通り:
     - auth=publickey（鍵）: 名称 | ホスト:ポート | auth=publickey | user=ユーザー名 | keyfile=キーファイル名（鍵はそのフォルダの中）
     - auth=password（パスワード）: 名称 | ホスト:ポート | auth=password | user=ユーザー名 | passwd=パスワード
+    - auth=via（直接は入れず、別の接続先を通って入る。仮想マシンなど）: 名称 | ホスト:ポート | auth=via | via=通る接続先の名称 | user=ユーザー名
     利用者が名称で言ったら（「〇〇につないで」）、config.txt を読んでその行を探す。ポートが書いていなければ 22。
   - ssh は Windows のもの（""{ssh-exe}""）を使う（Git の ssh ではない）。共通に付ける: -p <ポート> -o UserKnownHostsFile=""<そのフォルダ>\known_hosts""
     -o StrictHostKeyChecking=accept-new <ユーザー名>@<ホスト> ""コマンド""
@@ -187,6 +188,11 @@ namespace Tsuzuri
     （askpass は、その名称の行の passwd を config.txt から読んで ssh に返す。エディタが置いている）。
     パスワードの値は、コマンド・環境変数・引数のどこにも書かない（書くと欄の画面と会話の記録に残る）。
     それでも入れなければ（Windows の ssh が古く、askpass が効かないなど）、何度も試さずに利用者に伝える。
+  - via の行: via= の名称の行（publickey か password）のとおりにその接続先へつなぎ、そのコマンドとして中で ssh を動かす。
+    中の ssh は、通る接続先に置いてある鍵で入る（-i・-J・パスワードは付けない）:
+      <via の行への ssh> ""ssh -o BatchMode=yes -o StrictHostKeyChecking=accept-new -p <ポート> <ユーザー名>@<ホスト> '<コマンド>'""
+    via の行が password なら、TSUZURI_SSH_HOST は via の名称にする。引用符が重なって書きにくいコマンドは、台本を標準入力で渡す
+    （… ""ssh … <ユーザー名>@<ホスト> bash -s"" < 台本のファイル）。中の ssh で断られたら（Permission denied など）、何度も試さずに利用者に伝える。
   - 鍵・パスワード・config.txt の中身を、文書・コミット・返事に書き写さない。鍵をほかの場所へ写さない。
   - それでも鍵の権限で断られたら（UNPROTECTED PRIVATE KEY FILE）、権限を変えたり鍵を写したりせず、利用者に伝える。
   - サーバーの中を変える操作（書き換え・削除・再起動・設定の変更）は、する前に何をするかを利用者に伝えて確かめる。
@@ -195,7 +201,7 @@ namespace Tsuzuri
     ssh を直接使わず、エディタが置いた台本を使う（sleep を挟んでまとめて流す形は、取りこぼすので使わない）:
       powershell -NoProfile -ExecutionPolicy Bypass -File ""{ssh-session}"" -Name ""<名称>"" -Command ""show status""
     複数のコマンドは、1行に1つ書いたファイルを -CommandFile ""<ファイル>"" で渡す（-Command に改行で並べてもよい）。
-    台本は config.txt の行から接続先・鍵・パスワードを読み、プロンプトを待って1行ずつ送り、最後に exit で抜ける。
+    台本は config.txt の行から接続先・鍵・パスワードを読み、プロンプトを待って1行ずつ送り、最後に exit で抜ける（auth=via の機器も、通る接続先を経て入る）。
     最初に console lines infinity を送る（ページごとに止めない）。結果のパスワード・事前共有鍵などの行は *** に伏せて出す。
     文字の符号は既定で Shift_JIS（RTX の既定）。化けるなら -Encoding utf-8 を試す。応えが遅い機器は -Timeout 秒 を延ばす。
     - 機器がパスワードや (Y/N) を尋ねると、台本は答えずに止まる（administrator に入る・設定を保存して抜けるなど）。そうなったら利用者に伝える。
@@ -1267,7 +1273,11 @@ namespace Tsuzuri
 
                     names.Add(name);
                     var target = Path.Combine(AiSshLocal, name);
-                    File.WriteAllBytes(target, File.ReadAllBytes(source));
+                    var bytes = File.ReadAllBytes(source);
+                    // config.txt は UTF-8 にして写す（2026-11-21）。メモ帳などで Shift_JIS（ANSI）で保存されていると、askpass・台本・Claude が
+                    // UTF-8 として読み、日本語の名称が一致しなかった
+                    if (string.Equals(name, "config.txt", StringComparison.OrdinalIgnoreCase)) bytes = ToUtf8(bytes);
+                    File.WriteAllBytes(target, bytes);
 
                     var fileSecurity = new FileSecurity();
                     fileSecurity.SetAccessRuleProtection(true, false);
@@ -1285,6 +1295,20 @@ namespace Tsuzuri
             catch (Exception ex)
             {
                 Status("SSH の鍵を写せませんでした: " + ex.Message);
+            }
+        }
+
+        /// <summary>UTF-8 として読めればそのまま（BOM も残す）。読めなければ ANSI（日本語の Windows なら Shift_JIS）として読み、BOM 無しの UTF-8 にする。</summary>
+        private static byte[] ToUtf8(byte[] bytes)
+        {
+            try
+            {
+                new UTF8Encoding(false, true).GetString(bytes);
+                return bytes;
+            }
+            catch (DecoderFallbackException)
+            {
+                return new UTF8Encoding(false).GetBytes(Encoding.Default.GetString(bytes));
             }
         }
 

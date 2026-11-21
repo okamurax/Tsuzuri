@@ -8,6 +8,7 @@
 #   powershell -NoProfile -ExecutionPolicy Bypass -File ssh-session.ps1 -Name <name> -CommandFile <file with one command per line>
 #
 # The connection (host, port, user, key or password) is read from the editor's copy of config.txt (..\ssh\config.txt).
+# An entry with auth=via is reached through the entry named by via= (ssh runs on that host with its own keys).
 # The password goes through ssh-askpass.ps1, never through the command line.
 # Lines with passwords, pre-shared keys and the like are masked in the output.
 # It stops (and says so) when the device asks for a password or (Y/N); it never answers those.
@@ -30,24 +31,34 @@ $sshExe = Join-Path $env:SystemRoot 'System32\OpenSSH\ssh.exe'
 function Fail([string]$message) { [Console]::Error.WriteLine($message); exit 1 }
 
 # --- the entry in config.txt ---
-$entry = $null
-foreach ($line in [System.IO.File]::ReadAllLines((Join-Path $sshDir 'config.txt'))) {
-    $fields = $line.Split('|')
-    if ($fields.Count -ge 2 -and $fields[0].Trim() -eq $Name.Trim()) { $entry = $fields; break }
+function Read-Entry([string]$entryName) {
+    foreach ($line in [System.IO.File]::ReadAllLines((Join-Path $sshDir 'config.txt'))) {
+        $fields = $line.Split('|')
+        if ($fields.Count -lt 2 -or $fields[0].Trim() -ne $entryName.Trim()) { continue }
+        $result = @{ name = $fields[0].Trim(); address = $fields[1].Trim(); port = '22' }
+        $colon = $result.address.LastIndexOf(':')
+        if ($colon -gt 0) { $result.port = $result.address.Substring($colon + 1); $result.address = $result.address.Substring(0, $colon) }
+        foreach ($field in $fields) {
+            $text = $field.Trim()
+            $equal = $text.IndexOf('=')
+            if ($equal -gt 0) { $result[$text.Substring(0, $equal)] = $text.Substring($equal + 1) }
+        }
+        if (-not $result['user']) { Fail ('no user= in the entry "' + $entryName + '"') }
+        return $result
+    }
+    Fail ('no entry "' + $entryName + '" in config.txt')
 }
-if ($entry -eq $null) { Fail ('no entry "' + $Name + '" in config.txt') }
 
-$address = $entry[1].Trim()
-$port = '22'
-$colon = $address.LastIndexOf(':')
-if ($colon -gt 0) { $port = $address.Substring($colon + 1); $address = $address.Substring(0, $colon) }
-$values = @{}
-foreach ($field in $entry) {
-    $text = $field.Trim()
-    $equal = $text.IndexOf('=')
-    if ($equal -gt 0) { $values[$text.Substring(0, $equal)] = $text.Substring($equal + 1) }
+# auth=via: not reachable directly. Connect to the entry named by via= and run ssh there (with the keys of that host).
+$target = Read-Entry $Name
+$values = $target
+$inner = $null
+if ($target['auth'] -eq 'via') {
+    if (-not $target['via']) { Fail ('no via= in the entry "' + $Name + '"') }
+    $values = Read-Entry $target['via']
+    if ($values['auth'] -eq 'via') { Fail ('the entry "' + $values.name + '" is also auth=via (only one hop is supported)') }
+    $inner = 'ssh -tt -o BatchMode=yes -o StrictHostKeyChecking=accept-new -p ' + $target.port + ' ' + $target['user'] + '@' + $target.address
 }
-if (-not $values['user']) { Fail ('no user= in the entry "' + $Name + '"') }
 
 # --- the commands ---
 $lines = @()
@@ -59,19 +70,20 @@ if ($lines.Count -eq 0) { Fail 'no command (-Command or -CommandFile)' }
 # --- ssh ---
 function Quote([string]$value) { if ($value -match '[\s"]') { return '"' + $value.Replace('"', '\"') + '"' } return $value }
 
-$arguments = @('-tt', '-p', $port,
+$arguments = @('-tt', '-p', $values.port,
     '-o', ('UserKnownHostsFile=' + (Join-Path $sshDir 'known_hosts')),
     '-o', 'StrictHostKeyChecking=accept-new')
 $info = New-Object System.Diagnostics.ProcessStartInfo
 if ($values['auth'] -eq 'password') {
     $arguments += @('-o', 'PubkeyAuthentication=no', '-o', 'PreferredAuthentications=password,keyboard-interactive', '-o', 'NumberOfPasswordPrompts=1')
-    $info.EnvironmentVariables['TSUZURI_SSH_HOST'] = $Name
+    $info.EnvironmentVariables['TSUZURI_SSH_HOST'] = $values.name
     $info.EnvironmentVariables['SSH_ASKPASS'] = (Join-Path $PSScriptRoot 'ssh-askpass.cmd')
     $info.EnvironmentVariables['SSH_ASKPASS_REQUIRE'] = 'force'
 } elseif ($values['keyfile']) {
     $arguments += @('-i', (Join-Path $sshDir $values['keyfile']))
 }
-$arguments += ($values['user'] + '@' + $address)
+$arguments += ($values['user'] + '@' + $values.address)
+if ($inner) { $arguments += $inner }
 
 $info.FileName = $sshExe
 $info.Arguments = (($arguments | ForEach-Object { Quote $_ }) -join ' ')

@@ -1603,6 +1603,7 @@ namespace Tsuzuri.Views
                 chip.MouseLeftButtonDown += (sender, e) =>
                 {
                     e.Handled = true;
+                    if (_editing != null && day == _editing.Start.DayOfWeek) return;   // 1回目の曜日は外せない
                     if (!_editDays.Remove(day)) _editDays.Add(day);
                     PaintWeekDays();
                 };
@@ -1742,13 +1743,24 @@ namespace Tsuzuri.Views
             PaintWeekDays();
         }
 
+        /// <summary>
+        /// 曜日のボタンを塗る。1回目の曜日は、いつも選んだことにして薄く出し、押せなくする（2026-11-21。利用者の判断。
+        /// 1回目はいつも回に数えるので、その曜日を外すと、外した曜日に1回だけ出てしまうため）。
+        /// </summary>
         private void PaintWeekDays()
         {
+            var first = _editing != null ? _editing.Start.DayOfWeek : (DayOfWeek?)null;
+            if (first.HasValue && !_editDays.Contains(first.Value)) _editDays.Add(first.Value);
             for (var d = 0; d < 7; d++)
             {
                 var on = _editDays.Contains((DayOfWeek)d);
-                _editDayChips[d].Background = on ? Resource("AccentFill") : Brushes.Transparent;
-                _editDayChips[d].BorderBrush = on ? TodayEdge : Resource("InputBorder");
+                var locked = first.HasValue && (DayOfWeek)d == first.Value;
+                var chip = _editDayChips[d];
+                chip.Background = on ? Resource("AccentFill") : Brushes.Transparent;
+                chip.BorderBrush = locked ? Resource("InputBorder") : on ? TodayEdge : Resource("InputBorder");
+                chip.Opacity = locked ? 0.45 : 1;
+                chip.Cursor = locked ? Cursors.Arrow : Cursors.Hand;
+                chip.ToolTip = locked ? "1回目の曜日（外せない）" : null;
             }
         }
 
@@ -1911,9 +1923,12 @@ namespace Tsuzuri.Views
                     break;
             }
 
-            // 毎週で、始まりの日がどの曜日でもなければ、始まりを次の選んだ曜日へ送る（始まりの日はいつも1回目に数えるので、選んでいない曜日に1回出てしまう）
-            if (rule.Kind == RepeatKind.Weekly)
-                while (!rule.WeekDays.Contains(start.DayOfWeek)) start = start.AddDays(1);
+            // 毎週は1回目の曜日をいつも含む（欄で外せない。PaintWeekDays）
+            if (rule.Kind == RepeatKind.Weekly && !rule.WeekDays.Contains(start.DayOfWeek))
+            {
+                rule.WeekDays.Add(start.DayOfWeek);
+                rule.WeekDays.Sort();
+            }
 
             if (until.HasValue && until.Value < start)
             {

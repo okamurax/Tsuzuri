@@ -122,7 +122,7 @@ namespace Tsuzuri.Markdown
         [DataMember(Name = "line")]
         public int Line { get; set; }
 
-        /// <summary>登録したときの画面の状態（2026-10-25）。無ければ（前の版で登録したもの）見出しのページをそのまま開く。</summary>
+        /// <summary>登録したときの画面の状態（2026-10-25）。無ければ見出しのページをそのまま開く。</summary>
         [DataMember(Name = "screen", EmitDefaultValue = false)]
         public ScreenState Screen { get; set; }
     }

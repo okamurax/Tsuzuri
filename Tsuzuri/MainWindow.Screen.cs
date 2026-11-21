@@ -85,13 +85,7 @@ namespace Tsuzuri
         {
             if (screen == null || screen.Pages == null || screen.Pages.Count == 0) return ScreenNotApplicable;
 
-            // 画面に出すのはいちばん右のページだけ（SPEC 6章）。左右2画面だった前の版（2026-10-27 より前）で覚えたものは、
-            // フォーカスのあったページより右を捨てて、そのページを出す。並びを決める前に切る。
-            // 今の版が覚える Focus はいつもいちばん右のページ（フォーカスを持てるのは出ているページだけ）なので、ここで切るのは
-            // 前の版の app.json・state.json（見出しのブックマークの画面）だけ。
-            var saved = screen.Focus >= 0 && screen.Focus < screen.Pages.Count - 1
-                ? screen.Pages.Take(screen.Focus + 1).ToList()
-                : screen.Pages;
+            var saved = screen.Pages;
 
             // 文書をそろえる。開いていなければ開く（スタックには触らない）。開けない・ページが無いところで止める（そこから右は戻さない）。
             // ここで新しく開いたファイルの状態（state.json）は、戻すと決まるまで手元に置かない（AdoptState しない）。

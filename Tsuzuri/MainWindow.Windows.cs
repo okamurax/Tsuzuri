@@ -185,7 +185,6 @@ namespace Tsuzuri
         /// <summary>最初の画面が起動したとき、前回終了したときに開いていたほかの画面を作り直す（それぞれ自分の覚えで戻す）。最後に最初の画面を前に出す。</summary>
         private void RestoreOtherWindows()
         {
-            // 前の版で休止していた画面（app.json の suspended。2026-11-20 に休止をやめた）も、ふつうの画面として戻す
             var sessions = _settings.Windows.ToList();
             if (sessions.Count == 0) return;
 

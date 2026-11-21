@@ -1220,7 +1220,7 @@ namespace Tsuzuri
                     else
                     {
                         // 図の画像を先に作る（読み直した本文に、新しい図が出るように）。待つのは 20 秒まで。
-                        // 「changed→書いたファイル→フォルダ」。前の版の claude が起動したままなら「changed」だけが来る。
+                        // 「changed→書いたファイル→フォルダ」。
                         var parts = (request ?? string.Empty).Split('\t');
                         var problem = HandleAiChanged(parts.Length > 1 ? parts[1] : null, parts.Length > 2 ? parts[2] : null);
 
@@ -1336,7 +1336,7 @@ namespace Tsuzuri
         /// Claude が書いた図の画像を作る（2026-11-01。SPEC 19章）。図（.json）を、図エディタを開かずに描いて .png を書く（DrawingEditorHost.RenderPng）。
         /// ・その呼び出しで書いたファイル（written）が .json なら、それを必ず描く。作れなければ、何がいけないかを返す（書いた会話の Claude に知らせる）。
         ///   名前が「図 」で始まるか "shapes" があれば、"kind" の無い JSON も図として扱い、そのわけを返す（前は黙って飛ばし、Claude は描けたと思っていた）
-        /// ・そのほか（Bash で書いた・前の版のフック）は、この画面で開いている文書の添付フォルダを見て回り、.png が無いか古い図を描く。
+        /// ・そのほか（Bash で書いた）は、この画面で開いている文書の添付フォルダを見て回り、.png が無いか古い図を描く。
         ///   作れなかった図は知らせない（2026-11-02）。誰が書いたか分からず、ほかの会話の Claude や、同期で来たほかの版の図を「直して」と頼んでしまうため
         /// 作れなかった図の知らせ（返す相手がいるとき）。無ければ null。
         /// </summary>

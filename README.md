@@ -197,7 +197,7 @@ Mac では、XAML を除いた C# のコンパイルだけを `bash tools/check-
 
 `bash tools/ai-guard.sh` で、AI に渡さない場所（目印 `.tsuzuri-no-ai`）の下を Claude が読み書きしようとしたら断り、ほかは通すかを確かめます。`Tsuzuri/Markdown/AiGuard.cs` を変えたら回してください。
 
-`bash tools/schedule-file.sh` で、カレンダーの予定の保存先（`schedule.md`）を読んで書き直しても変わらないか、何日かにまたがる予定・メモ・崩れた行を正しく読むか、繰り返しの回が正しいかを確かめます。`Tsuzuri/Markdown/ScheduleFile.cs`・`ScheduleRepeat.cs` を変えたら回してください。
+`bash tools/schedule-file.sh` で、カレンダーの予定の保存先（`schedule.md`）を読んで書き直しても変わらないか、何日かにまたがる予定・メモ・崩れた行を正しく読むか、繰り返しの回が正しいかを確かめます。`bash tools/schedule-fuzz.sh [回数] [種]` は、でたらめな予定・崩れた .md・繰り返しの決まりを大量に作って同じことを確かめます（繰り返しの回は、別に書いた素朴な数え方と比べる）。`Tsuzuri/Markdown/Schedule*.cs` を変えたら両方回してください。
 
 ## 設定ファイル
 
@@ -226,7 +226,7 @@ Tsuzuri/
 └ ConPty/                AI の欄の端末で使う ConPTY（conpty.dll・OpenConsole.exe）
 TableEditor/             表エディタ（WPF。本体から DLL として読み込む）
 DrawingEditor/           図エディタ（WPF。本体から DLL として読み込む）
-tools/                   Mac でのコンパイル確認、WordPress の変換の確かめ（wp-check）、部分解析の確かめ（parse-fuzz）、アウトラインの操作の確かめ（struct-fuzz）、崩れた文書での読み書きの確かめ（page-fuzz）、AI に渡さない場所の確かめ（ai-guard）、カレンダーの予定の保存先の確かめ（schedule-file）、コミット前のフック、アイコンの生成
+tools/                   Mac でのコンパイル確認、WordPress の変換の確かめ（wp-check）、部分解析の確かめ（parse-fuzz）、アウトラインの操作の確かめ（struct-fuzz）、崩れた文書での読み書きの確かめ（page-fuzz）、AI に渡さない場所の確かめ（ai-guard）、カレンダーの予定の保存先の確かめ（schedule-file・schedule-fuzz）、コミット前のフック、アイコンの生成
 sample/                  動作確認用の文書
 ```
 

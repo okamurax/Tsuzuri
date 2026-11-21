@@ -244,11 +244,14 @@ namespace Tsuzuri.Markdown
                                                                                                       + pair.Value.ToString(DateFormat, CultureInfo.InvariantCulture)))).Append(" -->\n");
                 }
 
-                var memo = (item.Memo ?? string.Empty).Replace("\r\n", "\n").Replace('\r', '\n').Trim('\n');
-                if (memo.Trim().Length == 0) continue;
+                // メモの端の空白だけの行は書かない（読むときに外すので、書くたびに形が変わらないように）
+                var lines = (item.Memo ?? string.Empty).Replace("\r\n", "\n").Replace('\r', '\n').Split('\n').ToList();
+                while (lines.Count > 0 && lines[0].Trim().Length == 0) lines.RemoveAt(0);
+                while (lines.Count > 0 && lines[lines.Count - 1].Trim().Length == 0) lines.RemoveAt(lines.Count - 1);
+                if (lines.Count == 0) continue;
 
                 text.Append('\n');
-                foreach (var line in memo.Split('\n'))
+                foreach (var line in lines)
                     text.Append(EscapedRe.IsMatch(line) ? "\\" + line : line).Append('\n');
             }
 

@@ -37,7 +37,7 @@ namespace Tsuzuri
         private string RememberableFile()
         {
             var path = _stack.Count > 0 ? _stack[0].FilePath : null;
-            return Attachments.IsBare(path) ? null : path;
+            return Attachments.IsBare(path) && !Attachments.IsPlainText(path) ? null : path;   // テキストファイルは尋ねずに開けるので覚える
         }
 
         private ScreenState CaptureScreen()
@@ -54,7 +54,7 @@ namespace Tsuzuri
             {
                 // ファイルから消えたページから右は、戻しても開けないので覚えない。
                 // 添付フォルダ無しで開いた文書（AI の欄から。2026-11-08）も覚えない。戻すとフォルダを作るか尋ねてしまう。
-                if (string.IsNullOrEmpty(view.FilePath) || view.IsReadOnly || Attachments.IsBare(view.FilePath)) break;
+                if (string.IsNullOrEmpty(view.FilePath) || view.IsReadOnly || (Attachments.IsBare(view.FilePath) && !Attachments.IsPlainText(view.FilePath))) break;
 
                 screen.Pages.Add(new PageState
                 {

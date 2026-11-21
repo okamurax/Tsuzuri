@@ -60,6 +60,12 @@ namespace Tsuzuri
                 return;
             }
 
+            if (view.IsPlain)
+            {
+                Status("テキストファイル（.txt）にはサブページを作れません（中身に印を足さないため）。");
+                return;
+            }
+
             // 選んでいれば、その範囲（見出し単位とは限らないので推測しない）。選んでいなければカーソルの位置に空のページ。
             var selected = !string.IsNullOrEmpty(view.SimpleSelectedText.Trim());
             var rangeStart = selected ? view.SelectionStart : view.CaretOffset;
@@ -270,6 +276,12 @@ namespace Tsuzuri
             if (view == null || view.Owner == null)
             {
                 Status("先にファイルを開いてください。");
+                return;
+            }
+
+            if (view.IsPlain)
+            {
+                Status("テキストファイル（.txt）にはページがありません。");
                 return;
             }
 

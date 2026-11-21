@@ -115,7 +115,7 @@ namespace Tsuzuri
                 if (!TryCreatePage(path, title)) return;
             }
 
-            if (!isMarkdown)
+            if (!isMarkdown && !Attachments.IsPlainText(path))   // .txt はこのエディタで開く（2026-11-21）
             {
                 Launch(path);
                 return;
@@ -534,7 +534,7 @@ namespace Tsuzuri
         {
             if (view == null || !Attachments.IsBare(view.FilePath)) return true;
 
-            Status("AI の欄から開いた文書には添付フォルダが無いので、" + what + "。");
+            Status((Attachments.IsPlainText(view.FilePath) ? "テキストファイル（.txt）" : "AI の欄から開いた文書") + "には添付フォルダが無いので、" + what + "。");
             return false;
         }
 
@@ -559,6 +559,14 @@ namespace Tsuzuri
 
             var newLine = view.NewLine;
             var text = new StringBuilder();
+
+            // テキストファイル（2026-11-21）は、取り込まずにファイルの場所をそのまま入れる（Markdown のリンクにしない）
+            if (view.IsPlain)
+            {
+                view.InsertAtCaret(string.Join(newLine, paths));
+                Status(paths.Length == 1 ? "ファイルの場所を入れました。" : paths.Length + " 個のファイルの場所を入れました。");
+                return;
+            }
 
             // 1つでも取り込めなければ、何も入れない。元の場所を指すリンクで代えると、文書と添付が離れてしまう。
             try
@@ -614,6 +622,10 @@ namespace Tsuzuri
 
             try
             {
+                // テキストファイル（2026-11-21）は、見出しへのリンクにも画像の取り込みにもしない（文字はそのまま貼る）。ファイルは場所を入れる
+                var target = OwnerOf(sender);
+                if (target != null && target.IsPlain && !Clipboard.ContainsFileDropList()) return;
+
                 // 行番号の右クリックでコピーした見出しへのリンク（文字も一緒に入っているので、文字より先に見る）。
                 if (Clipboard.ContainsData(HeadingLinkFormat))
                 {
@@ -757,7 +769,7 @@ namespace Tsuzuri
 
             // 添付フォルダ無しで開いた文書（AI の欄から。2026-11-08）には取り込めない。InsertFiles が知らせて止める。
             if (Attachments.IsBare(documentPath))
-                throw new InvalidOperationException("AI の欄から開いた文書には添付フォルダが無いので、ファイルを取り込めません");
+                throw new InvalidOperationException((Attachments.IsPlainText(documentPath) ? "テキストファイル（.txt）" : "AI の欄から開いた文書") + "には添付フォルダが無いので、ファイルを取り込めません");
 
             var folder = Attachments.FolderOf(documentPath);
 

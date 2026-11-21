@@ -75,6 +75,7 @@ B のリンクを踏む     [A帯][B帯][C]
 | 機能 | 内容 |
 |---|---|
 | 新規作成 | ツールバーの左端で、Markdown のファイルを作って新しい画面（タブ）で開く |
+| テキストファイル | .txt も開ける。Markdown として飾らず、打った文字のまま普通のエディタとして使う（タイトルはファイル名・アウトラインやサブページは無し・中身に何も足さない）。文字コードは UTF-8 と Shift_JIS を読み、読んだ文字コードと改行のまま書く |
 | サブページ作成 / 解除 | 選んだ範囲をサブページにする／サブページを親の本文に戻す |
 | 孤立ページ | どこからもリンクされなくなったサブページを一覧にする |
 | 未参照の添付 | 添付フォルダのファイルのうち、本文のどこからもリンクされていないものを一覧にする |
@@ -199,6 +200,8 @@ Mac では、XAML を除いた C# のコンパイルだけを `bash tools/check-
 
 `bash tools/schedule-file.sh` で、カレンダーの予定の保存先（`schedule.md`）を読んで書き直しても変わらないか、何日かにまたがる予定・メモ・崩れた行を正しく読むか、繰り返しの回が正しいかを確かめます。`bash tools/schedule-fuzz.sh [回数] [種]` は、でたらめな予定・崩れた .md・繰り返しの決まりを大量に作って同じことを確かめます（繰り返しの回は、別に書いた素朴な数え方と比べる）。`Tsuzuri/Markdown/Schedule*.cs` を変えたら両方回してください。
 
+`bash tools/text-file.sh [でたらめの数] [種]` で、テキストファイル（.txt）を UTF-8・BOM 付き・Shift_JIS で読んで直さずに保存したときにバイト列が変わらないか、ページの印の形の行も本文のままか、Shift_JIS で書けない文字や読めない文字コードを断るかを確かめます。
+
 ## 設定ファイル
 
 どれも exe と同じフォルダに置きます。持ち運べるように、`%AppData%` は使いません。
@@ -226,7 +229,7 @@ Tsuzuri/
 └ ConPty/                AI の欄の端末で使う ConPTY（conpty.dll・OpenConsole.exe）
 TableEditor/             表エディタ（WPF。本体から DLL として読み込む）
 DrawingEditor/           図エディタ（WPF。本体から DLL として読み込む）
-tools/                   Mac でのコンパイル確認、WordPress の変換の確かめ（wp-check）、部分解析の確かめ（parse-fuzz）、アウトラインの操作の確かめ（struct-fuzz）、崩れた文書での読み書きの確かめ（page-fuzz）、AI に渡さない場所の確かめ（ai-guard）、カレンダーの予定の保存先の確かめ（schedule-file・schedule-fuzz）、コミット前のフック、アイコンの生成
+tools/                   Mac でのコンパイル確認、WordPress の変換の確かめ（wp-check）、部分解析の確かめ（parse-fuzz）、アウトラインの操作の確かめ（struct-fuzz）、崩れた文書での読み書きの確かめ（page-fuzz）、AI に渡さない場所の確かめ（ai-guard）、カレンダーの予定の保存先の確かめ（schedule-file・schedule-fuzz）、テキストファイルの読み書きの確かめ（text-file）、コミット前のフック、アイコンの生成
 sample/                  動作確認用の文書
 ```
 

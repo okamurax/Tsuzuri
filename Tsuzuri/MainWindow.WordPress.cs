@@ -379,7 +379,7 @@ namespace Tsuzuri
             Action load = () => LoadWordPressList(currentSite(), search.Text, list, note, open, 1);
 
             // 開いている .md（WordPress の記事でないもの）を、新しい記事にする（2026-10-30。空の「新しい記事」の代わり）。
-            var original = HasDocument && WordPressLinkOf(Active) == null ? Active : null;
+            var original = HasDocument && WordPressLinkOf(Active) == null && !Active.IsPlain ? Active : null;   // テキストファイルは記事にしない
             var create = new Button { Content = "この .md を新しい記事にする", Style = (Style)FindResource("ToolButton") };
             create.IsEnabled = original != null;
             create.ToolTip = original != null

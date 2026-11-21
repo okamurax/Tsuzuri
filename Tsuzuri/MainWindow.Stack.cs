@@ -142,7 +142,7 @@ namespace Tsuzuri
             _focused = _stack[0];
 
             // 次の起動で開き直すファイル（SPEC 4章）。終了のときだけでなく、開いたときにも書く（落ちた・VM ごと止めたときも残る）。
-            if (IsPrimary && !Attachments.IsBare(path))   // 添付フォルダ無しの文書は、次の起動で開き直さない（開くとフォルダを作るか尋ねてしまう）
+            if (IsPrimary && (!Attachments.IsBare(path) || Attachments.IsPlainText(path)))   // 添付フォルダ無しの文書は、次の起動で開き直さない（開くとフォルダを作るか尋ねてしまう）。テキストファイルは尋ねないので覚える
             {
                 _settings.LastFile = path;
                 _settings.Save();
@@ -176,7 +176,7 @@ namespace Tsuzuri
 
         /// <summary>
         /// ファイルを開く入口。開くための前提をここで全部確かめ、揃わなければ知らせて開かない（SPEC 4章）。
-        /// ・UTF-8 で読めて、ページの区切りが決められること（PageDocument.Load）
+        /// ・UTF-8 で読めて（.txt は Shift_JIS も）、ページの区切りが決められること（PageDocument.Load）
         /// ・.ファイル名/ があること。無ければ作るか尋ね、「いいえ」なら開かない
         /// ・.ファイル名/state.json が読めること（まだ無ければ空の状態）
         /// ここを通ったファイルには必ずフォルダと状態があるので、中ではそれを確かめない。
@@ -224,6 +224,9 @@ namespace Tsuzuri
             }
 
             if (!LoadState(path, out state)) return false;
+
+            if (document.IsPlain)
+                Status("テキストファイルとして開きました（" + document.EncodingName + "。Markdown として飾らず、この文字コードのまま保存します）");
 
             // 開いたときの中身も履歴に残す。前の記録と同じなら何もしない。エディタの外（AI・ほかのソフト）での変更があれば、ここで1つの記録になる。
             // 最初の保存のときに「何が変わったか」が分かるよう、元の状態を先に残しておく意味もある。

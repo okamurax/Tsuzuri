@@ -150,7 +150,7 @@ namespace Tsuzuri
                 return;
             }
 
-            if (string.Equals(Path.GetExtension(path), ".md", StringComparison.OrdinalIgnoreCase))
+            if (string.Equals(Path.GetExtension(path), ".md", StringComparison.OrdinalIgnoreCase) || Attachments.IsPlainText(path))   // .txt もこのエディタで（2026-11-21）
             {
                 // 新しい画面（タブ）で開く（2026-11-03。前はこの画面の連鎖を捨てて開き直していた）。開いたものを見せるため、ランチャーは閉じる。
                 // この画面が何も開いていなければ、この画面で開く（空のタブを残さない。「新規作成」と同じ）。
@@ -166,7 +166,7 @@ namespace Tsuzuri
         }
 
         /// <summary>
-        /// ファイラーでファイルを開いた（.md かスクリプトだけが来る）。.md はこのエディタで開き、スクリプトは別の窓で動かす（RunScript）。
+        /// ファイラーでファイルを開いた（.md・.txt かスクリプトだけが来る）。.md はこのエディタで開き、スクリプトは別の窓で動かす（RunScript）。
         /// スクリプトをファイラーが自分で開かずにここへ回すのは、Windows に任せると .ps1 はメモ帳が開くため。
         /// </summary>
         private void OpenInApp(string path)

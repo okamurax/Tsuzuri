@@ -603,6 +603,14 @@ namespace Tsuzuri.Views
         }
 
         /// <summary>
+        /// テキストファイル（.txt）を出しているか（2026-11-21）。Markdown として飾らず、打った文字のまま出す（解析を MarkdownParser.ParsePlain にする）。
+        /// </summary>
+        public bool IsPlain
+        {
+            get { return _owner != null && _owner.IsPlain; }
+        }
+
+        /// <summary>
         /// 本文の1行目（空行を除く）の文字。見出し・リストなら記号を除いた文字。本文が空ならファイル名（SPEC 6章）。
         /// 前は本文の中で最初の見出しだったが、アウトラインの ▲▼ で見出しを回すたびにタイトルが変わって不便なので、
         /// 1行目にした（2026-11-07）。1行目を見出しでない題の行にしておけば、見出しを回してもタイトルは変わらない
@@ -612,6 +620,9 @@ namespace Tsuzuri.Views
         {
             get
             {
+                // テキストファイルはいつもファイル名（拡張子込み。2026-11-21）。形の決まったファイルが多く、題の行を足せないため
+                if (IsPlain && FilePath != null) return Path.GetFileName(FilePath);
+
                 foreach (var info in Model.Lines)
                 {
                     var text = HeadingText.Display(info.Content.Trim());
@@ -752,7 +763,7 @@ namespace Tsuzuri.Views
                     offsets.Add(line.Offset);
                 }
 
-                _model = MarkdownParser.Parse(document.Text, texts, offsets);
+                _model = IsPlain ? MarkdownParser.ParsePlain(texts) : MarkdownParser.Parse(document.Text, texts, offsets);
                 _modelValid = true;
                 _outline = null;
                 PerfLog.Mark("全体の解析", PerfLog.Since(parseStarted));
@@ -957,6 +968,7 @@ namespace Tsuzuri.Views
             from = to = -1;
             depthsChanged = false;
             linesShifted = false;
+            if (IsPlain) return false;   // テキストファイルは Markdown として解析し直さない（全体の ParsePlain は軽い）
 
             if (_editCount != 1 || _editTooLarge) return false;
             if (!_modelValid || _model == null || _model.Fragile) return false;
@@ -3743,7 +3755,7 @@ namespace Tsuzuri.Views
         /// </summary>
         private void OnSiblingHeadingKeyDown(object sender, KeyEventArgs e)
         {
-            if (e.Key != Key.Enter || IsReadOnly) return;
+            if (e.Key != Key.Enter || IsReadOnly || IsPlain) return;   // テキストファイルに見出しは無い
 
             var deeper = Keyboard.Modifiers == (ModifierKeys.Control | ModifierKeys.Shift);
             if (!deeper && Keyboard.Modifiers != ModifierKeys.Control) return;

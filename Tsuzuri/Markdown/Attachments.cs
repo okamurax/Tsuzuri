@@ -44,9 +44,19 @@ namespace Tsuzuri.Markdown
             lock (BareDocuments) BareDocuments.Add(key);
         }
 
-        /// <summary>添付フォルダ無しで開いた文書か。</summary>
+        /// <summary>
+        /// テキストファイル（.txt。2026-11-21）か。Markdown としては扱わず、添付フォルダも持たない（IsBare）。
+        /// 状態（state.json）・変更の記録・添付は使わない。中身の形が決まっていることが多いので、何も足さない。
+        /// </summary>
+        public static bool IsPlainText(string documentPath)
+        {
+            return PageDocument.IsPlainText(documentPath);
+        }
+
+        /// <summary>添付フォルダ無しで開いた文書か。テキストファイル（.txt）もいつも添付フォルダ無し。</summary>
         public static bool IsBare(string documentPath)
         {
+            if (IsPlainText(documentPath)) return true;
             var key = KeyOf(documentPath);
             if (key == null) return false;
             lock (BareDocuments) return BareDocuments.Contains(key);

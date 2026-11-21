@@ -1834,7 +1834,10 @@ namespace Tsuzuri
             var line = view.TextArea.Caret.Line;
 
             text.Append("ファイル: ").Append(document.FilePath).Append('\n');
-            if (Attachments.IsBare(document.FilePath))
+            if (document.IsPlain)
+                text.Append("種類: テキストファイル（Markdown ではない。エディタは飾らずにそのまま出す。文字コード ").Append(document.EncodingName)
+                    .Append("。読み書きはこの文字コードのまま。見出し・リンク・図などの Markdown の書き方や、ページの印を足さない）\n");
+            else if (Attachments.IsBare(document.FilePath))
                 text.Append("添付フォルダ: なし（AI の欄から開いた文書。画像・図エディタの図は置けない。フォルダを作らない）\n");
             else
                 text.Append("添付フォルダ（画像・図を置く）: ").Append(Attachments.FolderOf(document.FilePath)).Append('\n');
@@ -1891,7 +1894,9 @@ namespace Tsuzuri
 
             // 図の頼みは、最初の指示に書くだけでは罫線で描かれた（2026-11-01）。話しかけるたびに1行だけ念を押す（書き方そのものは渡さない）。
             // 形は決め打ちせず、指定が無ければ利用者に尋ねさせる（2026-11-01）。
-            if (Attachments.IsBare(document.FilePath))
+            if (document.IsPlain)
+                text.Append("この文書はテキストファイルなので、図は頼まれても罫線で書く（図エディタ・Mermaid は使えない）。\n");
+            else if (Attachments.IsBare(document.FilePath))
                 text.Append("新しく図を頼まれて形の指定が無ければ、描く前に、罫線・Mermaid のどちらで描くかを尋ねる（この文書に図エディタの図は置けない）。\n");
             else
                 text.Append("新しく図を頼まれて形の指定が無ければ、描く前に、図エディタ・罫線・Mermaid のどれで描くかを尋ねる（図エディタに決まったら、描く前に ")

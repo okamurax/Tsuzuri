@@ -669,6 +669,11 @@ namespace Tsuzuri
             }
 
             var view = Active;
+            if (view.IsPlain)
+            {
+                Status("テキストファイル（.txt）は Word に書き出せません（Markdown の文書だけ）。");
+                return;
+            }
 
             // 範囲。「現在のページ」は、サブページを見ているときだけ選べる。
             var scope = ExportChoice(new[] { "全体", "現在のページ" }, new object[] { PageDocument.RootId, view.PageId });

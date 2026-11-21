@@ -150,6 +150,29 @@ namespace Tsuzuri.Markdown
             return headings;
         }
 
+        /// <summary>
+        /// テキストファイル（.txt。2026-11-21）の解析結果。Markdown として読まず、どの行もただの段落（空なら空行）にする。
+        /// 行の記号・装飾・リンク・見出しが無いので、描く側（色付け・記号隠し・画像・アウトライン）は何もしない。
+        /// </summary>
+        public static DocumentModel ParsePlain(IList<string> lineTexts)
+        {
+            var count = lineTexts.Count;
+            var lines = new LineInfo[count];
+            var inlines = new InlineScan[count];
+            for (var i = 0; i < count; i++)
+            {
+                var source = lineTexts[i] ?? string.Empty;
+                lines[i] = new LineInfo
+                {
+                    Source = source,
+                    Kind = source.Trim().Length == 0 ? LineKind.Blank : LineKind.Paragraph,
+                    Content = source,
+                };
+                inlines[i] = new InlineScan();
+            }
+            return new DocumentModel(lines, inlines, 0) { Fragile = true };
+        }
+
         public static DocumentModel Parse(string text, IList<string> lineTexts, IList<int> lineOffsets)
         {
             MarkdownDocument document;

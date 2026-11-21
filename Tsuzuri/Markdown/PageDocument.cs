@@ -93,6 +93,11 @@ namespace Tsuzuri.Markdown
         private string _filePath;
         private string _newLine = "\n";
         private bool _hadBom;
+
+        // テキストファイル（.txt。2026-11-21）。ページに分けず、Markdown として扱わない（印の行も本文）。
+        // 文字コードは UTF-8 のほか Shift_JIS も読み、読んだ文字コードのまま書く（_shiftJis）。
+        private bool _plain;
+        private bool _shiftJis;
         private DateTime _stamp;
 
         // 開いた（読み直した・保存した）ときのファイルの大きさ。時刻と合わせて「外で変わったか」を見る（2026-10-24）。
@@ -120,6 +125,30 @@ namespace Tsuzuri.Markdown
         public IList<PageRegion> Pages
         {
             get { return _pages; }
+        }
+
+        /// <summary>テキストファイル（.txt）か（2026-11-21）。ページはルートだけで、Markdown として扱わない。</summary>
+        public bool IsPlain
+        {
+            get { return _plain; }
+        }
+
+        /// <summary>テキストファイル（.txt）の場所か（2026-11-21。Attachments.IsPlainText も同じ）。</summary>
+        public static bool IsPlainText(string path)
+        {
+            return !string.IsNullOrEmpty(path) && string.Equals(Path.GetExtension(path), ".txt", StringComparison.OrdinalIgnoreCase);
+        }
+
+        /// <summary>読んだ文字コードの名前（画面・AI に出す）。</summary>
+        public string EncodingName
+        {
+            get { return _shiftJis ? "Shift_JIS" : _hadBom ? "UTF-8（BOM 付き）" : "UTF-8"; }
+        }
+
+        /// <summary>Shift_JIS（コードページ 932）。読めない・書けない文字は置き換えずに投げる（原本を壊さないため）。</summary>
+        private static Encoding ShiftJis()
+        {
+            return Encoding.GetEncoding(932, EncoderFallback.ExceptionFallback, DecoderFallback.ExceptionFallback);
         }
 
         /// <summary>保存するときと同じ形の、ファイル全体の文字（未保存の編集を含む）。</summary>
@@ -212,9 +241,34 @@ namespace Tsuzuri.Markdown
         {
             var bom = HasUtf8Bom(bytes);
             var offset = bom ? 3 : 0;
+            var plain = IsPlainText(path);
+            var shiftJis = false;
+
+            if (plain && bytes.Length >= 2 && ((bytes[0] == 0xFF && bytes[1] == 0xFE) || (bytes[0] == 0xFE && bytes[1] == 0xFF)))
+                throw new IOException("UTF-16 のファイルは開けません。テキストファイルは UTF-8 か Shift_JIS のものだけを扱います。");
 
             string text;
-            try
+            if (plain && !bom && !IsUtf8(bytes))
+            {
+                // テキストファイルは Shift_JIS も読む（2026-11-21）。読み直して同じバイト列に戻るときだけ開く
+                // （戻らないなら、保存で原本を変えてしまう。UTF-16 など、ほかの文字コードもここで断る）。
+                try
+                {
+                    text = ShiftJis().GetString(bytes);
+                    if (!SameBytes(ShiftJis().GetBytes(text), bytes)) throw new DecoderFallbackException();
+                    // .NET の Shift_JIS は、Shift_JIS に無い1バイト（0xA0・0xFD〜0xFF）も私用の文字（U+F8F0〜U+F8F3）として読む。それがあれば Shift_JIS ではない
+                    foreach (var c in text)
+                    {
+                        if (c >= '\uF8F0' && c <= '\uF8F3') throw new DecoderFallbackException();
+                    }
+                    shiftJis = true;
+                }
+                catch (Exception ex) when (ex is DecoderFallbackException || ex is EncoderFallbackException)
+                {
+                    throw new IOException("UTF-8 としても Shift_JIS としても読めませんでした。テキストファイルは UTF-8 か Shift_JIS のものだけを扱います。");
+                }
+            }
+            else try
             {
                 // UTF-8 として読めないファイルは開かない。
                 // 読めたことにすると不正なバイトが置換文字になり、保存でそれを書き戻して
@@ -227,9 +281,15 @@ namespace Tsuzuri.Markdown
                     "UTF-8 として読めませんでした。このエディタは UTF-8 のファイルだけを扱います。");
             }
 
+            // テキストファイルに NUL があれば、文字のファイルではない（BOM の無い UTF-16・バイナリ）。開いて直すと壊すので開かない
+            if (plain && text.IndexOf('\0') >= 0)
+                throw new IOException("文字のファイルではないようです（NUL の文字があります）。UTF-16 やバイナリのファイルは開けません。");
+
             var document = new PageDocument();
             document._filePath = path;
             document._hadBom = bom;
+            document._plain = plain;
+            document._shiftJis = shiftJis;
             document._newLine = text.Contains("\r\n") ? "\r\n" : "\n";
             document._stamp = stamp;
             document._length = length;
@@ -237,6 +297,29 @@ namespace Tsuzuri.Markdown
             document.Parse(text);
 
             return document;
+        }
+
+        private static bool IsUtf8(byte[] bytes)
+        {
+            try
+            {
+                new UTF8Encoding(false, true).GetCharCount(bytes);
+                return true;
+            }
+            catch (DecoderFallbackException)
+            {
+                return false;
+            }
+        }
+
+        private static bool SameBytes(byte[] a, byte[] b)
+        {
+            if (a.Length != b.Length) return false;
+            for (var i = 0; i < a.Length; i++)
+            {
+                if (a[i] != b[i]) return false;
+            }
+            return true;
         }
 
         private static byte[] HashOf(byte[] bytes)
@@ -273,10 +356,10 @@ namespace Tsuzuri.Markdown
 
             // 書いたものを読み直して同じページの並びに戻るか確かめる。
             // 戻らないまま書くと、次に開いたときにページが割れたり混ざったりする。
-            if (!SamePageIds(ParsePages(text), _pages))
+            if (!_plain && !SamePageIds(ParsePages(text), _pages))
                 throw new IOException("ページの区切りを正しく書き出せないため、保存を中止しました。");
 
-            var data = Encode(text, _hadBom);
+            var data = EncodeForSave(text);
             var written = HashOf(data);
 
             // \\Mac\ 共有は書くのが遅く、その間に外（AI 等）で書き換わることがある。置き換える直前にもう一度確かめる（2026-10-24）。
@@ -370,6 +453,7 @@ namespace Tsuzuri.Markdown
             try
             {
                 var bytes = File.ReadAllBytes(_filePath);
+                if (_shiftJis) return Encoding.GetEncoding(932).GetCharCount(bytes);
                 var offset = HasUtf8Bom(bytes) ? 3 : 0;
                 return new UTF8Encoding(false, false).GetCharCount(bytes, offset, bytes.Length - offset);
             }
@@ -411,6 +495,8 @@ namespace Tsuzuri.Markdown
             _pages.Clear();
             _pages.AddRange(fresh._pages);
             _hadBom = fresh._hadBom;
+            _shiftJis = fresh._shiftJis;
+            _plain = fresh._plain;
             _newLine = fresh._newLine;
             _stamp = fresh._stamp;
             _length = fresh._length;
@@ -457,6 +543,19 @@ namespace Tsuzuri.Markdown
             toEnd = false;
 
             if (string.IsNullOrEmpty(id) && !Contains(id)) return false;
+
+            if (_plain)
+            {
+                // テキストファイルはページに分けない（印の形の行も本文）。全部がルート
+                if (!string.IsNullOrEmpty(id)) return false;
+                var whole = Serialize();
+                var count = 1;
+                foreach (var c in whole) if (c == '\n') count++;
+                first = 1;
+                last = count;
+                toEnd = true;
+                return true;
+            }
 
             // 行に分けた配列を作らずに、頭から数える（2026-11-15。数万行の文書で、話しかけるたびに数万本の文字列を作っていた）
             var text = Serialize();
@@ -540,6 +639,7 @@ namespace Tsuzuri.Markdown
         /// <summary>末尾に新しいページを足す。並び順に意味は無い。</summary>
         public string AddPage(string text)
         {
+            if (_plain) throw new InvalidOperationException("テキストファイル（.txt）にはページを足せません。");
             var id = CreateId();
 
             _pages.Add(new PageRegion(id, text ?? string.Empty));
@@ -839,6 +939,12 @@ namespace Tsuzuri.Markdown
         private void Parse(string text)
         {
             _pages.Clear();
+            if (_plain)
+            {
+                // テキストファイルは全部をルートに（印の形の行も、コードフェンスも見ない）
+                _pages.Add(new PageRegion(RootId, text.Replace("\r\n", "\n").Replace("\r", "\n")));
+                return;
+            }
             _pages.AddRange(ParsePages(text));
         }
 
@@ -924,6 +1030,9 @@ namespace Tsuzuri.Markdown
 
         private string Serialize()
         {
+            // テキストファイルは、ルートの中身を読んだときの改行で書くだけ（印の行に \ を付けない・フェンスを閉じない）
+            if (_plain) return _pages.Count == 0 ? string.Empty : _pages[0].Text.Replace("\r\n", "\n").Replace("\r", "\n").Replace("\n", _newLine);
+
             var builder = new StringBuilder();
 
             for (var i = 0; i < _pages.Count; i++)
@@ -1104,9 +1213,11 @@ namespace Tsuzuri.Markdown
                 {
                     Directory.CreateDirectory(folder);
 
-                    var path = Path.Combine(folder, name + tag + stamp + ".md");
+                    // 拡張子は元のまま（テキストファイルの逃げ道を .md にしない。2026-11-21）。中身はいつも UTF-8
+                    var extension = IsPlainText(filePath) ? Path.GetExtension(filePath) : ".md";
+                    var path = Path.Combine(folder, name + tag + stamp + extension);
                     for (var n = 2; File.Exists(path); n++)
-                        path = Path.Combine(folder, name + tag + stamp + "-" + n + ".md");
+                        path = Path.Combine(folder, name + tag + stamp + "-" + n + extension);
 
                     WriteAtomically(path, data);
                     return path;
@@ -1118,6 +1229,25 @@ namespace Tsuzuri.Markdown
             }
 
             return null;
+        }
+
+        /// <summary>
+        /// 保存する中身のバイト列。読んだ文字コードのまま（Shift_JIS で読んだテキストファイルは Shift_JIS）。
+        /// Shift_JIS で書けない文字（絵文字・一部の漢字など）があれば、? に置き換えずに投げる（保存をやめる。画面の内容は残る）。
+        /// </summary>
+        private byte[] EncodeForSave(string text)
+        {
+            if (!_shiftJis) return Encode(text, _hadBom);
+
+            try
+            {
+                return ShiftJis().GetBytes(text);
+            }
+            catch (EncoderFallbackException ex)
+            {
+                var bad = ex.CharUnknown != '\0' ? ex.CharUnknown.ToString() : (ex.CharUnknownHigh.ToString() + ex.CharUnknownLow);
+                throw new IOException("このファイルは Shift_JIS なので、Shift_JIS で書けない文字「" + bad + "」があるうちは保存できません。その文字を消すか、別の文字にしてください。");
+            }
         }
 
         private static byte[] Encode(string text, bool bom)

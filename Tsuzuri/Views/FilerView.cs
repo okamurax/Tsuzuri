@@ -588,7 +588,7 @@ namespace Tsuzuri.Views
             row.Background = Brushes.Transparent;
             row.Cursor = Cursors.Hand;
             row.ToolTip = isFolder ? path + Environment.NewLine + "クリックで移る／ランチャーへドラッグで登録"
-                : path + Environment.NewLine + (IsMarkdown(path)
+                : path + Environment.NewLine + (IsMarkdown(path) || Attachments.IsPlainText(path)
                     ? "クリックでこのエディタで開く／本文へドラッグでリンクを入れる"
                     : "クリックで開く／本文へドラッグでリンクを入れる");
 
@@ -652,7 +652,7 @@ namespace Tsuzuri.Views
         /// </summary>
         private void Open(string path)
         {
-            if ((IsMarkdown(path) || IsScript(path)) && _openDocument != null)
+            if ((IsMarkdown(path) || Attachments.IsPlainText(path) || IsScript(path)) && _openDocument != null)   // .txt もこのエディタで（2026-11-21）
             {
                 _openDocument(path);
                 return;

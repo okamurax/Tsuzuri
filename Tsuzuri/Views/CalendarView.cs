@@ -40,7 +40,6 @@ namespace Tsuzuri.Views
         private const int WeeksAfter = 26;          // 初めに出す、今週より後の週
         private const int WeeksPerExtend = 12;      // 端へスクロールしたら足す週
         private const double ExtendMargin = 600;    // 端からこれだけ手前まで来たら足す
-        private const int UndoLimit = 50;
         private const double FlashSeconds = 2.5;    // 外で増えた・変わった予定を光らせる時間
         private const double NoticeSeconds = 8;     // 上の段の「外で変わりました」を出しておく時間
         private const double WeekGrip = 6;          // 週の下の境のこの高さをつかむと、週の高さを変える
@@ -59,7 +58,6 @@ namespace Tsuzuri.Views
         private static readonly CultureInfo Japanese = CultureInfo.GetCultureInfo("ja-JP");
         private static readonly FontFamily IconFont = new FontFamily("Segoe Fluent Icons, Segoe MDL2 Assets");
 
-        private enum Gesture { None, Move, ResizeStart, ResizeEnd }
 
         private readonly string _path;
         private readonly Action<string> _status;
@@ -85,11 +83,10 @@ namespace Tsuzuri.Views
         private readonly Dictionary<DateTime, Border> _cells = new Dictionary<DateTime, Border>();
         private DateTime? _dropOn;
 
-        private List<ScheduleItem> _items = new List<ScheduleItem>();
+        private readonly ScheduleBook _book = new ScheduleBook();   // 予定の一覧と、直す操作（Markdown/ScheduleBook.cs）
         private DateTime _loadedStamp;   // 読んだ・書いたときの更新日時（見張りのきっかけだけに使う。変わったかは中身で決める）
         private string _loadedText;      // 読んだ・書いたときの中身。null なら、まだ読めていない（直さない）
         private DateTime _builtDay;      // 組んだときの今日（日付が変わったら組み直す）
-        private readonly List<List<ScheduleItem>> _undo = new List<List<ScheduleItem>>();
 
         private readonly TextBlock _title = new TextBlock();
 
@@ -124,7 +121,7 @@ namespace Tsuzuri.Views
         private bool _selectingDays;
 
         // 帯をつかんでいる（動かす・延ばす）
-        private Gesture _gesture;
+        private ScheduleGesture _gesture;
         private ScheduleItem _dragItem;
         private DateTime? _dragOriginal;   // 繰り返しの予定なら、つかんでいる回（決まりどおりの日）
         private DateTime _dragShownStart;  // つかんだときに出ていた、その回の始まりの日
@@ -247,9 +244,9 @@ namespace Tsuzuri.Views
             main.Children.Add(_scroll);
             Children.Add(main);
 
-            _editTitle = Field(false);
-            _editInterval = Field(false);
-            _editUntil = Field(false);
+            _editTitle = Field();
+            _editInterval = Field();
+            _editUntil = Field();
             _editDelete = ToolButton("削除", "この予定を消す（Ctrl+Z で戻せる）");
             _editDelete.Margin = new Thickness(0, 0, 6, 0);
             _editDeleteAll = ToolButton("全部消す", "繰り返しの予定を全部の回ごと消す（Ctrl+Z で戻せる）");
@@ -317,7 +314,7 @@ namespace Tsuzuri.Views
             string text;
             _loadedStamp = Stamp();
             if (!TryRead(out text)) return;
-            _items = ScheduleFile.Parse(text);
+            _book.Replace(text);
             _loadedText = text;
         }
 
@@ -347,13 +344,6 @@ namespace Tsuzuri.Views
             return true;
         }
 
-        /// <summary>読み直したあとの、直す相手（同じ物が無ければ、読み直す前と同じ形の予定。無ければ null）。</summary>
-        private ScheduleItem Current(ScheduleItem item, string key)
-        {
-            if (_items.Contains(item)) return item;
-            return _items.FirstOrDefault(other => KeyOf(other) == key);
-        }
-
         /// <summary>直す相手が外で変わった・消えたので、やめたことを知らせる。</summary>
         private void Gone()
         {
@@ -365,13 +355,6 @@ namespace Tsuzuri.Views
         private bool Busy
         {
             get { return _editorOpen || _newBox != null || _dragItem != null || _selectingDays || _sizingRow != null; }
-        }
-
-        /// <summary>直す前の中身を覚える（Ctrl+Z）。</summary>
-        private void Remember()
-        {
-            _undo.Add(_items.Select(item => item.Clone()).ToList());
-            if (_undo.Count > UndoLimit) _undo.RemoveAt(0);
         }
 
         private void Save()
@@ -386,7 +369,7 @@ namespace Tsuzuri.Views
             {
                 var folder = Path.GetDirectoryName(_path);
                 if (!string.IsNullOrEmpty(folder)) Directory.CreateDirectory(folder);
-                var text = ScheduleFile.Serialize(_items);
+                var text = _book.Serialize();
                 File.WriteAllText(temp, text, new UTF8Encoding(false));
                 if (File.Exists(_path)) PageDocument.ReplaceWith(temp, _path);
                 else File.Move(temp, _path);
@@ -450,33 +433,11 @@ namespace Tsuzuri.Views
             }));
         }
 
-        /// <summary>予定を見分ける形（日・名前・結んだ見出し・メモ）。読み直したときに、増えた・変わった予定を探す。</summary>
-        private static string KeyOf(ScheduleItem item)
-        {
-            return item.Start.Ticks + "|" + item.End.Ticks + "|" + item.Title + "|" + item.LinkFile + "|" + item.LinkPage + "|" + item.LinkHeading + "|" + item.Memo
-                   + "|" + item.Repeat + "|" + string.Join(",", item.Skips.Select(date => date.Ticks))
-                   + "|" + string.Join(",", item.Moves.Select(pair => pair.Key.Ticks + ">" + pair.Value.Ticks));
-        }
-
         /// <summary>外で書き換わって読み直したとき。増えた・変わった予定を光らせ、上の段に何件変わったかを出す。</summary>
         private void MarkChanges(List<ScheduleItem> before)
         {
-            var oldKeys = new Dictionary<string, int>();
-            foreach (var item in before)
-            {
-                var key = KeyOf(item);
-                oldKeys[key] = oldKeys.TryGetValue(key, out var n) ? n + 1 : 1;
-            }
-
-            var added = new List<ScheduleItem>();
-            foreach (var item in _items)
-            {
-                var key = KeyOf(item);
-                int n;
-                if (oldKeys.TryGetValue(key, out n) && n > 0) oldKeys[key] = n - 1;
-                else added.Add(item);
-            }
-            var removed = oldKeys.Values.Sum();
+            int removed;
+            var added = _book.AddedSince(before, out removed);
             var changed = Math.Min(added.Count, removed);   // 変わった予定は「消えて増えた」に見える。少ない方を「変わった」と数える
 
             _flash = new HashSet<ScheduleItem>(added);
@@ -904,17 +865,17 @@ namespace Tsuzuri.Views
 
         /// <summary>
         /// from〜to に掛かる回。つかんでいる帯は、動かした・延ばした先の形で出す（繰り返しの予定を動かすときは、その回だけ。延ばすときは全部の回）。
-        /// 回の Item は、いつも _items の中の予定（選ぶ・つかむ・消すの相手）。
+        /// 回の Item は、いつも _book.Items の中の予定（選ぶ・つかむ・消すの相手）。
         /// </summary>
         private List<ScheduleOccurrence> ShownIn(DateTime from, DateTime to)
         {
             var list = new List<ScheduleOccurrence>();
             var spread = Math.Abs(_dragDelta);
-            foreach (var item in _items)
+            foreach (var item in _book.Items)
             {
                 var dragging = ReferenceEquals(item, _dragItem) && _dragDelta != 0;
-                var moveOne = dragging && item.IsRepeat && _gesture == Gesture.Move;
-                var source = dragging && !moveOne ? Apply(item, _gesture, _dragDelta) : item;
+                var moveOne = dragging && item.IsRepeat && _gesture == ScheduleGesture.Move;
+                var source = dragging && !moveOne ? ScheduleBook.Reshaped(item, _gesture, _dragDelta) : item;
                 foreach (var occ in ScheduleRepeat.Occurrences(source, from.AddDays(-spread), to.AddDays(spread)))
                 {
                     occ.Item = item;
@@ -933,25 +894,6 @@ namespace Tsuzuri.Views
         private bool IsSelected(ScheduleOccurrence occ)
         {
             return ReferenceEquals(occ.Item, _selected) && (!occ.IsRepeat || occ.Original == _selectedOriginal);
-        }
-
-        private static ScheduleItem Apply(ScheduleItem item, Gesture gesture, int delta)
-        {
-            var moved = item.Clone();
-            switch (gesture)
-            {
-                case Gesture.Move:
-                    moved.Start = item.Start.AddDays(delta);
-                    moved.End = item.End.AddDays(delta);
-                    break;
-                case Gesture.ResizeEnd:
-                    moved.End = item.End.AddDays(delta) < item.Start ? item.Start : item.End.AddDays(delta);
-                    break;
-                case Gesture.ResizeStart:
-                    moved.Start = item.Start.AddDays(delta) > item.End ? item.End : item.Start.AddDays(delta);
-                    break;
-            }
-            return moved;
         }
 
         private Border BuildBar(ScheduleOccurrence occ, DateTime weekStart, DateTime weekEnd)
@@ -998,15 +940,15 @@ namespace Tsuzuri.Views
                 BorderBrush = selected ? Resource("AccentBrush") : Brushes.Transparent,
                 BorderThickness = new Thickness(1),
                 Cursor = Cursors.Hand,
-                Opacity = ReferenceEquals(item, _dragItem) && _dragDelta != 0 && (!occ.IsRepeat || _gesture != Gesture.Move || occ.Original == _dragOriginal) ? 0.75 : 1,
+                Opacity = ReferenceEquals(item, _dragItem) && _dragDelta != 0 && (!occ.IsRepeat || _gesture != ScheduleGesture.Move || occ.Original == _dragOriginal) ? 0.75 : 1,
                 ToolTip = Tip(occ, found),
             };
 
             // 端に載せたら、延ばせる印（左右の矢印）にする。端は、その週で始まる・終わるときだけ
             bar.MouseMove += (sender, e) =>
             {
-                if (_gesture != Gesture.None) return;
-                bar.Cursor = EdgeOf(bar, e, startGrip, endsHere) != Gesture.Move ? Cursors.SizeWE : Cursors.Hand;
+                if (_gesture != ScheduleGesture.None) return;
+                bar.Cursor = EdgeOf(bar, e, startGrip, endsHere) != ScheduleGesture.Move ? Cursors.SizeWE : Cursors.Hand;
             };
             bar.MouseLeftButtonDown += (sender, e) => OnBarDown(occ, bar, e, startGrip, endsHere);
             return bar;
@@ -1037,12 +979,12 @@ namespace Tsuzuri.Views
             return Color.FromRgb((byte)(from.R + (to.R - from.R) * t), (byte)(from.G + (to.G - from.G) * t), (byte)(from.B + (to.B - from.B) * t));
         }
 
-        private static Gesture EdgeOf(Border bar, MouseEventArgs e, bool startsHere, bool endsHere)
+        private static ScheduleGesture EdgeOf(Border bar, MouseEventArgs e, bool startsHere, bool endsHere)
         {
             var x = e.GetPosition(bar).X;
-            if (endsHere && x >= bar.ActualWidth - EdgeGrip) return Gesture.ResizeEnd;
-            if (startsHere && x <= EdgeGrip) return Gesture.ResizeStart;
-            return Gesture.Move;
+            if (endsHere && x >= bar.ActualWidth - EdgeGrip) return ScheduleGesture.ResizeEnd;
+            if (startsHere && x <= EdgeGrip) return ScheduleGesture.ResizeStart;
+            return ScheduleGesture.Move;
         }
 
         private static string Tip(ScheduleOccurrence occ, bool found)
@@ -1220,7 +1162,7 @@ namespace Tsuzuri.Views
             var delta = _dragDelta;
 
             _dragItem = null;
-            _gesture = Gesture.None;
+            _gesture = ScheduleGesture.None;
             _dragDelta = 0;
             _selectingDays = false;
             if (_weeks.IsMouseCaptured) _weeks.ReleaseMouseCapture();
@@ -1229,35 +1171,16 @@ namespace Tsuzuri.Views
             var original = _dragOriginal;
             var shownStart = _dragShownStart;
             _dragOriginal = null;
-            var key = KeyOf(item);
+            var key = ScheduleBook.KeyOf(item);
             if (commit && delta != 0 && Sync())
             {
-                var target = Current(item, key);
+                var target = _book.Find(item, key);
                 if (target == null)
                 {
                     Gone();
                     return;
                 }
-                if (target.IsRepeat && original.HasValue && gesture == Gesture.Move)
-                {
-                    // 繰り返しの予定を動かすと、その回だけ動く。元の日へ戻したら、動かした記録を消す
-                    var to = shownStart.AddDays(delta);
-                    Remember();
-                    if (to == original.Value) target.Moves.Remove(original.Value);
-                    else target.Moves[original.Value] = to;
-                    Save();
-                }
-                else
-                {
-                    var changed = Apply(target, gesture, delta);
-                    if (changed.Start != target.Start || changed.End != target.End)
-                    {
-                        Remember();
-                        target.Start = changed.Start;
-                        target.End = changed.End;
-                        Save();
-                    }
-                }
+                if (_book.Drag(target, original, shownStart, gesture, delta)) Save();
             }
             Rebuild();
         }
@@ -1324,10 +1247,7 @@ namespace Tsuzuri.Views
 
             if (title.Length > 0 && Sync())   // 足すのは、外で書き換わっていても読み直した中身に足せばよい
             {
-                Remember();
-                var item = new ScheduleItem { Start = date, End = date, Title = title };
-                _items.Add(item);
-                _selected = item;
+                _selected = _book.Add(date, date, title);
                 _selectedOriginal = null;
                 Save();
             }
@@ -1380,17 +1300,7 @@ namespace Tsuzuri.Views
             CommitNew();
             if (!Sync()) return;
 
-            Remember();
-            var item = new ScheduleItem
-            {
-                Start = date.Value,
-                End = date.Value,
-                Title = ScheduleFile.OneLine(heading),
-                LinkFile = file,
-                LinkPage = page ?? string.Empty,
-                LinkHeading = heading,
-            };
-            _items.Add(item);
+            var item = _book.Add(date.Value, date.Value, heading, file, page, heading);
             _selected = item;
             _selectedOriginal = null;
             Save();
@@ -1487,13 +1397,12 @@ namespace Tsuzuri.Views
         /// <summary>外で書き換わった中身で出し直す。選んでいた予定は、同じ形の予定があれば選んだままにし、増えた・変わった予定を光らせる。</summary>
         private void ReloadFrom(string text)
         {
-            var before = _items;
+            var before = _book.Items;
             var firstRead = _loadedText == null;
-            var selectedKey = _selected != null ? KeyOf(_selected) : null;
-            _items = ScheduleFile.Parse(text);
+            var selectedKey = _selected != null ? ScheduleBook.KeyOf(_selected) : null;
+            _book.Replace(text);   // 戻す記録は捨てる（外の書き換えを戻してしまわないため）
             _loadedText = text;
-            _undo.Clear();   // 外の書き換えを戻してしまわないため
-            _selected = selectedKey != null ? _items.FirstOrDefault(item => KeyOf(item) == selectedKey) : null;
+            _selected = _book.Find(null, selectedKey);
             if (!firstRead) MarkChanges(before);
             Rebuild();
         }
@@ -1565,50 +1474,39 @@ namespace Tsuzuri.Views
         /// <summary>予定を消す。繰り返しの予定で original（その回の決まりどおりの日）があれば、その回だけ消す。</summary>
         private void Delete(ScheduleItem item, DateTime? original)
         {
-            var key = KeyOf(item);
+            var key = ScheduleBook.KeyOf(item);
             if (!Sync()) return;
-            var target = Current(item, key);
+            var target = _book.Find(item, key);
             if (target == null)
             {
                 Gone();
                 return;
             }
 
-            Remember();
-            if (target.IsRepeat && original.HasValue)
-            {
-                target.Moves.Remove(original.Value);
-                if (!target.Skips.Contains(original.Value)) target.Skips.Add(original.Value);
-                target.Skips.Sort();
-                Save();
-                if (ReferenceEquals(_selected, target)) _selected = null;
-                Rebuild();
-                _status("この回だけ消しました（Ctrl+Z で戻せます）: " + original.Value.ToString("M/d", CultureInfo.InvariantCulture) + " " + target.Title);
-                return;
-            }
-            _items.Remove(target);
+            var one = target.IsRepeat && original.HasValue;
+            if (!_book.Delete(target, original)) return;
             Save();
             if (ReferenceEquals(_selected, target)) _selected = null;
             Rebuild();
-            _status("予定を消しました（Ctrl+Z で戻せます）: " + target.Title);
+            _status(one
+                ? "この回だけ消しました（Ctrl+Z で戻せます）: " + original.Value.ToString("M/d", CultureInfo.InvariantCulture) + " " + target.Title
+                : "予定を消しました（Ctrl+Z で戻せます）: " + target.Title);
         }
 
         private void Undo()
         {
-            if (_undo.Count == 0)
+            if (_book.UndoCount == 0)
             {
                 _status("戻せる操作がありません");
                 return;
             }
             if (!Sync()) return;
-            if (_undo.Count == 0)
+            if (!_book.Undo())
             {
                 _status("予定が外で書き換えられていたので、戻せる操作はありません");   // 読み直すと戻す記録は捨てる
                 return;
             }
 
-            _items = _undo[_undo.Count - 1];
-            _undo.RemoveAt(_undo.Count - 1);
             _selected = null;
             Save();
             Rebuild();
@@ -1938,10 +1836,10 @@ namespace Tsuzuri.Views
         /// 欄の繰り返しを、保存先に書く決まりにする。なしなら null。読めない決まりを「そのまま」なら元の決まり。
         /// 終わりの日が読めなければ false（欄は閉じない）。
         /// </summary>
-        private bool ReadRepeat(ScheduleItem item, out string repeat, out DateTime start)
+        private bool ReadRepeat(ScheduleItem item, out string repeat)
         {
             repeat = null;
-            start = item.Start;
+            var start = item.Start;
             var choice = RepeatChoice;
             if (choice == "none") return true;
             if (choice == "keep")
@@ -2053,33 +1951,20 @@ namespace Tsuzuri.Views
             }
 
             string repeat;
-            DateTime start;
-            if (!ReadRepeat(editing, out repeat, out start)) return false;
-            var title = editing.IsLinked ? editing.Title : ScheduleFile.OneLine(_editTitle.Text);   // 結んだ予定の欄に出しているのはリンク先
+            if (!ReadRepeat(editing, out repeat)) return false;
+            var title = _editTitle.Text;   // 結んだ予定の欄に出しているのはリンク先だが、Edit が名前を見出しの文字のままにする
             CloseEditor();
-            var key = KeyOf(editing);
+            var key = ScheduleBook.KeyOf(editing);
             if (!Sync()) return true;
 
-            var target = Current(editing, key);
+            var target = _book.Find(editing, key);
             if (target == null)
             {
                 Gone();
                 return true;
             }
-            if (target.Title == title && target.Repeat == repeat && target.Start == start) return true;
+            if (!_book.Edit(target, title, repeat)) return true;
 
-            Remember();
-            target.Title = title;   // メモは画面では持たないが、保存先に書いてあれば消さずに残す
-            if (start != target.Start)
-            {
-                target.End = target.End.AddDays((start - target.Start).TotalDays);
-                target.Start = start;
-            }
-            if (target.Repeat != repeat)
-            {
-                target.Repeat = repeat;
-                ScheduleRepeat.Prune(target);   // もう回でない日の「消した」「動かした」は捨てる
-            }
             _selected = target;
             if (!target.IsRepeat) _selectedOriginal = null;
             Save();
@@ -2113,7 +1998,7 @@ namespace Tsuzuri.Views
             };
         }
 
-        private static TextBox Field(bool multiLine)
+        private static TextBox Field()
         {
             var box = new TextBox
             {
@@ -2125,13 +2010,6 @@ namespace Tsuzuri.Views
                 Padding = new Thickness(6, 4, 6, 4),
                 FontSize = 14,
             };
-            if (multiLine)
-            {
-                box.AcceptsReturn = true;
-                box.TextWrapping = TextWrapping.Wrap;
-                box.Height = 200;
-                box.VerticalScrollBarVisibility = ScrollBarVisibility.Auto;
-            }
             return box;
         }
 

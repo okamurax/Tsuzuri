@@ -185,6 +185,7 @@
     <Compile Include="Markdown\DocumentModel.cs" />
     <Compile Include="Markdown\DocumentHistory.cs" />
     <Compile Include="Markdown\ScheduleFile.cs" />
+    <Compile Include="Markdown\ScheduleBook.cs" />
     <Compile Include="Markdown\ScheduleRepeat.cs" />
     <Compile Include="Markdown\ScreenState.cs" />
     <Compile Include="Markdown\DocumentState.cs" />

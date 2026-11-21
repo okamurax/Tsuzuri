@@ -28,6 +28,7 @@ internal static class Program
             WeekSplit(round);
             Rules(round);
             PruneKeepsMatching(round);
+            BookOperations(round);
         }
 
         Console.WriteLine(_ng == 0 ? "全部 OK（" + rounds + " 回。種 " + seed + "）" : "NG: " + _ng + " 件（種 " + seed + "）");
@@ -413,5 +414,136 @@ internal static class Program
             Ng(round, "Prune が回でない日を残した", Show(before) + "\n→ " + Show(item));
         if (before.Skips.Count(date => rule.Matches(before.Start, date)) != item.Skips.Count)
             Ng(round, "Prune が回の日を捨てた", Show(before) + "\n→ " + Show(item));
+    }
+
+    // ---------------------------------------------------------------
+    // 直す操作（ScheduleBook）を続けて流す
+    // ---------------------------------------------------------------
+
+    /// <summary>
+    /// でたらめな操作を続けて、毎回: 保存先に書いて読み戻せる・変わらなかった操作は中身を変えない・戻す（Undo）とその前の中身に戻る・
+    /// 繰り返しの回を動かすと動かした先に1回だけ出る・回を消すと出なくなる・読み直して同じ予定を探せる、を見る。
+    /// </summary>
+    private static void BookOperations(int round)
+    {
+        var book = new ScheduleBook();
+        var seed = new List<ScheduleItem>();
+        var count = _random.Next(6);
+        for (var i = 0; i < count; i++) seed.Add(Item());
+        book.Replace(ScheduleFile.Serialize(seed));
+
+        var log = new List<string>();
+        for (var step = 0; step < 12; step++)
+        {
+            var before = book.Serialize();
+            var undoBefore = book.UndoCount;
+            var item = book.Items.Count > 0 ? book.Items[_random.Next(book.Items.Count)] : null;
+            var occs = item != null ? ScheduleRepeat.Occurrences(item, item.Start, item.Start.AddDays(200)) : new List<ScheduleOccurrence>();
+            var occ = occs.Count > 0 ? occs[_random.Next(occs.Count)] : null;
+            bool changed;
+            string what;
+
+            switch (item == null ? 0 : _random.Next(6))
+            {
+                case 0:
+                {
+                    var start = Day();
+                    var linked = Chance(30);
+                    var added = book.Add(start, start.AddDays(_random.Next(-2, 5)), Title(), linked ? @"D:\a.md" : null, linked ? "p1" : null, linked ? "見出し" : null);
+                    changed = true;
+                    what = "足す " + Show(added);
+                    if (added.End < added.Start) Ng(round, "足した予定の終わりが始まりより前", Show(added));
+                    break;
+                }
+                case 1:
+                {
+                    if (occ == null) goto case 0;
+                    var gesture = Pick(ScheduleGesture.Move, ScheduleGesture.ResizeStart, ScheduleGesture.ResizeEnd);
+                    var delta = _random.Next(-20, 21);
+                    var original = occ.Original;
+                    var target = occ.Start.AddDays(delta);
+                    what = "つかむ " + gesture + " " + delta + " " + Show(item) + " 回 " + (original.HasValue ? D(original.Value) : "-") + "@" + D(occ.Start);
+                    changed = book.Drag(item, original, occ.Start, gesture, delta);
+                    if (item.End < item.Start) Ng(round, "つかんだら終わりが始まりより前", what);
+                    if (changed && item.IsRepeat && original.HasValue && gesture == ScheduleGesture.Move)
+                    {
+                        var after = ScheduleRepeat.Occurrences(item, target.AddDays(-50), target.AddDays(50)).Where(o => o.Original == original).ToList();
+                        if (after.Count != 1 || after[0].Start != target) Ng(round, "動かした回が、動かした先に1回だけ出ない", what + "\n→ " + Show(item));
+                    }
+                    break;
+                }
+                case 2:
+                {
+                    var original = occ != null ? occ.Original : null;
+                    what = "消す " + Show(item) + " 回 " + (original.HasValue ? D(original.Value) : "全部");
+                    changed = book.Delete(item, original);
+                    if (item.IsRepeat && original.HasValue)
+                    {
+                        if (ScheduleRepeat.Occurrences(item, original.Value.AddDays(-60), original.Value.AddDays(60)).Any(o => o.Original == original))
+                            Ng(round, "消した回が出る", what + "\n→ " + Show(item));
+                    }
+                    else if (book.Items.Contains(item)) Ng(round, "消した予定が残る", what);
+                    break;
+                }
+                case 3:
+                {
+                    var repeat = Chance(30) ? null : RandomRule(item.Start);
+                    var title = Chance(50) ? item.Title : Title();
+                    what = "直す [" + title + "] " + repeat + " " + Show(item);
+                    var oldRepeat = item.Repeat;
+                    var oldTitle = item.Title;
+                    changed = book.Edit(item, title, repeat);
+                    // 決まりを変えたときだけ、回でない日の「消した」「動かした」を捨てる（変えていなければ、元からある物はそのまま。数えるときに見ないだけ）
+                    var rule = ScheduleRepeat.Parse(item.Repeat);
+                    if (item.Repeat != oldRepeat && rule != null
+                        && (item.Skips.Any(d => !rule.Matches(item.Start, d)) || item.Moves.Keys.Any(d => !rule.Matches(item.Start, d))))
+                        Ng(round, "決まりを直したあと、回でない日の消した・動かしたが残る", what + "\n→ " + Show(item));
+                    if (item.IsLinked && item.Title != oldTitle) Ng(round, "結んだ予定の名前が変わった", what + "\n→ " + Show(item));
+                    break;
+                }
+                case 4:
+                {
+                    what = "戻す";
+                    changed = book.Undo();
+                    break;
+                }
+                default:
+                {
+                    // 外で書き換わった: 書いて読み直し、同じ予定を探せるか
+                    var key = ScheduleBook.KeyOf(item);
+                    var old = book.Items;
+                    book.Replace(book.Serialize());
+                    int removed;
+                    var added = book.AddedSince(old, out removed);
+                    what = "読み直す";
+                    var found = book.Find(item, key);
+                    var expected = ScheduleFile.Parse(ScheduleFile.Serialize(new List<ScheduleItem> { item }))[0];
+                    if (found == null || ScheduleBook.KeyOf(found) != ScheduleBook.KeyOf(expected))
+                    {
+                        // 書くと形が変わる予定（名前の改行など）は、読み直す前の形では探せない。読み戻した形で探せればよい
+                        if (book.Find(null, ScheduleBook.KeyOf(expected)) == null) Ng(round, "読み直したあと、同じ予定を探せない", Show(item));
+                    }
+                    if (book.UndoCount != 0) Ng(round, "読み直したのに戻す記録が残る", null);
+                    changed = false;
+                    if (book.Serialize() != before) Ng(round, "書いて読み直したら中身が変わった", before + "\n---\n" + book.Serialize());
+                    log.Add(what);
+                    continue;
+                }
+            }
+            log.Add(what + (changed ? "" : "（変わらない）"));
+
+            var now = book.Serialize();
+            var reparsed = ScheduleFile.Serialize(ScheduleFile.Parse(now));
+            if (reparsed != now) Ng(round, "操作のあと、書いて読み戻すと変わる", string.Join("\n", log) + "\n" + now);
+            if (!changed && what != "戻す" && now != before) Ng(round, "変わらないと言った操作で中身が変わった", string.Join("\n", log));
+            if (changed && what != "戻す")
+            {
+                if (book.UndoCount != Math.Min(undoBefore + 1, ScheduleBook.UndoLimit)) Ng(round, "戻す記録が積まれない", string.Join("\n", log));
+                var copy = book.Serialize();
+                if (book.Undo() && book.Serialize() != before) Ng(round, "戻すと前の中身に戻らない", string.Join("\n", log) + "\n前:\n" + before + "\n戻した:\n" + book.Serialize());
+                // 戻したのをやり直す代わりに、読み直して続ける（戻す記録は捨てる）
+                book.Replace(copy);
+            }
+        }
     }
 }

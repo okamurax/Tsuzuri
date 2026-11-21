@@ -210,6 +210,15 @@
     <Compile Include="Views\ScrollThumbLength.cs" />
     <Compile Include="Views\CodeCopyLayer.cs" />
     <Compile Include="Views\CalendarView.cs" />
+    <Compile Include="Views\CalendarView.Data.cs">
+      <DependentUpon>CalendarView.cs</DependentUpon>
+    </Compile>
+    <Compile Include="Views\CalendarView.Editor.cs">
+      <DependentUpon>CalendarView.cs</DependentUpon>
+    </Compile>
+    <Compile Include="Views\CalendarView.Input.cs">
+      <DependentUpon>CalendarView.cs</DependentUpon>
+    </Compile>
     <Compile Include="Views\CodeBlockRenderer.cs" />
     <Compile Include="Views\SearchColorizer.cs" />
     <Compile Include="Views\MarkdownView.cs" />

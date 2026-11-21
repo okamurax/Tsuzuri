@@ -2556,7 +2556,11 @@ Claude が答え終わるたび（Stop のフック）につながるカード�
 - 前に作ったフローのページは、ふつうのサブページ（見出しと本文）として開く
 - 消す前のものは git の履歴から戻せる（消したコミットの1つ前）
 
-## 22. カレンダー（2026-11-20。`MainWindow.Calendar.cs`・`Views/CalendarView.cs`・`Markdown/ScheduleFile.cs`）
+## 22. カレンダー（2026-11-20。`MainWindow.Calendar.cs`・`Views/CalendarView*.cs`・`Markdown/Schedule*.cs`）
+
+作りの分け方（2026-11-21）: `ScheduleFile`（保存先の形）・`ScheduleRepeat`（繰り返しの決まりと回の数え方）・`ScheduleBook`（予定の一覧と直す操作・戻す記録。画面を持たないので tools/schedule-fuzz で確かめる）。
+画面は `CalendarView.cs`（週の並べ方・帯）・`.Data.cs`（保存先の読み書き・見張り・AI に渡す状態）・`.Input.cs`（マウス・キー・足す・見出しを落とす）・`.Editor.cs`（名前と繰り返しの欄）。
+帯をつかんでいる間は、見えている週だけを組み直す（離したら全部）。
 
 **予定を週の行で下へずっと並べ、カレンダーの画面で直接打って直す。** 保存先は .md だが、裏の置き場所として扱い、利用者は直接は見ない（利用者の考え）。
 Google カレンダーで足りていなかった「タスクと予定の境が曖昧」「タスクのボリュームが見えない」を、手元で試すためのもの。Google への反映は今は置いておく。

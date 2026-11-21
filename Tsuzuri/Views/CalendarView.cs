@@ -35,7 +35,7 @@ namespace Tsuzuri.Views
         private const double DayNumberHeight = 22;
         private const double LaneHeight = 22;
         private const double RowMinHeight = 112;   // 週の高さの元（戻すアイコンで戻る値）
-        private const double RowHeightStep = 28;   // 上の段の＋－で一律に変える量
+        private const double RowHeightStep = 56;   // 上の段の＋－で一律に変える量
         private const double RowHeightMax = 560;
         private const double EdgeGrip = 7;          // 帯の端のこの幅をつかむと延ばす・縮める
         private const int WeeksBefore = 8;          // 初めに出す、今週より前の週

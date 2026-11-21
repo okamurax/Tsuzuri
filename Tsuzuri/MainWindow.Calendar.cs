@@ -63,7 +63,9 @@ namespace Tsuzuri
         {
             if (_calendar != null)
             {
-                CloseCalendar();
+                // ランチャーの下に隠れていれば、ランチャーを閉じてカレンダーを見せる（閉じるのは見えているときに押したとき）
+                if (_launcher != null) CloseLauncher();
+                else CloseCalendar();
                 return;
             }
 

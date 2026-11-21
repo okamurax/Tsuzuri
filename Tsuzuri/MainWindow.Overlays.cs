@@ -56,7 +56,8 @@ namespace Tsuzuri
                 && !string.Equals(last, _filer.Folder, StringComparison.OrdinalIgnoreCase))
                 _filer.Navigate(last);
 
-            if (!CloseCalendar()) return;   // カレンダーとは同時に出さない
+            // カレンダーは閉じない（2026-11-21。利用者の考え）。ランチャーを上に重ね、ランチャーを閉じればカレンダーに戻る。
+            // ランチャーは外を押す・Esc でも閉じるが、カレンダーはタブ（Alt+C）でだけ閉じるので
 
             _launcher = new LauncherView(_settings, OpenFromLauncher, Status, folder =>
             {
@@ -127,8 +128,9 @@ namespace Tsuzuri
             LauncherHost.Visibility = Visibility.Collapsed;
             PaintLauncherButton();
 
-            // ランチャーにフォーカスがあったなら、下のエディタへ戻す（外を押して閉じたときは、押した先に任せる）。
-            if (hadFocus && Active != null) Active.TextArea.Focus();
+            // ランチャーにフォーカスがあったなら、下（カレンダーを出していればカレンダー、無ければエディタ）へ戻す（外を押して閉じたときは、押した先に任せる）。
+            if (hadFocus && _calendar != null) _calendar.Focus();
+            else if (hadFocus && Active != null) Active.TextArea.Focus();
         }
 
         /// <summary>「ランチャー」のタブを、出している間は今の画面のタブと同じ色にする（App.xaml の LauncherTabButton が Tag を見る）。</summary>
@@ -156,6 +158,7 @@ namespace Tsuzuri
                 // この画面が何も開いていなければ、この画面で開く（空のタブを残さない。「新規作成」と同じ）。
                 // この画面・ほかの画面ですでに開いていれば、その画面のルートページを出す（リンクで別の文書を開くときと同じ。OpenLinkedFile）。
                 CloseLauncher();
+                CloseCalendar();   // 開いた文書を見せる（カレンダーの下に開くと見えない。見出しへ飛ぶときと同じ）
                 if (!HasDocument) OpenRoot(path);
                 else OpenLinkedFile(path, null);
                 return;
@@ -179,6 +182,7 @@ namespace Tsuzuri
 
             // ランチャーと同じく、新しい画面（タブ）で開く（2026-11-03。ランチャーとファイラーは1つの画面に並んでいて、片方だけ今のタブで開くと戸惑うため）。
             CloseLauncher();   // 開いたものを見せる
+            CloseCalendar();
             if (!HasDocument) OpenRoot(path);
             else OpenLinkedFile(path, null);
         }

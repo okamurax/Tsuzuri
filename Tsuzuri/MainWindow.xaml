@@ -169,7 +169,7 @@
                          エディタはそのままで、閉じれば全部また見える（MainWindow.Overlays.cs。
                          前は最前面の独立したウィンドウ、その前は本文の右側に滑らせて重ねていた）。
                          出している間はフォーカスをここへ移す（覆われた本文に打ち込まないため）ので、Focusable にする -->
-                    <Border x:Name="LauncherHost" Visibility="Collapsed"
+                    <Border x:Name="LauncherHost" Visibility="Collapsed" Panel.ZIndex="1"
                             Focusable="True" FocusVisualStyle="{x:Null}"
                             Background="{StaticResource SidebarBackground}">
                         <Grid>
@@ -189,7 +189,8 @@
                         </Grid>
                     </Border>
 
-                    <!-- カレンダー（SPEC 22章。2026-11-20。MainWindow.Calendar.cs・Views/CalendarView.cs）。ランチャーと同じく本文の場所いっぱいに重ねる -->
+                    <!-- カレンダー（SPEC 22章。2026-11-20。MainWindow.Calendar.cs・Views/CalendarView.cs）。ランチャーと同じく本文の場所いっぱいに重ねる。
+                         カレンダーを出したままランチャーを出すと、ランチャーが上に重なり（LauncherHost の ZIndex）、閉じるとカレンダーに戻る（2026-11-21） -->
                     <Border x:Name="CalendarHost" Visibility="Collapsed"
                             Focusable="False"
                             Background="{StaticResource SidebarBackground}" />

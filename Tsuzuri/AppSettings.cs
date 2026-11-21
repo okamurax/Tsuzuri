@@ -42,13 +42,13 @@ namespace Tsuzuri
         [DataMember(Name = "aiShellSplit", EmitDefaultValue = false)]
         public double AiShellSplit { get; set; }
 
-        /// <summary>カレンダーの予定の保存先（2026-11-20。SPEC 22章）。空なら app.json の隣の 予定.md。%USERPROFILE% などの環境変数を使える。</summary>
+        /// <summary>カレンダーの予定の保存先（2026-11-20。SPEC 22章）。空なら app.json の隣の schedule.md。%USERPROFILE% などの環境変数を使える。</summary>
         [DataMember(Name = "scheduleFile", EmitDefaultValue = false)]
         public string ScheduleFile { get; set; }
 
         /// <summary>
         /// カレンダーで高さを広げた週（2026-11-21）。「週の始まりの日（日曜。yyyy-MM-dd）=高さ」。広げていない週は持たない。
-        /// 予定のデータではなく見た目なので、予定.md ではなくここに置く。
+        /// 予定のデータではなく見た目なので、schedule.md ではなくここに置く。
         /// </summary>
         [DataMember(Name = "calendarWeekHeights", EmitDefaultValue = false)]
         public List<string> CalendarWeekHeights { get; set; }

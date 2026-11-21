@@ -103,6 +103,50 @@ namespace Tsuzuri
             FocusAiShell();
         }
 
+        /// <summary>
+        /// Claude が共通ターミナルを出す（2026-11-21。terminal.ps1 -Open。パイプのスレッドから呼ぶ）。キーボードは取らない（利用者が会話のタブで打っていることがある）。
+        /// 中の PowerShell が動き出すまで 15 秒まで待つ。
+        /// </summary>
+        private string OpenAiShellForClaude()
+        {
+            var already = false;
+            try
+            {
+                Dispatcher.Invoke(new Action(delegate
+                {
+                    already = _aiShell != null && _aiShellShown && _aiShell.IsRunning;
+                    if (_aiShell == null) CreateAiShell();
+                    if (!_aiShellShown)
+                    {
+                        _aiShellShown = true;
+                        ApplyAiShellRows();
+                    }
+                }));
+            }
+            catch (Exception ex)
+            {
+                return "error\t共通ターミナルを出せなかった: " + ex.Message;
+            }
+            if (already) return "ok\t共通ターミナルはもう出ていた。";
+
+            var until = DateTime.UtcNow.AddSeconds(15);
+            while (DateTime.UtcNow < until)
+            {
+                bool running;
+                try
+                {
+                    running = Dispatcher.Invoke(new Func<bool>(() => _aiShell != null && _aiShell.IsRunning));
+                }
+                catch (Exception)
+                {
+                    running = false;
+                }
+                if (running) return "ok\t共通ターミナルを出した（PowerShell が動いている）。";
+                System.Threading.Thread.Sleep(200);
+            }
+            return "error\t共通ターミナルを出したが、15 秒たっても PowerShell が動き出さない。利用者に伝える。";
+        }
+
         private void CreateAiShell()
         {
             var powershell = "\"" + Path.Combine(Environment.SystemDirectory, "WindowsPowerShell", "v1.0", "powershell.exe") + "\" -NoLogo";
@@ -267,7 +311,7 @@ namespace Tsuzuri
         private string TypeIntoAiShell(string text, bool bracketed)
         {
             if (_aiShell == null || !_aiShell.IsRunning)
-                return "error\t共通ターミナルが開いていない。利用者に、AI の欄の上端の「＋＋」のボタン（会話を足す「＋」の隣）で出してもらう。";
+                return "error\t共通ターミナルが開いていない。terminal.ps1 -Open で出してから置き直す。";
             if (_aiShellQueue.Count > 0)
                 return "error\t前に置いた行の残りがまだある（" + _aiShellQueue.Count + " 行）。利用者が Enter で進めるか、Esc でやめるまで待つ。";
             if (_aiShellPending)

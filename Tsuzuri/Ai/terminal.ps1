@@ -6,6 +6,8 @@
 #       the same, with the text (several lines) read from a UTF-8 file
 #   powershell -NoProfile -ExecutionPolicy Bypass -File terminal.ps1 -Read
 #       writes everything the terminal keeps (up to 10000 lines) to a file and prints its path
+#   powershell -NoProfile -ExecutionPolicy Bypass -File terminal.ps1 -Open
+#       shows the terminal (starts PowerShell in it if needed) and waits until it runs. It does not take the keyboard
 #
 # It sends one line to the editor through the pipe of the window (TSUZURI_AI_PIPE, set for the claude of the AI pane)
 # and prints the answer. Exit code 1 when the editor refused.
@@ -14,7 +16,8 @@
 param(
     [string]$Type,
     [string]$TypeFile,
-    [switch]$Read
+    [switch]$Read,
+    [switch]$Open
 )
 
 $ErrorActionPreference = 'Stop'
@@ -25,12 +28,14 @@ function Fail([string]$message) { [Console]::Error.WriteLine($message); exit 1 }
 $pipe = $env:TSUZURI_AI_PIPE
 if (-not $pipe) { Fail 'TSUZURI_AI_PIPE is not set. Run this from claude in the AI pane of Tsuzuri (a conversation started before this feature needs a restart).' }
 
-if ($Read) {
+if ($Open) {
+    $request = 'shell-open'
+} elseif ($Read) {
     $request = 'shell-dump'
 } else {
     if ($TypeFile) { $text = [System.IO.File]::ReadAllText($TypeFile, [System.Text.Encoding]::UTF8) }
     elseif ($PSBoundParameters.ContainsKey('Type')) { $text = $Type }
-    else { Fail 'usage: -Type "text" | -TypeFile <file> | -Read' }
+    else { Fail 'usage: -Type "text" | -TypeFile <file> | -Read | -Open' }
     $request = 'shell-type' + [char]9 + [Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes($text))
 }
 

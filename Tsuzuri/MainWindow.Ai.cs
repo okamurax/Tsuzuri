@@ -163,6 +163,9 @@ namespace Tsuzuri
   - 画面は話しかけたときのもの。足りないとき・そのあとの出力を見たいときは、覚えている全部（1 万行まで）をファイルに書き出させて読む:
       powershell -NoProfile -ExecutionPolicy Bypass -File ""{terminal}"" -Read
     書き出したファイルのパスが返る。長いので、Grep か Read の offset・limit で要るところだけ読む。
+  - 出していなければ、自分で出せる（利用者に頼まなくてよい。キーボードは取らない。PowerShell が動き出すまで待って返る）:
+      powershell -NoProfile -ExecutionPolicy Bypass -File ""{terminal}"" -Open
+    出しただけでは何も実行しない。出したら、出したことを返事で一言伝える。
   - 共通ターミナルに文字を置ける。Enter は押さない（押すのは利用者）:
       powershell -NoProfile -ExecutionPolicy Bypass -File ""{terminal}"" -Type ""<1行>""
     複数行は、ファイルに書いて -TypeFile ""<ファイル>"" で渡す。中のプログラムが貼り付けの印を受け付けるなら（bash・vim など）まとめて置き、
@@ -1175,11 +1178,15 @@ namespace Tsuzuri
                         writer.Flush();
                         server.WaitForPipeDrain();
                     }
-                    else if (request != null && (request == "shell-dump" || request.StartsWith("shell-type\t", StringComparison.Ordinal)))
+                    else if (request != null && (request == "shell-dump" || request == "shell-open" || request.StartsWith("shell-type\t", StringComparison.Ordinal)))
                     {
-                        // 共通ターミナル（2026-11-08。terminal.ps1）。全部を書き出す・文字を置く。
+                        // 共通ターミナル（2026-11-08。terminal.ps1）。全部を書き出す・文字を置く・出す（2026-11-21）。
                         string answer;
-                        if (request == "shell-dump")
+                        if (request == "shell-open")
+                        {
+                            answer = OpenAiShellForClaude();
+                        }
+                        else if (request == "shell-dump")
                         {
                             answer = DumpAiShell();
                         }

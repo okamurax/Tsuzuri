@@ -2124,6 +2124,9 @@ WPF 標準のコントロールはそのままだと明るい前提の見た目�
       `%LOCALAPPDATA%\Tsuzuri\ai\terminal-プロセス番号-画面の番号.txt` に書き、そのパスを返す。Claude は Grep・Read で要るところだけ読む。エディタを閉じるときに消す
     - **パスワードなどは伏せる**: password・passwd・pre-shared-key・secret・community・pp auth username/myname の後ろを `***` にしてから渡す（毎回の分も全部も）。
       RTX の show config はもとから * で出すが、Linux の設定ファイルを cat したときなどのため
+    - **出す**（2026-11-21）: Claude が `terminal.ps1 -Open` で頼む（パイプの `shell-open`）。出していなければ出し（無ければ作る）、中の PowerShell が動き出すまで 15 秒まで待って返す。
+      キーボードは取らない（利用者が会話のタブで打っていることがある）。出すだけで何も実行しないので、利用者に頼まずに出してよいと指示に書く。
+      前は開いていなければ断り、利用者に「＋＋」を押してもらっていた
     - **文字を置く**: Claude が `terminal.ps1 -Type "1行"`（複数行は `-TypeFile`）で頼む（パイプの `shell-type→本文の Base64`）。Enter は付けない。
       - 中のプログラムが貼り付けの印（bracketed paste。xterm の `modes.bracketedPasteMode`）を受け付けるなら、印で囲んでまとめて置く（改行は実行にならない）
       - 受け付けないなら（RTX・PowerShell など。改行がそのまま実行になる）、1行目だけを置き、残りは預かる。利用者が Enter を押し、出力が 0.5 秒止まったら

@@ -169,6 +169,35 @@ internal static class Program
         Check(alarms(D(2026, 11, 24).AddHours(9.99), D(2026, 11, 24).AddHours(10)) == "11-24 10:00 定例", "ちょうどの時刻");
         Check(alarms(D(2026, 11, 24).AddHours(11), D(2026, 11, 24).AddHours(10)) == "", "時刻が戻ったら何も出さない");
 
+        // 繰り返しの回を動かす: この回だけ・これ以降・全部（2026-11-23）
+        Func<ScheduleItem, DateTime, DateTime, string> days = (item, from, to) => string.Join(",",
+            ScheduleRepeat.Occurrences(item, from, to).OrderBy(o => o.Start).Select(o => o.Start.ToString("MM-dd")));
+        Func<ScheduleBook> sundays = () =>
+        {
+            var book = new ScheduleBook();
+            book.Replace(ScheduleFile.Serialize(new List<ScheduleItem> { new ScheduleItem { Start = D(2026, 11, 22), End = D(2026, 11, 22), Title = "日曜", Repeat = "FREQ=WEEKLY" } }));
+            return book;
+        };
+        var one = sundays();
+        one.Drag(one.Items[0], D(2026, 11, 22), D(2026, 11, 22), ScheduleGesture.Move, -7, ScheduleMoveScope.One);
+        Check(days(one.Items[0], D(2026, 11, 1), D(2026, 12, 13)) == "11-15,11-29,12-06,12-13", "この回だけ: " + days(one.Items[0], D(2026, 11, 1), D(2026, 12, 13)));
+        var all = sundays();
+        all.Drag(all.Items[0], D(2026, 11, 22), D(2026, 11, 22), ScheduleGesture.Move, -7, ScheduleMoveScope.All);
+        Check(all.Items.Count == 1 && all.Items[0].Start == D(2026, 11, 15) && all.Items[0].Moves.Count == 0, "全部（1回目）: 始まりの日が 11/15 になる");
+        Check(days(all.Items[0], D(2026, 11, 1), D(2026, 12, 13)) == "11-15,11-22,11-29,12-06,12-13", "全部（1回目）: " + days(all.Items[0], D(2026, 11, 1), D(2026, 12, 13)));
+        var after = sundays();
+        after.Drag(after.Items[0], D(2026, 12, 6), D(2026, 12, 6), ScheduleGesture.Move, 1, ScheduleMoveScope.Following);
+        Check(after.Items.Count == 2 && after.Items[0].Repeat == "FREQ=WEEKLY;UNTIL=20261205" && after.Items[1].Start == D(2026, 12, 7), "これ以降: 2つに分かれる " + after.Serialize());
+        Check(days(after.Items[0], D(2026, 11, 1), D(2026, 12, 31)) + "|" + days(after.Items[1], D(2026, 11, 1), D(2026, 12, 31)) == "11-22,11-29|12-07,12-14,12-21,12-28",
+              "これ以降: " + days(after.Items[0], D(2026, 11, 1), D(2026, 12, 31)) + "|" + days(after.Items[1], D(2026, 11, 1), D(2026, 12, 31)));
+        var shift = sundays();
+        shift.Drag(shift.Items[0], D(2026, 11, 29), D(2026, 11, 29), ScheduleGesture.Move, 2, ScheduleMoveScope.All);
+        Check(days(shift.Items[0], D(2026, 11, 1), D(2026, 12, 13)) == "11-24,12-01,12-08" && shift.Items[0].Start == D(2026, 11, 24), "全部（2回目を火曜へ）: " + days(shift.Items[0], D(2026, 11, 1), D(2026, 12, 13)));
+        var twoWeeks = new ScheduleBook();
+        twoWeeks.Replace(ScheduleFile.Serialize(new List<ScheduleItem> { new ScheduleItem { Start = D(2026, 11, 23), End = D(2026, 11, 23), Title = "隔週", Repeat = "FREQ=WEEKLY;INTERVAL=2;BYDAY=MO,SA;WKST=SU" } }));
+        twoWeeks.Drag(twoWeeks.Items[0], D(2026, 11, 28), D(2026, 11, 28), ScheduleGesture.Move, 1, ScheduleMoveScope.All);
+        Check(twoWeeks.LastNote != null && twoWeeks.Items[0].Start == D(2026, 11, 23) && twoWeeks.Items[0].Moves.Count == 1, "2週ごとの土曜を日曜へ全部は、この回だけにする");
+
         // 名前の改行
         Check(ScheduleFile.OneLine(" a\r\n b \n") == "a b", "名前の改行");
 

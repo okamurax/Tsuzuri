@@ -465,9 +465,42 @@ internal static class Program
                     var original = occ.Original;
                     var target = occ.Start.AddDays(delta);
                     what = "つかむ " + gesture + " " + delta + " " + Show(item) + " 回 " + (original.HasValue ? D(original.Value) : "-") + "@" + D(occ.Start);
-                    changed = book.Drag(item, original, occ.Start, gesture, delta);
+                    var scope = Pick(ScheduleMoveScope.One, ScheduleMoveScope.Following, ScheduleMoveScope.All);
+                    what += " " + scope;
+                    var countBefore = book.Items.Count;
+                    var oldItem = item.Clone();
+                    changed = book.Drag(item, original, occ.Start, gesture, delta, scope);
                     if (item.End < item.Start) Ng(round, "つかんだら終わりが始まりより前", what);
-                    if (changed && item.IsRepeat && original.HasValue && gesture == ScheduleGesture.Move)
+                    var whole = changed && item.IsRepeat && original.HasValue && gesture == ScheduleGesture.Move && scope != ScheduleMoveScope.One
+                                && book.LastNote == null && target != original.Value && ScheduleRepeat.Parse(oldItem.Repeat) != null;
+                    if (whole)
+                    {
+                        // これ以降・全部: つかんだ回は動かした先に、決まりどおりの回として1回だけ出る。
+                        // つかんだ回より前の回はそのまま、後の回は（毎日・毎週なら）同じ日数ずれる。項目の数は、これ以降で1回目より後なら1つ増える
+                        var split = scope == ScheduleMoveScope.Following && original.Value > oldItem.Start;
+                        if (book.Items.Count != countBefore + (split ? 1 : 0)) Ng(round, "これ以降・全部で、予定の数が合わない", what);
+                        var tail = split ? book.Items[book.Items.IndexOf(item) + 1] : item;
+                        var landed = ScheduleRepeat.Occurrences(tail, target.AddDays(-50), target.AddDays(50)).Where(o => o.Start == target && o.Original == target).ToList();
+                        if (landed.Count != 1) Ng(round, "これ以降・全部で、つかんだ回が動かした先に出ない", what + "\n→ " + Show(item) + (split ? "\n+ " + Show(tail) : ""));
+                        var shift = (int)(target - original.Value).TotalDays;
+                        var from = oldItem.Start.AddDays(-40);
+                        var to = original.Value.AddDays(120);
+                        var olds = ScheduleRepeat.Occurrences(oldItem, from, to);
+                        var news = ScheduleRepeat.Occurrences(item, from.AddDays(-40), to.AddDays(40)).ToList();
+                        if (split) news.AddRange(ScheduleRepeat.Occurrences(tail, from.AddDays(-40), to.AddDays(40)));
+                        var kind = ScheduleRepeat.Parse(oldItem.Repeat).Kind;
+                        foreach (var o in olds)
+                        {
+                            var earlier = split && o.Original < original.Value;
+                            if (!earlier && kind != RepeatKind.Daily && kind != RepeatKind.Weekly) continue;
+                            // 動かしてあった回は動かした先のまま（つかんだ回は除く）
+                            var moved = o.Original.HasValue && o.Original != original && oldItem.Moves.ContainsKey(o.Original.Value);
+                            var want = earlier || moved ? o.Start : o.Start.AddDays(shift);
+                            if (o.Original == original) want = target;
+                            if (!news.Any(n => n.Start == want)) Ng(round, "これ以降・全部で、ほかの回がずれ方どおりに出ない（" + D(o.Start) + " → " + D(want) + "）", what + "\n→ " + Show(item) + (split ? "\n+ " + Show(tail) : ""));
+                        }
+                    }
+                    else if (changed && item.IsRepeat && original.HasValue && gesture == ScheduleGesture.Move)
                     {
                         var after = ScheduleRepeat.Occurrences(item, target.AddDays(-50), target.AddDays(50)).Where(o => o.Original == original).ToList();
                         if (after.Count != 1 || after[0].Start != target) Ng(round, "動かした回が、動かした先に1回だけ出ない", what + "\n→ " + Show(item));

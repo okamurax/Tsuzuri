@@ -158,8 +158,59 @@ namespace Tsuzuri.Views
             EndGesture(true);
         }
 
-        /// <summary>帯をつかむのを終える。commit なら、動かした・延ばした形を保存する。</summary>
+        /// <summary>
+        /// 帯をつかむのを終える。commit なら、動かした・延ばした形を保存する。
+        /// 繰り返しの予定の回を動かしたときは、離した所でメニューを出し「この回だけ／これ以降／全部」を尋ねる（2026-11-23。利用者の考え。Google カレンダーと同じ）。
+        /// 尋ねている間は、動かした先の形のまま出しておく（つかんだままの扱い。読み直し・組み直しもしない）。
+        /// </summary>
         private void EndGesture(bool commit)
+        {
+            if (_askingScope) return;   // マウスを放した（LostMouseCapture）。尋ねるメニューが答えを待っている
+            if (commit && _dragItem != null && _dragItem.IsRepeat && _dragOriginal.HasValue && _gesture == ScheduleGesture.Move && _dragDelta != 0)
+            {
+                AskMoveScope();
+                return;
+            }
+            FinishGesture(commit, ScheduleMoveScope.One);
+        }
+
+        /// <summary>繰り返しの回を動かした範囲を尋ねる。選ばずに閉じたら（Esc・ほかの所を押した）やめる。</summary>
+        private void AskMoveScope()
+        {
+            _askingScope = true;
+            if (_weeks.IsMouseCaptured) _weeks.ReleaseMouseCapture();
+
+            ScheduleMoveScope? chosen = null;
+            var menu = new ContextMenu { PlacementTarget = _weeks, Placement = System.Windows.Controls.Primitives.PlacementMode.MousePoint };
+            menu.Items.Add(FilerView.MenuTitle("繰り返しの予定を動かす"));
+            menu.Items.Add(new Separator());
+            foreach (var choice in new[]
+            {
+                new { Scope = ScheduleMoveScope.One, Header = "この回だけ", Tip = "ほかの回はそのまま" },
+                new { Scope = ScheduleMoveScope.Following, Header = "これ以降の回", Tip = "この回から後を同じ日数ずらす（前の回はそのまま。予定は2つに分かれる）" },
+                new { Scope = ScheduleMoveScope.All, Header = "全部の回", Tip = "1回目から全部を同じ日数ずらす" },
+            })
+            {
+                var scope = choice.Scope;
+                var entry = new MenuItem { Header = choice.Header, ToolTip = choice.Tip };
+                entry.Click += delegate { chosen = scope; };
+                menu.Items.Add(entry);
+            }
+            menu.Items.Add(new Separator());
+            menu.Items.Add(new MenuItem { Header = "やめる" });
+            // 押した項目の Click は閉じる前に来るが、閉じたあとで決める（念のため後へ回す）
+            menu.Closed += delegate
+            {
+                Dispatcher.BeginInvoke(new Action(delegate
+                {
+                    _askingScope = false;
+                    FinishGesture(chosen.HasValue, chosen ?? ScheduleMoveScope.One);
+                }), DispatcherPriority.Input);
+            };
+            menu.IsOpen = true;
+        }
+
+        private void FinishGesture(bool commit, ScheduleMoveScope scope)
         {
             var item = _dragItem;
             var gesture = _gesture;
@@ -184,7 +235,13 @@ namespace Tsuzuri.Views
                     Gone();
                     return;
                 }
-                if (_book.Drag(target, original, shownStart, gesture, delta)) Save();
+                if (_book.Drag(target, original, shownStart, gesture, delta, scope))
+                {
+                    Save();
+                    if (_book.LastNote != null) _status(_book.LastNote);
+                    else if (scope != ScheduleMoveScope.One && gesture == ScheduleGesture.Move && original.HasValue)
+                        _status((scope == ScheduleMoveScope.All ? "全部の回" : "これ以降の回") + "をずらしました（Ctrl+Z で戻せます）: " + target.Title);
+                }
             }
             Rebuild();
         }

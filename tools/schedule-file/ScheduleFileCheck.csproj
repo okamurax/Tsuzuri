@@ -10,5 +10,6 @@
   <ItemGroup>
     <Compile Include="../../Tsuzuri/Markdown/ScheduleFile.cs" />
     <Compile Include="../../Tsuzuri/Markdown/ScheduleRepeat.cs" />
+    <Compile Include="../../Tsuzuri/Markdown/ScheduleBook.cs" />
   </ItemGroup>
 </Project>

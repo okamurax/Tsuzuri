@@ -134,6 +134,7 @@ namespace Tsuzuri.Views
         private DateTime _dragShownStart;  // つかんだときに出ていた、その回の始まりの日
         private DateTime _dragFrom;
         private int _dragDelta;
+        private bool _askingScope;         // 繰り返しの回を動かした範囲を、メニューで尋ねている（つかんだままの扱い）
 
         // その日のマスで名前を打っている（足す）
         private DateTime? _newOn;

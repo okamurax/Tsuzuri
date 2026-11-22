@@ -113,14 +113,13 @@ namespace Tsuzuri.Views
         private readonly Dictionary<string, CachedImage> _images =
             new Dictionary<string, CachedImage>(StringComparer.OrdinalIgnoreCase);
 
-        // リンク先（本文に書いた文字）ごとの、最後にファイルを確かめた時刻と結果（2026-11-03）。
+        // 文書の場所とリンク先（本文に書いた文字）ごとの、ファイルを確かめた結果（2026-11-03）。
         // スクロールで画像の行が画面に入るたびに、ファイルがあるか・更新時刻を確かめていた。\\Mac\ の上では1回ごとに時間がかかり、スクロールがカクついた。
-        // 確かめてから少しの間は確かめ直さない。描き直したとき（RefreshImages）は捨てて確かめ直す。
+        // 2026-11-23 から、確かめるのは初めて出すときだけ（前は 5 秒たつと、画面に入るたびに確かめ直していた。利用者の考え）。
+        // 確かめ直すのは、窓が前に出たとき・Claude が書き換えたあと（RecheckImages。裏のスレッドで確かめ、変わった物があれば描き直す）と、
+        // 図エディタ・AI の図で描き直したとき（RefreshImages）。
         private readonly Dictionary<string, CheckedImage> _imageChecks =
             new Dictionary<string, CheckedImage>(StringComparer.Ordinal);
-
-        /// <summary>ファイルを確かめ直すまでの間。</summary>
-        private static readonly TimeSpan ImageRecheck = TimeSpan.FromSeconds(5);
 
         /// <summary>
         /// 画像を本文に出すときの、横の画素数の上限。これより大きい画像は縮めて覚える（2026-11-03）。
@@ -2438,8 +2437,11 @@ namespace Tsuzuri.Views
 
         private sealed class CheckedImage
         {
-            public DateTime Checked;
             public BitmapSource Image;
+
+            /// <summary>確かめたファイル（場所が決まらなければ null）と、その更新時刻（無い・読めなければ MinValue）。RecheckImages で比べる。</summary>
+            public string Path;
+            public DateTime Stamp;
         }
 
         /// <summary>
@@ -2454,33 +2456,67 @@ namespace Tsuzuri.Views
             if (target.IndexOf("://", StringComparison.Ordinal) >= 0) return null;   // 外部の画像は取りに行かない
 
             CheckedImage check;
-            var now = DateTime.UtcNow;
-            if (_imageChecks.TryGetValue(target, out check) && now - check.Checked < ImageRecheck) return check.Image;
+            var key = FilePath + "\n" + target;
+            if (_imageChecks.TryGetValue(key, out check)) return check.Image;
 
-            var image = ReadImage(target);
-            _imageChecks[target] = new CheckedImage { Checked = now, Image = image };
+            string path;
+            DateTime stamp;
+            var image = ReadImage(target, out path, out stamp);
+            _imageChecks[key] = new CheckedImage { Image = image, Path = path, Stamp = stamp };
             return image;
         }
 
-        private BitmapSource ReadImage(string target)
+        /// <summary>ファイルの更新時刻。無い・読めなければ MinValue。</summary>
+        private static DateTime StampOf(string path)
         {
-            var path = ResolvePath(target);
-            if (path == null || !File.Exists(path)) return null;
-            if (string.Equals(Path.GetExtension(path), ".svg", StringComparison.OrdinalIgnoreCase)) return null;
-
-            DateTime stamp;
             try
             {
-                stamp = File.GetLastWriteTimeUtc(path);
+                return File.Exists(path) ? File.GetLastWriteTimeUtc(path) : DateTime.MinValue;
             }
-            catch (IOException)
+            catch (Exception)
             {
-                return null;
+                return DateTime.MinValue;
             }
-            catch (UnauthorizedAccessException)
+        }
+
+        /// <summary>
+        /// 確かめた画像のファイルが、確かめたときから変わっていないかを裏のスレッドで見て、変わった物があれば確かめ直して描き直す（2026-11-23）。
+        /// 窓が前に出たとき・Claude が書き換えたあと（MainWindow.ReloadChangedDocuments）に呼ぶ。画面のスレッドではファイルに触らない。
+        /// </summary>
+        public void RecheckImages()
+        {
+            var checks = _imageChecks.Where(pair => pair.Value.Path != null).ToList();
+            if (checks.Count == 0) return;
+
+            System.Threading.Tasks.Task.Run(() => checks.Where(pair => StampOf(pair.Value.Path) != pair.Value.Stamp).ToList()).ContinueWith(done =>
             {
-                return null;
-            }
+                if (done.Status != System.Threading.Tasks.TaskStatus.RanToCompletion || done.Result.Count == 0) return;
+                Dispatcher.BeginInvoke(new Action(delegate
+                {
+                    var changed = false;
+                    foreach (var pair in done.Result)
+                    {
+                        CheckedImage now;
+                        if (!_imageChecks.TryGetValue(pair.Key, out now) || !ReferenceEquals(now, pair.Value)) continue;   // 待つ間に確かめ直した
+                        _imageChecks.Remove(pair.Key);
+                        changed = true;
+                    }
+                    if (!changed) return;
+                    _imageLine = -1;
+                    _hiddenLine = -1;
+                    TextArea.TextView.Redraw();
+                }));
+            });
+        }
+
+        private BitmapSource ReadImage(string target, out string path, out DateTime stamp)
+        {
+            stamp = DateTime.MinValue;
+            path = ResolvePath(target);
+            if (path == null) return null;
+            stamp = StampOf(path);
+            if (stamp == DateTime.MinValue) return null;
+            if (string.Equals(Path.GetExtension(path), ".svg", StringComparison.OrdinalIgnoreCase)) return null;
 
             CachedImage cached;
             if (_images.TryGetValue(path, out cached) && cached.Stamp == stamp) return cached.Image;

@@ -2268,6 +2268,7 @@ namespace Tsuzuri
             if (IsShowingDialog()) return;
 
             if (_calendar != null) _calendar.ReloadIfChanged();   // Claude が予定を書き換えたら出し直す（2026-11-21）
+            foreach (var view in _stack) view.RecheckImages();      // 画像は、ここでだけ確かめ直す（スクロールでは確かめない。2026-11-23）
 
             var documents = _stack.Select(view => view.Owner).Where(owner => owner != null).Distinct().ToList();
             var reloaded = new List<PageDocument>();

@@ -91,6 +91,15 @@ namespace Tsuzuri
 
             /// <summary>この会話で固定したカーソルの位置（下端の「カーソル」。2026-11-22）。無ければ null（エディタの今のカーソルを渡す）。</summary>
             public AiPinState Pin;
+
+            /// <summary>この会話の題（タブの段の下の欄。2026-11-22。MainWindow.AiTopic.cs）。無ければ null。</summary>
+            public string Topic;
+
+            /// <summary>題を作るのを頼んだ（この起動の中で、作るのは1回だけ）。</summary>
+            public bool TopicRequested;
+
+            /// <summary>端末のタイトル（Claude Code が付ける。ツールチップに出す）。</summary>
+            public string TerminalTitle;
         }
 
         /// <summary>エディタを閉じている最中か。閉じるときに claude が終わっても、開いていたタブの覚えを消さないようにする。</summary>
@@ -365,6 +374,7 @@ namespace Tsuzuri
                 tab.SessionId = restore.Session;
                 tab.Folder = restore.Folder;
                 tab.Project = string.IsNullOrWhiteSpace(restore.Project) ? null : restore.Project;
+                tab.Topic = string.IsNullOrWhiteSpace(restore.Topic) ? null : restore.Topic;
                 tab.Pin = restore.Pin != null && !string.IsNullOrEmpty(restore.Pin.File) && restore.Pin.Line > 0 ? restore.Pin : null;
                 var name = AiTabName(restore.Name);
                 if (!AiTabNameUsed(name)) tab.Name = name;
@@ -493,7 +503,8 @@ namespace Tsuzuri
         {
             // 見出しはセッションの名前のまま。端末のタイトル（Claude Code が会話の中身に合わせて付ける）はツールチップに出す（2026-11-01）。
             var text = (title ?? string.Empty).Trim();
-            tab.Header.ToolTip = "セッションの名前: " + tab.Name + (text.Length > 0 ? Environment.NewLine + text : string.Empty);
+            tab.TerminalTitle = text;
+            tab.Header.ToolTip = AiTabToolTip(tab);
         }
 
         /// <summary>アプリの中の（全部の画面の）AI の欄のタブで、その名前を使っているか。</summary>
@@ -552,6 +563,7 @@ namespace Tsuzuri
             ShowAiTabs();
             RefreshAiFileLinks();
             RefreshAiPinRows();
+            RefreshAiTopicBox();
             if (AiPane.Visibility == Visibility.Visible) FocusAiTerminal(tab);
         }
 
@@ -623,6 +635,7 @@ namespace Tsuzuri
                 _aiTab = null;
                 ShowAiTabs();
                 RefreshAiPinRows();
+                RefreshAiTopicBox();
                 HideAiPane();
                 return;
             }
@@ -670,7 +683,7 @@ namespace Tsuzuri
             if (_aiStopping) return;
 
             var tabs = _aiTabs.Where(tab => tab.SessionId != null)
-                              .Select(tab => new AiTabState { Session = tab.SessionId, Folder = tab.Folder, Name = tab.Name, Project = tab.Project, Pin = tab.Pin })
+                              .Select(tab => new AiTabState { Session = tab.SessionId, Folder = tab.Folder, Name = tab.Name, Project = tab.Project, Pin = tab.Pin, Topic = tab.Topic })
                               .ToList();
             SavedAiTabs = tabs.Count > 0 ? tabs : null;   // 画面ごとに覚える（2026-10-31）
             _settings.Save();
@@ -1192,7 +1205,8 @@ namespace Tsuzuri
         /// <param name="tabId">頼んできたタブの番号（パイプのフック）。分からなければ null。</param>
         /// <param name="session">頼んできた会話の番号（HTTP のフックの session_id）。分からなければ null。</param>
         /// <returns>書き出した今の状態。書けなければ・間に合わなければ null。</returns>
-        private string PrepareAiPrompt(string tabId, string session)
+        /// <param name="prompt">話しかけた文（HTTP のフックの prompt。会話の題を作るのに使う）。分からなければ null。</param>
+        private string PrepareAiPrompt(string tabId, string session, string prompt = null)
         {
             // 共通ターミナルの画面を先に読む（2026-11-08）。読むのはページの中の式で、画面のスレッドが空いていないと返らないので、ここで待つ。
             _aiShellScreen = ReadAiShellScreen(AiShellTailLines, 2000);
@@ -1200,7 +1214,7 @@ namespace Tsuzuri
             // 未保存の編集があれば、保存してから渡す（2026-10-25。話しかけたら保存してよいと決めた）。
             // 外で書き換わっていて上書きするか尋ねている間はフックが待つ。止まったままにはしないよう、
             // 4分半で諦めて前の状態を渡させる（フックの持ち時間は5分）。
-            return Dispatcher.Invoke(new Func<string>(() => HandleAiPrompt(FindAiTab(tabId, session))), TimeSpan.FromSeconds(270)) as string;
+            return Dispatcher.Invoke(new Func<string>(() => HandleAiPrompt(FindAiTab(tabId, session), prompt)), TimeSpan.FromSeconds(270)) as string;
         }
 
         /// <summary>
@@ -1602,8 +1616,10 @@ namespace Tsuzuri
         /// その最中にも頼みは届き、ここで保存すると、利用者が「保存しない」「キャンセル」を選ぼうとしている文書まで保存してしまった。
         /// そのときは状態だけ書き出し、保存しなかったことを状態に書き添える。
         /// </summary>
-        private string HandleAiPrompt(AiTab tab)
+        private string HandleAiPrompt(AiTab tab, string prompt = null)
         {
+            RequestAiTopic(tab, prompt);   // 題がまだ無ければ、話しかけた文から作る（2026-11-22。MainWindow.AiTopic.cs）
+
             string skipped = null;
             if (_aiPromptHandling) skipped = "前の頼みに応えている最中だった";
             else if (IsShowingDialog()) skipped = "ダイアログを出していた";

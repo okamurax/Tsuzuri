@@ -222,7 +222,7 @@ namespace Tsuzuri
             string context = null;
             try
             {
-                context = PrepareAiPrompt(null, Text(input, "session_id"));
+                context = PrepareAiPrompt(null, Text(input, "session_id"), Text(input, "prompt"));
             }
             catch (Exception)
             {

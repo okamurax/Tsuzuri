@@ -335,6 +335,10 @@ namespace Tsuzuri
         /// <summary>この会話で固定したカーソルの位置（AI の欄の下端の「カーソル」。2026-11-22）。無ければ null。</summary>
         [DataMember(Name = "pin", EmitDefaultValue = false)]
         public AiPinState Pin { get; set; }
+
+        /// <summary>この会話の題（AI の欄のタブの段の下の欄。2026-11-22）。無ければ null。</summary>
+        [DataMember(Name = "topic", EmitDefaultValue = false)]
+        public string Topic { get; set; }
     }
 
     /// <summary>AI の会話で固定したカーソルの位置（AiTabState.Pin）。</summary>

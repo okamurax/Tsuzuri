@@ -327,5 +327,37 @@ namespace Tsuzuri
         /// <summary>claude のセッションの名前（#1・#2…。タブの見出し。2026-11-01）。次の起動でも同じ名前にする。</summary>
         [DataMember(Name = "name", EmitDefaultValue = false)]
         public string Name { get; set; }
+
+        /// <summary>この会話のプロジェクトのフォルダ（AI の欄の下端の「フォルダ」。2026-11-22）。無ければ null。</summary>
+        [DataMember(Name = "project", EmitDefaultValue = false)]
+        public string Project { get; set; }
+
+        /// <summary>この会話で固定したカーソルの位置（AI の欄の下端の「カーソル」。2026-11-22）。無ければ null。</summary>
+        [DataMember(Name = "pin", EmitDefaultValue = false)]
+        public AiPinState Pin { get; set; }
+    }
+
+    /// <summary>AI の会話で固定したカーソルの位置（AiTabState.Pin）。</summary>
+    [DataContract]
+    public sealed class AiPinState
+    {
+        [DataMember(Name = "file")]
+        public string File { get; set; }
+
+        /// <summary>ページの番号。ルートは空。</summary>
+        [DataMember(Name = "page", EmitDefaultValue = false)]
+        public string Page { get; set; }
+
+        /// <summary>固定したときのページの題。</summary>
+        [DataMember(Name = "title", EmitDefaultValue = false)]
+        public string Title { get; set; }
+
+        /// <summary>ページの中の行（1 始まり）。</summary>
+        [DataMember(Name = "line")]
+        public int Line { get; set; }
+
+        /// <summary>固定したときのその行の文字（行がずれたら、これで探し直す）。</summary>
+        [DataMember(Name = "text", EmitDefaultValue = false)]
+        public string Text { get; set; }
     }
 }

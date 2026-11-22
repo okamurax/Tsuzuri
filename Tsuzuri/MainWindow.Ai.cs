@@ -85,6 +85,12 @@ namespace Tsuzuri
             /// アプリの中で（全部の画面を通して）重ねない。
             /// </summary>
             public string Name;
+
+            /// <summary>この会話のプロジェクトのフォルダ（下端の「フォルダ」。2026-11-22。MainWindow.AiPin.cs）。無ければ null。</summary>
+            public string Project;
+
+            /// <summary>この会話で固定したカーソルの位置（下端の「カーソル」。2026-11-22）。無ければ null（エディタの今のカーソルを渡す）。</summary>
+            public AiPinState Pin;
         }
 
         /// <summary>エディタを閉じている最中か。閉じるときに claude が終わっても、開いていたタブの覚えを消さないようにする。</summary>
@@ -117,6 +123,9 @@ namespace Tsuzuri
   ほかの画面で開いている文書の場所も「ほかに開いている文書」として付いてくる。利用者が見ていない文書の名前やタブの名前で話したら、その一覧から探す。
   「ここ」「この節」「選んだところ」「このページ」は、それを指す。文字を選んでいて「これ」「直して」と言われたら、選んだところが相手。
   「この文書」「このファイル」「全体」は、ファイル全体（全部のページ）を指す。
+  - 今の状態の頭に「この会話の話題の位置」があれば、利用者がこの会話のために固定した位置（同じ文書の別のページの話を、別の会話で同時に進めるため）。
+    「ここ」「このページ」「カーソル」は、断りが無ければそちらを指す。その下の「エディタで今見ている所」は参考（利用者がほかの会話の作業で動かしている）。
+  - 「この会話のプロジェクトのフォルダ」があれば、この会話で扱うプロジェクトはそのフォルダ（開いている文書の場所とは別）。ソースを読む・書く・コマンドを動かすのは、断りが無ければそこで。
 - ファイルは書き換えてよい。エディタは書き換えを知らされて、すぐ読み直す（エディタに保存していない編集がある文書は読み直さない）。
   書き換える前には必ずファイルを読み直すこと。利用者がエディタで編集・保存していることがある。読み直すのは、変える場所の前後だけでよい。
 - 本文を読むときは、先頭から読まない。まず今の状態の「まず読む範囲」（カーソルの前後）だけを Read の offset・limit で読み、足りなければ広げる。
@@ -325,6 +334,8 @@ namespace Tsuzuri
             {
                 tab.SessionId = restore.Session;
                 tab.Folder = restore.Folder;
+                tab.Project = string.IsNullOrWhiteSpace(restore.Project) ? null : restore.Project;
+                tab.Pin = restore.Pin != null && !string.IsNullOrEmpty(restore.Pin.File) && restore.Pin.Line > 0 ? restore.Pin : null;
                 var name = AiTabName(restore.Name);
                 if (!AiTabNameUsed(name)) tab.Name = name;
                 start = "--resume " + restore.Session;   // 番号は Guid の形のものだけ（AppSettings）
@@ -510,6 +521,7 @@ namespace Tsuzuri
             _aiTab = tab;
             ShowAiTabs();
             RefreshAiFileLinks();
+            RefreshAiPinRows();
             if (AiPane.Visibility == Visibility.Visible) FocusAiTerminal(tab);
         }
 
@@ -572,6 +584,7 @@ namespace Tsuzuri
             {
                 _aiTab = null;
                 ShowAiTabs();
+                RefreshAiPinRows();
                 HideAiPane();
                 return;
             }
@@ -619,7 +632,7 @@ namespace Tsuzuri
             if (_aiStopping) return;
 
             var tabs = _aiTabs.Where(tab => tab.SessionId != null)
-                              .Select(tab => new AiTabState { Session = tab.SessionId, Folder = tab.Folder, Name = tab.Name })
+                              .Select(tab => new AiTabState { Session = tab.SessionId, Folder = tab.Folder, Name = tab.Name, Project = tab.Project, Pin = tab.Pin })
                               .ToList();
             SavedAiTabs = tabs.Count > 0 ? tabs : null;   // 画面ごとに覚える（2026-10-31）
             _settings.Save();
@@ -1002,7 +1015,7 @@ namespace Tsuzuri
 
             var quoted = Quote(contextPath);
             var context = connect +
-                "try{$c.Connect(5000);$w=New-Object System.IO.StreamWriter($c);$w.WriteLine('prompt');$w.Flush();" +
+                "try{$c.Connect(5000);$w=New-Object System.IO.StreamWriter($c);$w.WriteLine('prompt'+[char]9+[string]$env:MDEDITOR_AI_TAB);$w.Flush();" +
                 "$r=New-Object System.IO.StreamReader($c);[void]$r.ReadLine()}catch{};$c.Dispose();" +
                 "[Console]::OutputEncoding=[System.Text.Encoding]::UTF8;" +
                 "if(Test-Path -LiteralPath " + quoted + "){[Console]::Out.Write([System.IO.File]::ReadAllText(" + quoted + "))}";
@@ -1132,7 +1145,10 @@ namespace Tsuzuri
         /// <summary>
         /// 話しかけられたとき（UserPromptSubmit）。共通ターミナルの画面を読み、保存して今の状態を書き出す。済むまで待つ（パイプのスレッド・HTTP のスレッドから）。
         /// </summary>
-        private void PrepareAiPrompt()
+        /// <param name="tabId">頼んできたタブの番号（パイプのフック）。分からなければ null。</param>
+        /// <param name="session">頼んできた会話の番号（HTTP のフックの session_id）。分からなければ null。</param>
+        /// <returns>書き出した今の状態。書けなければ・間に合わなければ null。</returns>
+        private string PrepareAiPrompt(string tabId, string session)
         {
             // 共通ターミナルの画面を先に読む（2026-11-08）。読むのはページの中の式で、画面のスレッドが空いていないと返らないので、ここで待つ。
             _aiShellScreen = ReadAiShellScreen(AiShellTailLines, 2000);
@@ -1140,7 +1156,7 @@ namespace Tsuzuri
             // 未保存の編集があれば、保存してから渡す（2026-10-25。話しかけたら保存してよいと決めた）。
             // 外で書き換わっていて上書きするか尋ねている間はフックが待つ。止まったままにはしないよう、
             // 4分半で諦めて前の状態を渡させる（フックの持ち時間は5分）。
-            Dispatcher.Invoke(new Action(HandleAiPrompt), TimeSpan.FromSeconds(270));
+            return Dispatcher.Invoke(new Func<string>(() => HandleAiPrompt(FindAiTab(tabId, session))), TimeSpan.FromSeconds(270)) as string;
         }
 
         /// <summary>
@@ -1176,9 +1192,10 @@ namespace Tsuzuri
                     var reader = new StreamReader(server, new UTF8Encoding(false), false, 256, true);
                     var request = reader.ReadLine();
 
-                    if (request == "prompt")
+                    if (request == "prompt" || (request != null && request.StartsWith("prompt\t", StringComparison.Ordinal)))
                     {
-                        PrepareAiPrompt();
+                        // 「prompt→タブの番号」（2026-11-22。タブごとのフォルダ・固定したカーソルを渡すため）。前の形（番号なし）も受ける
+                        PrepareAiPrompt(request.Length > 7 ? request.Substring(7) : null, null);
 
                         var writer = new StreamWriter(server, new UTF8Encoding(false), 256, true);
                         writer.WriteLine("ok");
@@ -1533,7 +1550,7 @@ namespace Tsuzuri
         /// その最中にも頼みは届き、ここで保存すると、利用者が「保存しない」「キャンセル」を選ぼうとしている文書まで保存してしまった。
         /// そのときは状態だけ書き出し、保存しなかったことを状態に書き添える。
         /// </summary>
-        private void HandleAiPrompt()
+        private string HandleAiPrompt(AiTab tab)
         {
             string skipped = null;
             if (_aiPromptHandling) skipped = "前の頼みに応えている最中だった";
@@ -1556,8 +1573,9 @@ namespace Tsuzuri
                 Status("AI に渡す前の保存をしませんでした（" + skipped + "ため）。");
             }
 
-            WriteAiContext(skipped == null ? null : "エディタは" + skipped + "ため、今回は保存していない。");
+            var context = WriteAiContext(skipped == null ? null : "エディタは" + skipped + "ため、今回は保存していない。", tab);
             ShowAiContextSummary();
+            return context;
         }
 
         /// <summary>
@@ -1584,17 +1602,22 @@ namespace Tsuzuri
         /// claude をまだ起動していなければ何もしない。書けなくても編集の邪魔はしない。
         /// </summary>
         /// <param name="note">状態に書き添えること（保存しなかった理由など）。無ければ null。</param>
-        private void WriteAiContext(string note)
+        /// <param name="tab">話しかけてきた会話のタブ（そのタブのフォルダ・固定したカーソルを足す）。分からなければ null。</param>
+        /// <returns>書いた今の状態。書けなければ null。</returns>
+        private string WriteAiContext(string note, AiTab tab = null)
         {
-            if (_aiContextPath == null) return;
+            if (_aiContextPath == null) return null;
 
             try
             {
-                File.WriteAllText(_aiContextPath, AiContext(note), new UTF8Encoding(false));
+                var context = AiContext(note, tab);
+                File.WriteAllText(_aiContextPath, context, new UTF8Encoding(false));
+                return context;
             }
             catch (Exception ex)
             {
                 Status("AI に今の状態を渡せませんでした: " + ex.Message);
+                return null;
             }
         }
 
@@ -1797,11 +1820,15 @@ namespace Tsuzuri
             }
         }
 
-        private string AiContext(string note)
+        private string AiContext(string note, AiTab tab)
         {
             var text = new StringBuilder();
             text.Append("[Tsuzuri の今の状態 ").Append(DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss")).Append("]\n");
             if (!string.IsNullOrEmpty(note)) text.Append(note).Append('\n');
+
+            // この会話のプロジェクトのフォルダと固定したカーソル（2026-11-22。MainWindow.AiPin.cs）。固定していれば、下のエディタの位置は参考として書く
+            var pinned = AppendAiTabContext(text, tab);
+            if (pinned) text.Append("エディタで今見ている所（参考。この会話の話題は上の固定した位置）:\n");
 
             var view = Active;
             if (view == null || view.Owner == null)
@@ -1862,7 +1889,7 @@ namespace Tsuzuri
 
             // まず読む範囲（2026-11-13）。何も言わないと Claude は先頭から 2000 行読むことがあり、数万行の文書では会話がすぐ埋まる。
             // このエディタには必ずカーソルがあるので、その前後をページの範囲の中で渡す。ページが短ければページ全体。絶対ではなく、足りなければ広げさせる。
-            if (before >= 0 && first > 0)
+            if (before >= 0 && first > 0 && !pinned)
             {
                 var at = before + line;
                 int from = first, to = last;

@@ -151,7 +151,7 @@ namespace Tsuzuri
                             answer = AiHttpPostToolUse(input);
                             break;
                         case "prompt":
-                            answer = AiHttpPrompt();
+                            answer = AiHttpPrompt(input);
                             break;
                         default:
                             WriteAiHttp(stream, 404, string.Empty);
@@ -215,25 +215,30 @@ namespace Tsuzuri
         }
 
         /// <summary>話しかけたとき。保存して今の状態を書き出し、それを Claude への文脈として返す（additionalContext）。</summary>
-        private object AiHttpPrompt()
+        /// 書いたものをそのまま返す（2026-11-22。ファイルから読み直すと、同時に話しかけたほかのタブの分を返しかねない。中身はタブごとに違う）。
+        /// どのタブの会話かは session_id で見分ける（会話が始まったときに SessionStart のフックで覚えた番号）。
+        private object AiHttpPrompt(Dictionary<string, object> input)
         {
+            string context = null;
             try
             {
-                PrepareAiPrompt();
+                context = PrepareAiPrompt(null, Text(input, "session_id"));
             }
             catch (Exception)
             {
                 // 間に合わなかった等。前に書いた状態を渡す
             }
 
-            var path = _aiContextPath;
-            string context = null;
-            try
+            if (string.IsNullOrEmpty(context))
             {
-                if (path != null && File.Exists(path)) context = File.ReadAllText(path, Encoding.UTF8);
-            }
-            catch (Exception)
-            {
+                var path = _aiContextPath;
+                try
+                {
+                    if (path != null && File.Exists(path)) context = File.ReadAllText(path, Encoding.UTF8);
+                }
+                catch (Exception)
+                {
+                }
             }
             if (string.IsNullOrEmpty(context)) return null;
 

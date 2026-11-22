@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- 検索の置換の確かめ（tools/replace-fuzz.sh から動かす）。本体の SearchReplace と PageDocument をそのままコンパイルする -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <Optimize>true</Optimize>
+    <NoWarn>CS0162;CS0168;CS0219</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="../../Tsuzuri/Markdown/DocumentModel.cs" />
+    <Compile Include="../../Tsuzuri/Markdown/InlineSpan.cs" />
+    <Compile Include="../../Tsuzuri/Markdown/LineInfo.cs" />
+    <Compile Include="../../Tsuzuri/Markdown/LineKind.cs" />
+    <Compile Include="../../Tsuzuri/Markdown/MarkdownParser.cs" />
+    <Compile Include="../../Tsuzuri/Markdown/TableModel.cs" />
+    <Compile Include="../../Tsuzuri/Markdown/PageDocument.cs" />
+    <Compile Include="../../Tsuzuri/Markdown/SearchReplace.cs" />
+    <PackageReference Include="Markdig" Version="0.33.0" />
+  </ItemGroup>
+</Project>

@@ -137,6 +137,12 @@ namespace Tsuzuri.Views
         private readonly Border _resultArea;
         private readonly StackPanel _resultList;
         private readonly TextBox _replaceBox;
+        private string _lastReplaceKey;
+        /// <summary>
+        /// 置き換えてから本文が変わっていない（OnDocumentChanged で下ろす）。前は AvalonEdit の版（Document.Version）を覚えていたが、
+        /// 版はそのあとの変更を全部つないで持つので、次に置き換えるまで、ほかのページの中身や打った文字がメモリに残り続けた（レビューの指摘）。
+        /// </summary>
+        private bool _replaceJustDone;
         private readonly Button _searchClear;
         private readonly Button _favoriteButton;
         private readonly StackPanel _favoriteList;
@@ -408,11 +414,12 @@ namespace Tsuzuri.Views
             _replaceBox.Foreground = Theme.Text;
             _replaceBox.CaretBrush = Theme.Text;
             _replaceBox.VerticalContentAlignment = VerticalAlignment.Center;
-            _replaceBox.ToolTip = "当たりを全部この文字に置き換える（正規表現の括弧の中は $1・$2）";
+            _replaceBox.ToolTip = "当たりを全部この文字に置き換える（正規表現の括弧の中は $1・$2、当たり全体は $0、$ そのものは $$）";
             _replaceBox.PreviewKeyDown += (sender, e) =>
             {
                 if (e.Key != Key.Enter) return;
                 e.Handled = true;
+                if (e.IsRepeat) return;   // 押したままの Enter で何度も置き換えない
                 ReplaceAll();
             };
 
@@ -969,6 +976,7 @@ namespace Tsuzuri.Views
 
         private void OnDocumentChanged(object sender, DocumentChangeEventArgs e)
         {
+            _replaceJustDone = false;   // 置換のあとに本文が変わった（ページを入れ替えた・打った・元に戻した）。同じ置換をまた許す
             // 何も変えない書き換え（改行のあとの字下げを、空のまま置き直す等）は数えない。
             if (e.RemovalLength == 0 && e.InsertionLength == 0) return;
 
@@ -3125,21 +3133,25 @@ namespace Tsuzuri.Views
         }
 
         /// <summary>
-        /// 照合は文書全体に対して行う。件数を出すにも移動するにも全体が要るため。
-        ///
-        /// ただし Markdown の解析のために全行のテキストをすでに保持しているので、
-        /// それを舐めるだけで済み、新たな文字列の確保は起きない。
-        /// 行ごとの照合なので、行をまたぐ正規表現は当たらない。
-        /// </summary>
-        /// <summary>
         /// 検索の当たりを全部、置換の欄の文字に置き換える（2026-11-22。SPEC 12章）。照合は検索と同じ（行ごと・大文字小文字を区別しない・空の当たりは数えない）。
-        /// 変わる最初の行から最後の行までを1度の Replace で入れ替えるので、元に戻すは1回で全部戻る（部分解析にも1つの変更として渡る）。
+        /// 置き換えの中身は SearchReplace（画面に依らない。tools/replace-fuzz で確かめる）。変わる所の最初から最後までを1度の Replace で入れ替えるので、
+        /// 元に戻すは1回で全部戻る（部分解析にも1つの変更として渡る）。
+        /// 置き換えたら本文にフォーカスを移す（Ctrl+Z がそのまま本文の元に戻すになる。置換の欄に残すと、欄の文字の元に戻すになっていた）。
+        /// 同じ検索語・置き換える文字で、本文がそのあと変わっていなければ、もう1度は置き換えない（PC→PC端末 を2度押して PC端末端末 にしない）。
         /// </summary>
         private void ReplaceAll()
         {
             if (IsReadOnly) return;
             _searchDelay.Stop();
             ApplySearch();   // 打ったばかりの検索語にも合わせる
+
+            var key = _searchBox.Text + "\0" + _replaceBox.Text;
+            if (key == _lastReplaceKey && _replaceJustDone)
+            {
+                Focus();   // 欄に残すと、Ctrl+Z が欄の文字の元に戻すになる
+                Status("置換: この置換はもう済んでいます（もう1度置き換えるなら、本文を直すか Ctrl+Z で戻してから）");
+                return;
+            }
             if (_search == null || _matchOffsets.Count == 0)
             {
                 Status(_search == null ? "置換: 検索語が無いか、正規表現として読めません" : "置換: 当たりがありません");
@@ -3147,30 +3159,17 @@ namespace Tsuzuri.Views
             }
 
             var replacement = _replaceBox.Text;
-            var count = 0;
-            var firstLine = -1;
-            var lastLine = -1;
-            var changed = new Dictionary<int, string>();
+            var refused = SearchReplace.Refuse(replacement);
+            if (refused != null)
+            {
+                Status("置換: " + refused);
+                return;
+            }
+
+            SearchReplace.Plan plan;
             try
             {
-                for (var number = 1; number <= Document.LineCount; number++)
-                {
-                    var line = Document.GetLineByNumber(number);
-                    var text = Document.GetText(line);
-                    var hits = 0;
-                    var result = _search.Replace(text, match =>
-                    {
-                        if (match.Length == 0) return match.Value;   // 検索と同じく空の当たりは置き換えない
-                        hits++;
-                        return match.Result(replacement);
-                    });
-                    if (hits == 0) continue;
-                    count += hits;
-                    if (result == text) continue;
-                    changed[number] = result;
-                    if (firstLine < 0) firstLine = number;
-                    lastLine = number;
-                }
+                plan = SearchReplace.Make(Document.Text, _search, replacement);
             }
             catch (RegexMatchTimeoutException)
             {
@@ -3183,33 +3182,29 @@ namespace Tsuzuri.Views
                 return;
             }
 
-            if (firstLine < 0)
+            if (!plan.Changes)
             {
-                Status("置換: " + count + " 件当たりましたが、置き換えても同じ文字です");
+                Status("置換: " + plan.Count + " 件当たりましたが、置き換えても同じ文字です");
                 return;
-            }
-
-            var start = Document.GetLineByNumber(firstLine).Offset;
-            var end = Document.GetLineByNumber(lastLine).EndOffset;
-            var builder = new StringBuilder();
-            for (var number = firstLine; number <= lastLine; number++)
-            {
-                var line = Document.GetLineByNumber(number);
-                string text;
-                builder.Append(changed.TryGetValue(number, out text) ? text : Document.GetText(line));
-                if (number < lastLine) builder.Append(Document.GetText(line.EndOffset, line.DelimiterLength));
             }
 
             var caretLine = TextArea.Caret.Line;
             var caretColumn = TextArea.Caret.Column;
             TextArea.ClearSelection();
-            Document.Replace(start, end - start, builder.ToString());
+            Document.Replace(plan.Offset, plan.Length, plan.Text);
 
-            // カーソルは同じ行・桁へ（置き換えた範囲の中にあると、範囲の端へ飛ばされるため）
+            // カーソルは同じ行・桁へ（置き換えた範囲の中にあると、範囲の端へ飛ばされるため）。改行は変わらないので行の数は同じ。
+            // 絵文字（サロゲートの対）の真ん中に来たら、1つ前へ（そこで打つと字が割れる）。
             var back = Document.GetLineByNumber(Math.Min(caretLine, Document.LineCount));
-            CaretOffset = back.Offset + Math.Min(caretColumn - 1, back.Length);
+            var caret = back.Offset + Math.Max(0, Math.Min(caretColumn - 1, back.Length));
+            if (caret > back.Offset && caret < Document.TextLength && char.IsLowSurrogate(Document.GetCharAt(caret))
+                && char.IsHighSurrogate(Document.GetCharAt(caret - 1))) caret--;
+            CaretOffset = caret;
 
-            Status("置換: " + count + " 件を置き換えました（Ctrl+Z で戻せます）");
+            _lastReplaceKey = key;
+            _replaceJustDone = true;   // Replace の中の OnDocumentChanged で下りたあとに立てる
+            Status("置換: " + plan.Count + " 件を置き換えました（Ctrl+Z で戻せます）");
+            Focus();
         }
 
         private void Status(string message)
@@ -3218,6 +3213,13 @@ namespace Tsuzuri.Views
             if (handler != null) handler(this, message);
         }
 
+        /// <summary>
+        /// 照合は文書全体に対して行う。件数を出すにも移動するにも全体が要るため。
+        ///
+        /// ただし Markdown の解析のために全行のテキストをすでに保持しているので、
+        /// それを舐めるだけで済み、新たな文字列の確保は起きない。
+        /// 行ごとの照合なので、行をまたぐ正規表現は当たらない。
+        /// </summary>
         private void RecomputeMatches()
         {
             _matchOffsets.Clear();

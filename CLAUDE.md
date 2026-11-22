@@ -9,3 +9,4 @@
 - カレンダーの予定の保存先と繰り返し（`Tsuzuri/Markdown/Schedule*.cs`）を変えたら、`bash tools/schedule-file.sh` と `bash tools/schedule-fuzz.sh` が OK になってからコミットする
 - 変更を確かめるための試験は、頼まれていなくても足してよい。残す価値のあるものは `tools/` に置く。公開されるので、絶対パス・個人の名前やサイト名・パスワード・鍵・接続先を入れない
 - テキストファイル（.txt）の読み書き（`PageDocument.cs` の `_plain`・`_shiftJis` の所）を変えたら、`bash tools/text-file.sh` が OK になってからコミットする
+- 検索の置換（`Tsuzuri/Markdown/SearchReplace.cs`・`MarkdownView` の `ReplaceAll`）を変えたら、`bash tools/replace-fuzz.sh` が OK になってからコミットする。置換は間違うと文書を壊すので、別のエージェントのレビューも通す（2026-11-22）

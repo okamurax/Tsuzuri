@@ -196,6 +196,7 @@
     <Compile Include="Markdown\LineKind.cs" />
     <Compile Include="Markdown\MarkdownParser.cs" />
     <Compile Include="Markdown\PageDocument.cs" />
+    <Compile Include="Markdown\SearchReplace.cs" />
     <Compile Include="Markdown\Theme.cs" />
     <Compile Include="Views\FileIcon.cs" />
     <Compile Include="Views\FilerView.cs" />

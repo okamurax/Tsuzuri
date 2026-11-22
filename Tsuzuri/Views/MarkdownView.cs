@@ -811,6 +811,12 @@ namespace Tsuzuri.Views
             }
         }
 
+        /// <summary>今の解析結果（変わったかを見分けるため。CodeCopyLayer）。</summary>
+        internal DocumentModel CurrentModel
+        {
+            get { return Model; }
+        }
+
         /// <summary>行番号は 1 始まり。</summary>
         public LineInfo GetLineInfo(int lineNumber)
         {

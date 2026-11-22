@@ -43,17 +43,34 @@ namespace Tsuzuri.Views
             return Parse(source) != null;
         }
 
+        /// <summary>
+        /// 表の元の文字ごとの解析結果（読めなければ null）。画面のスレッドだけで使う（2026-11-23。スクロールが突っかかる原因の1つ）。
+        /// 前は、表が画面に入るたび・畳み直すたび（UpdateTableFolds は文書の表を全部）に Markdig で解析し直していた。
+        /// 解析結果は読むだけなので使い回せる。溜まりすぎたら捨てる（打つたびに元の文字が変わるため）。
+        /// </summary>
+        private static readonly System.Collections.Generic.Dictionary<string, Table> Parsed = new System.Collections.Generic.Dictionary<string, Table>();
+
+        private const int ParsedLimit = 512;
+
         private static Table Parse(string source)
         {
+            Table cached;
+            if (Parsed.TryGetValue(source, out cached)) return cached;
+
+            Table table;
             try
             {
-                var table = Markdig.Markdown.Parse(source, MarkdownParser.Pipeline).OfType<Table>().FirstOrDefault();
-                return table != null && table.OfType<TableRow>().Any() ? table : null;
+                table = Markdig.Markdown.Parse(source, MarkdownParser.Pipeline).OfType<Table>().FirstOrDefault();
+                if (table != null && !table.OfType<TableRow>().Any()) table = null;
             }
             catch (Exception)
             {
-                return null;
+                table = null;
             }
+
+            if (Parsed.Count >= ParsedLimit) Parsed.Clear();
+            Parsed[source] = table;
+            return table;
         }
 
         /// <summary>

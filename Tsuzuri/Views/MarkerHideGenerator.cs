@@ -224,12 +224,33 @@ namespace Tsuzuri.Views
             var room = CurrentContext.TextView.ActualWidth - 8 - indent;
             var firstNumber = first.LineNumber;
 
-            var table = TableElement.Build(source, room, row => _owner.EditTable(firstNumber));
-            if (table == null) return null;
-
-            table.Margin = new Thickness(indent, table.Margin.Top, 0, table.Margin.Bottom);
+            // 同じ表（元の文字・行・使える幅・字下げ）を前に組んでいれば、その部品を使い回す（2026-11-23）。
+            // 前は表が画面に入るたびに、セルごとの部品を作って測り直していて、表のある文書でスクロールが突っかかった。
+            // AvalonEdit は、同じ部品を別の行で使い回すのを受け付ける（TextView.AddInlineObject が、前の行から外して付け替える）。
+            // ほかの所に付いている部品（ありえないが念のため）は使わず組み直す。
+            var key = firstNumber + "|" + Math.Round(room) + "|" + indent + "|" + source;
+            FrameworkElement table;
+            var parent = CachedTable(key, out table);
+            if (table == null || (parent != null && !ReferenceEquals(parent, CurrentContext.TextView)) || LogicalTreeHelper.GetParent(table) != null)
+            {
+                table = TableElement.Build(source, room, row => _owner.EditTable(firstNumber));
+                if (table == null) return null;
+                table.Margin = new Thickness(indent, table.Margin.Top, 0, table.Margin.Bottom);
+                if (_tables.Count >= TablesLimit) _tables.Clear();
+                _tables[key] = table;
+            }
             return TableElement.CreateElement(table, length, CurrentContext);
         }
+
+        private DependencyObject CachedTable(string key, out FrameworkElement table)
+        {
+            return _tables.TryGetValue(key, out table) ? VisualTreeHelper.GetParent(table) : null;
+        }
+
+        /// <summary>組んだ表の部品（CreateTable）。打つたびに元の文字が変わるので、溜まりすぎたら捨てる。</summary>
+        private readonly Dictionary<string, FrameworkElement> _tables = new Dictionary<string, FrameworkElement>();
+
+        private const int TablesLimit = 64;
 
         /// <summary>
         /// 行頭の字下げ。行頭に消す記号（## や -）があれば、それも同じ要素で受け持つ。

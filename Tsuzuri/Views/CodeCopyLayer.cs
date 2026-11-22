@@ -14,13 +14,21 @@ namespace Tsuzuri.Views
     /// コードブロック（``` で囲った所）の中身を一度にコピーするボタン（SPEC 8章。2026-10-29）。
     ///
     /// 開きの ``` の行の右端に「コピー」を置く。本文の流れには入れず、文字の上の層に重ねる（行の組み方を変えないため）。
-    /// 画面に出ている行が変わるたび（スクロール・打った・幅が変わった）に置き直す。
+    /// 画面に出ている行が変わるたび（スクロール・打った・幅が変わった）に置き直す（ボタンは使い回し、位置だけ動かす）。
     /// コピーするのは、開きと閉じの ``` の間の行（``` の行は含めない）。ファイルの文字そのまま。
     /// </summary>
     public sealed class CodeCopyLayer : Canvas
     {
         private readonly MarkdownView _owner;
         private readonly TextView _textView;
+
+        /// <summary>開きの ``` の行（1 始まり。昇順）。本文か解析結果が変わったときだけ数え直す（_openingsVersion・_openingsModel）。</summary>
+        private List<int> _openings = new List<int>();
+        private object _openingsVersion;
+        private object _openingsModel;
+
+        /// <summary>作ったボタン（開きの行ごと）。行の番号が変わりうるので、数え直したら捨てる。</summary>
+        private readonly Dictionary<int, Button> _buttons = new Dictionary<int, Button>();
 
         public CodeCopyLayer(MarkdownView owner, TextView textView)
         {
@@ -30,20 +38,78 @@ namespace Tsuzuri.Views
             _textView.VisualLinesChanged += delegate { Place(); };
         }
 
+        /// <summary>
+        /// 見えている開きの行にボタンを置く。スクロールの1コマごとに来るので、軽くする（2026-11-23。スクロールが突っかかる原因の1つ）:
+        /// 前は来るたびにボタンを全部捨てて作り直し（テンプレートの組み立て・Measure）、文書の頭から見えている所まで行を数えていた。
+        /// 今は、開きの行は本文が変わったときだけ数え、ボタンは使い回して位置だけ動かす。
+        /// </summary>
         private void Place()
         {
-            Children.Clear();
-            if (!_textView.VisualLinesValid || _textView.VisualLines.Count == 0) return;
+            if (!_textView.VisualLinesValid || _textView.VisualLines.Count == 0)
+            {
+                Children.Clear();
+                return;
+            }
 
             var document = _textView.Document;
-            if (document == null) return;
+            if (document == null)
+            {
+                Children.Clear();
+                return;
+            }
 
-            var lastVisible = _textView.VisualLines[_textView.VisualLines.Count - 1].LastDocumentLine.LineNumber;
+            var model = _owner.CurrentModel;
+            if (!ReferenceEquals(_openingsVersion, document.Version) || !ReferenceEquals(_openingsModel, model))
+            {
+                _openings = FindOpenings(document.LineCount);
+                _openingsVersion = document.Version;
+                _openingsModel = model;
+                _buttons.Clear();
+                Children.Clear();
+            }
 
-            // 開きか閉じかは、先頭から ``` の行を数えて決める（中身が空のブロックや、続けて置いたブロックでも取り違えない）。
-            var openings = new HashSet<int>();
+            var shown = new HashSet<Button>();
+            foreach (var line in _textView.VisualLines)
+            {
+                var number = line.FirstDocumentLine.LineNumber;
+                if (_openings.BinarySearch(number) < 0) continue;
+
+                Button button;
+                if (!_buttons.TryGetValue(number, out button))
+                {
+                    button = CreateButton(number);
+                    button.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
+                    _buttons[number] = button;
+                }
+
+                var top = line.VisualTop - _textView.VerticalOffset + Math.Max(0, (line.Height - button.DesiredSize.Height) / 2);
+                var left = Math.Max(0, _textView.ActualWidth - button.DesiredSize.Width - 12);
+                if (GetLeft(button) != left) SetLeft(button, left);
+                if (GetTop(button) != top) SetTop(button, top);
+                if (button.Parent == null) Children.Add(button);
+                shown.Add(button);
+            }
+
+            for (var i = Children.Count - 1; i >= 0; i--)
+            {
+                var child = Children[i] as Button;
+                if (child == null || !shown.Contains(child)) Children.RemoveAt(i);
+            }
+
+            // 見えなくなったボタンは、遠く離れたら捨てる（長い文書をずっとスクロールしても溜まり続けないように）
+            if (_buttons.Count > 64)
+            {
+                foreach (var key in new List<int>(_buttons.Keys))
+                    if (!shown.Contains(_buttons[key])) _buttons.Remove(key);
+            }
+        }
+
+        /// <summary>開きの ``` の行。開きか閉じかは、先頭から ``` の行を数えて決める（中身が空のブロックや、続けて置いたブロックでも取り違えない）。</summary>
+        private List<int> FindOpenings(int lineCount)
+        {
+            var openings = new List<int>();
             var open = false;
-            for (var number = 1; number <= lastVisible; number++)
+            for (var number = 1; number <= lineCount; number++)
             {
                 var info = _owner.GetLineInfo(number);
                 if (info == null || info.Kind != LineKind.Fence)
@@ -55,20 +121,7 @@ namespace Tsuzuri.Views
                 if (!open) openings.Add(number);
                 open = !open;
             }
-
-            foreach (var line in _textView.VisualLines)
-            {
-                var number = line.FirstDocumentLine.LineNumber;
-                if (!openings.Contains(number)) continue;
-
-                var button = CreateButton(number);
-                button.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
-
-                var top = line.VisualTop - _textView.VerticalOffset + Math.Max(0, (line.Height - button.DesiredSize.Height) / 2);
-                SetLeft(button, Math.Max(0, _textView.ActualWidth - button.DesiredSize.Width - 12));
-                SetTop(button, top);
-                Children.Add(button);
-            }
+            return openings;
         }
 
         private Button CreateButton(int fenceLine)

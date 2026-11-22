@@ -10,3 +10,4 @@
 - 変更を確かめるための試験は、頼まれていなくても足してよい。残す価値のあるものは `tools/` に置く。公開されるので、絶対パス・個人の名前やサイト名・パスワード・鍵・接続先を入れない
 - テキストファイル（.txt）の読み書き（`PageDocument.cs` の `_plain`・`_shiftJis` の所）を変えたら、`bash tools/text-file.sh` が OK になってからコミットする
 - 検索の置換（`Tsuzuri/Markdown/SearchReplace.cs`・`MarkdownView` の `ReplaceAll`）を変えたら、`bash tools/replace-fuzz.sh` が OK になってからコミットする。置換は間違うと文書を壊すので、別のエージェントのレビューも通す（2026-11-22）
+- AI に渡す文（`MainWindow.Ai.cs` の `AiInstructions`・`AiContext` とその下の関数、`MainWindow.AiPin.cs`・`MainWindow.AiShell.cs`・`MainWindow.Calendar.cs` の今の状態に書く所、フック、`Tsuzuri/Ai/drawing-format.md`）を変えたら、別のエージェントに、指示と今の状態の食い違い・コードの動きとの食い違い・取り違えうる言い方がないかを見てもらってからコミットする。固定したカーソルの有無・どの会話か分からない・文書を開いていない・AI に渡さない場所などの場合ごとに、指示が引く呼び名が今の状態にそのまま出るかを確かめる。簡潔さより、取り違えない書き方を優先する（直すたびに別の所との食い違いが生まれ、4回のレビューでやっと収まった。2026-11-22）

@@ -136,6 +136,7 @@ namespace Tsuzuri.Views
         // 検索結果の一覧（SPEC 12章）。当たった行だけを並べる。
         private readonly Border _resultArea;
         private readonly StackPanel _resultList;
+        private readonly TextBox _replaceBox;
         private readonly Button _searchClear;
         private readonly Button _favoriteButton;
         private readonly StackPanel _favoriteList;
@@ -400,6 +401,50 @@ namespace Tsuzuri.Views
             resultScroll.VerticalScrollBarVisibility = ScrollBarVisibility.Auto;
             resultScroll.HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled;
 
+            // 一覧の一番下に置換の欄（2026-11-22。SPEC 12章）。入れた文字で当たりを全部置き換える。Enter でも置き換える。
+            _replaceBox = new TextBox();
+            _replaceBox.BorderThickness = new Thickness(0);
+            _replaceBox.Background = Brushes.Transparent;
+            _replaceBox.Foreground = Theme.Text;
+            _replaceBox.CaretBrush = Theme.Text;
+            _replaceBox.VerticalContentAlignment = VerticalAlignment.Center;
+            _replaceBox.ToolTip = "当たりを全部この文字に置き換える（正規表現の括弧の中は $1・$2）";
+            _replaceBox.PreviewKeyDown += (sender, e) =>
+            {
+                if (e.Key != Key.Enter) return;
+                e.Handled = true;
+                ReplaceAll();
+            };
+
+            var replaceLabel = new TextBlock();
+            replaceLabel.Text = "置換";
+            replaceLabel.FontSize = 12;
+            replaceLabel.Foreground = Theme.Muted;
+            replaceLabel.VerticalAlignment = VerticalAlignment.Center;
+            replaceLabel.Margin = new Thickness(12, 0, 10, 0);
+            DockPanel.SetDock(replaceLabel, Dock.Left);
+
+            var replaceButton = CreateSwitchButton("置換", "当たりを全部置き換える（Ctrl+Z の1回で戻る）");
+            replaceButton.Margin = new Thickness(6, 0, 6, 0);
+            replaceButton.Click += delegate { ReplaceAll(); };
+            DockPanel.SetDock(replaceButton, Dock.Right);
+
+            var replaceRow = new DockPanel();
+            replaceRow.Height = ReplaceRowHeight;
+            replaceRow.Children.Add(replaceLabel);
+            replaceRow.Children.Add(replaceButton);
+            replaceRow.Children.Add(_replaceBox);
+
+            var replaceArea = new Border();
+            replaceArea.BorderBrush = Theme.Divider;
+            replaceArea.BorderThickness = new Thickness(0, 1, 0, 0);
+            replaceArea.Child = replaceRow;
+            DockPanel.SetDock(replaceArea, Dock.Bottom);
+
+            var resultColumn = new DockPanel();
+            resultColumn.Children.Add(replaceArea);
+            resultColumn.Children.Add(resultScroll);
+
             _favoriteList = new StackPanel();
 
             var favoriteScroll = new ScrollViewer();
@@ -418,7 +463,7 @@ namespace Tsuzuri.Views
             Grid.SetColumn(halvesLine, 1);
             Grid.SetColumn(favoriteScroll, 2);
 
-            halves.Children.Add(resultScroll);
+            halves.Children.Add(resultColumn);
             halves.Children.Add(halvesLine);
             halves.Children.Add(favoriteScroll);
 
@@ -2614,14 +2659,20 @@ namespace Tsuzuri.Views
         /// <summary>検索欄の下の、一覧とお気に入りの欄の標準の高さ（2026-11-04。いつも出す）。2026-11-17 から下端をドラッグで変えられ、ダブルクリックでこの高さに戻る。</summary>
         public const double DefaultResultAreaHeight = 132;
 
-        /// <summary>一覧とお気に入りの欄の、いちばん低い高さ（1 行と少し見える）。</summary>
-        public const double MinResultAreaHeight = 40;
+        /// <summary>一覧の下の置換の段の高さ。</summary>
+        private const double ReplaceRowHeight = 30;
+
+        /// <summary>一覧とお気に入りの欄の、いちばん低い高さ（置換の段と、一覧が 1 行と少し見える）。</summary>
+        public const double MinResultAreaHeight = 40 + ReplaceRowHeight;
 
         /// <summary>ドラッグで広げても本文に残す高さ。</summary>
         private const double MinBodyHeight = 80;
 
         /// <summary>一覧とお気に入りの欄の下端を動かし終えた・ダブルクリックで戻した。引数は新しい高さ。ほかのページにも配り、覚えるのは MainWindow。</summary>
         public event EventHandler<double> ResultAreaResized;
+
+        /// <summary>下端（ステータスバー）に出してほしい知らせ（2026-11-22。置換の件数など）。</summary>
+        public event EventHandler<string> StatusRequested;
 
         private double _gripStartHeight;
 
@@ -3080,6 +3131,93 @@ namespace Tsuzuri.Views
         /// それを舐めるだけで済み、新たな文字列の確保は起きない。
         /// 行ごとの照合なので、行をまたぐ正規表現は当たらない。
         /// </summary>
+        /// <summary>
+        /// 検索の当たりを全部、置換の欄の文字に置き換える（2026-11-22。SPEC 12章）。照合は検索と同じ（行ごと・大文字小文字を区別しない・空の当たりは数えない）。
+        /// 変わる最初の行から最後の行までを1度の Replace で入れ替えるので、元に戻すは1回で全部戻る（部分解析にも1つの変更として渡る）。
+        /// </summary>
+        private void ReplaceAll()
+        {
+            if (IsReadOnly) return;
+            _searchDelay.Stop();
+            ApplySearch();   // 打ったばかりの検索語にも合わせる
+            if (_search == null || _matchOffsets.Count == 0)
+            {
+                Status(_search == null ? "置換: 検索語が無いか、正規表現として読めません" : "置換: 当たりがありません");
+                return;
+            }
+
+            var replacement = _replaceBox.Text;
+            var count = 0;
+            var firstLine = -1;
+            var lastLine = -1;
+            var changed = new Dictionary<int, string>();
+            try
+            {
+                for (var number = 1; number <= Document.LineCount; number++)
+                {
+                    var line = Document.GetLineByNumber(number);
+                    var text = Document.GetText(line);
+                    var hits = 0;
+                    var result = _search.Replace(text, match =>
+                    {
+                        if (match.Length == 0) return match.Value;   // 検索と同じく空の当たりは置き換えない
+                        hits++;
+                        return match.Result(replacement);
+                    });
+                    if (hits == 0) continue;
+                    count += hits;
+                    if (result == text) continue;
+                    changed[number] = result;
+                    if (firstLine < 0) firstLine = number;
+                    lastLine = number;
+                }
+            }
+            catch (RegexMatchTimeoutException)
+            {
+                Status("置換: 正規表現の照合に時間がかかりすぎるので、やめました");
+                return;
+            }
+            catch (ArgumentException ex)
+            {
+                Status("置換: 置き換える文字を読めません（" + ex.Message + "）");
+                return;
+            }
+
+            if (firstLine < 0)
+            {
+                Status("置換: " + count + " 件当たりましたが、置き換えても同じ文字です");
+                return;
+            }
+
+            var start = Document.GetLineByNumber(firstLine).Offset;
+            var end = Document.GetLineByNumber(lastLine).EndOffset;
+            var builder = new StringBuilder();
+            for (var number = firstLine; number <= lastLine; number++)
+            {
+                var line = Document.GetLineByNumber(number);
+                string text;
+                builder.Append(changed.TryGetValue(number, out text) ? text : Document.GetText(line));
+                if (number < lastLine) builder.Append(Document.GetText(line.EndOffset, line.DelimiterLength));
+            }
+
+            var caretLine = TextArea.Caret.Line;
+            var caretColumn = TextArea.Caret.Column;
+            TextArea.ClearSelection();
+            Document.Replace(start, end - start, builder.ToString());
+
+            // カーソルは同じ行・桁へ（置き換えた範囲の中にあると、範囲の端へ飛ばされるため）
+            var back = Document.GetLineByNumber(Math.Min(caretLine, Document.LineCount));
+            CaretOffset = back.Offset + Math.Min(caretColumn - 1, back.Length);
+
+            Status("置換: " + count + " 件を置き換えました（Ctrl+Z で戻せます）");
+        }
+
+        private void Status(string message)
+        {
+            var handler = StatusRequested;
+            if (handler != null) handler(this, message);
+        }
+
         private void RecomputeMatches()
         {
             _matchOffsets.Clear();

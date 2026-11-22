@@ -53,6 +53,7 @@ namespace Tsuzuri
             view.SetLinkTextOnly(_settings.ImageLinkTextOnly);
             view.SetResultAreaHeight(_settings.SearchResultHeight);
             view.ResultAreaResized += (sender, height) => ResizeSearchResults(height);
+            view.StatusRequested += (sender, message) => Status(message);
 
             // 検索語のお気に入りは、ファイルごとに state.json に覚える（2026-11-04。SPEC 12章）。
             view.SearchFavoritesSource = () =>

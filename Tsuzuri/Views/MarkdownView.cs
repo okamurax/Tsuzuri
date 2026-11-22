@@ -193,11 +193,6 @@ namespace Tsuzuri.Views
         private bool _linkTextOnly;
         private readonly Button _imageDisplayButton;
 
-        /// <summary>
-        /// 上端の段の左端の、ページのタイトルを置く場所（2026-10-16。前は別の段の帯だった）。
-        /// 中身（タイトル）は MainWindow が並べ直すたびに入れる。段の幅の4割まで。
-        /// </summary>
-        public readonly Border TitleSlot = new Border();
 
         /// <summary>
         /// 上端の段の右端に置く切り替えのボタン（「画像」）の幅。
@@ -373,21 +368,13 @@ namespace Tsuzuri.Views
             DockPanel.SetDock(_imageDisplayButton, Dock.Right);
             UpdateImageDisplayButton();
 
-            // 段の左端はページのタイトル。検索とは縦の区切り線で分ける。
-            DockPanel.SetDock(TitleSlot, Dock.Left);
-            var titleGap = CreateSwitchGap(new Thickness(8, 0, 8, 0));
-            DockPanel.SetDock(titleGap, Dock.Left);
+            // 段の左端は検索。前（2026-10-16〜11-22）は左端にページのタイトルを出していたが、画面のタブ・左の縦帯・本文の1行目と重なるのでやめた。
 
             var searchRow = new DockPanel();
             searchRow.Margin = new Thickness(8, 0, 8, 0);
             searchRow.Children.Add(_imageDisplayButton);   // DockPanel は先に足したものが右端に付く
             searchRow.Children.Add(imageGap);
-            searchRow.Children.Add(TitleSlot);     // 左端から タイトル｜検索
-            searchRow.Children.Add(titleGap);
             searchRow.Children.Add(searchLabel);
-
-            // タイトルが長くても検索欄を押し出さないよう、段の幅の4割までにする。
-            searchRow.SizeChanged += delegate { TitleSlot.MaxWidth = Math.Max(80, searchRow.ActualWidth * 0.4); };
             searchRow.Children.Add(next);
             searchRow.Children.Add(previous);
             searchRow.Children.Add(_searchCount);

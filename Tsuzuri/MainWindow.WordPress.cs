@@ -1111,7 +1111,6 @@ namespace Tsuzuri
 
             _outlineSignature = null;
             RefreshOutline();
-            RefreshPageTitles();
 
             link.UploadedText = document.ComposeText();
             UpdateChrome();

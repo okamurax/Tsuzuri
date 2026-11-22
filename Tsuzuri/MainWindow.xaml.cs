@@ -91,7 +91,6 @@ namespace Tsuzuri
         private readonly List<MarkdownView> _visible = new List<MarkdownView>();
 
         /// <summary>各ページの帯に出しているタイトル。_visible と同じ並び。</summary>
-        private readonly List<TextBlock> _pageTitles = new List<TextBlock>();
 
         /// <summary>フォーカスのあるページ。アウトラインはこれに追従する。</summary>
         private MarkdownView _focused;

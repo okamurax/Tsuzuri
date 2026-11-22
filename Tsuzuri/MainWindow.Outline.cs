@@ -46,7 +46,6 @@ namespace Tsuzuri
             if (_rotateTiming) PerfLog.StepMark("アウトライン開始");
             RefreshOutline();
             var started = PerfLog.Start();
-            RefreshPageTitles();
             UpdateChrome();
             PerfLog.Step("題と表示", started);
 

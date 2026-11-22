@@ -489,7 +489,6 @@ namespace Tsuzuri
             }
 
             _visible.Clear();
-            _pageTitles.Clear();
             StackPanelHost.Children.Clear();
             PerfLog.Step("外す", started);
 
@@ -534,40 +533,13 @@ namespace Tsuzuri
             var page = _stack[last];
 
             started = PerfLog.Start();
-            StackPanelHost.Children.Add(CreatePageSurface(page));   // LastChildFill
+            StackPanelHost.Children.Add(page.Frame);   // LastChildFill
             _visible.Add(page);
             page.RestoreViewState();
             PerfLog.Step("ページを入れる", started);
             PerfLog.StepNote("行数", page.Document.LineCount);
 
             if (animate) SlideIn(page.Frame);
-        }
-
-        /// <summary>
-        /// ページ1枚。上端の段の左端（MarkdownView.TitleSlot）にタイトルを入れる（SPEC 6章）。
-        /// 2026-10-16 に、別の段の帯をやめて検索の段と1段にまとめた。帯のアイコンもやめた。
-        /// 前のページへ戻るのは左の縦帯で。
-        /// </summary>
-        private UIElement CreatePageSurface(MarkdownView view)
-        {
-            var title = new TextBlock();
-            title.Text = view.Title;
-            title.Foreground = (Brush)FindResource("TextPrimary");
-            title.FontSize = 13;
-            title.FontWeight = FontWeights.SemiBold;
-            title.VerticalAlignment = VerticalAlignment.Center;
-            title.TextTrimming = TextTrimming.CharacterEllipsis;
-            _pageTitles.Add(title);
-
-            var titleArea = new Border();
-            titleArea.Child = title;
-            titleArea.Padding = new Thickness(6, 0, 6, 0);
-            titleArea.CornerRadius = new CornerRadius(4);
-            titleArea.Height = 26;
-            titleArea.VerticalAlignment = VerticalAlignment.Center;
-            view.TitleSlot.Child = titleArea;
-
-            return view.Frame;
         }
 
         // ---------------------------------------------------------------
@@ -618,17 +590,6 @@ namespace Tsuzuri
             _settings.FilerWidth = FilerColumn.ActualWidth;
         }
 
-        /// <summary>
-        /// 見出しを書き換えたら、出ているページの上端のタイトル（TitleSlot）も追いかける。
-        /// 左の縦帯の題は追いかけない（組み直す（RebuildStack）ときに作り直す）。
-        /// </summary>
-        private void RefreshPageTitles()
-        {
-            var count = Math.Min(_pageTitles.Count, _visible.Count);
-
-            for (var i = 0; i < count; i++)
-                _pageTitles[i].Text = _visible[i].Title;
-        }
 
         private void Hover(object sender, MouseEventArgs e)
         {

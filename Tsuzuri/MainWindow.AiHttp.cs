@@ -234,7 +234,9 @@ namespace Tsuzuri
                 var path = _aiContextPath;
                 try
                 {
-                    if (path != null && File.Exists(path)) context = File.ReadAllText(path, Encoding.UTF8);
+                    // 前に書いた状態は、ほかのタブの会話のために書いたものかもしれない（2026-11-22）。固定・フォルダを信じないよう、頭に断る
+                    if (path != null && File.Exists(path))
+                        context = AiStaleNote + File.ReadAllText(path, Encoding.UTF8);   // 指示と同じ断りの文（パイプのフックとも同じ）
                 }
                 catch (Exception)
                 {

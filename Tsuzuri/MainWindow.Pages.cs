@@ -725,6 +725,14 @@ namespace Tsuzuri
             {
                 // 閉じれば保存できるが、開けない孤立ページの中などで閉じられないこともあるので、ほかの失敗と同じく別名で書き出すかも尋ねる（2026-11-22）。
                 // 別名のファイルは、閉じていないコードブロックをページの終わりで閉じて書く（開き直せるように）。
+                // AI に話しかけたときの保存なら尋ねない（2026-11-22。利用者の判断）。話しかけるたびに尋ねる画面が出て、答えるまで Claude が待たされていた。
+                // 下端に知らせるだけにし、Claude には今の状態で、保存できないわけを伝える（AppendUnsaved）
+                if (_savingForAi)
+                {
+                    Status("AI に渡す前に保存できませんでした: 「" + Path.GetFileName(document.FilePath) + "」のコードブロックが閉じていません（閉じれば保存できます）");
+                    return false;
+                }
+
                 Status("保存できませんでした: コードブロックが閉じていません");
                 ShowBeforeAsking();
                 OfferRecoveryCopy(document, "「" + Path.GetFileName(document.FilePath) + "」を保存できませんでした。" + Environment.NewLine + Environment.NewLine + ex.Message);

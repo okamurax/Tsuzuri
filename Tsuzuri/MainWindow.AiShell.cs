@@ -416,10 +416,11 @@ namespace Tsuzuri
                 return;
             }
 
-            text.Append("の画面の最後の ").Append(screen.Lines.Count).Append(" 行（全部は指示のとおり -Read で）:\n```\n")
-                .Append(string.Join("\n", screen.Lines)).Append("\n```\n");
+            // 中に ``` があっても囲みが切れないように、Fenced で囲む（2026-11-22）
+            text.Append("の画面の最後の ").Append(screen.Lines.Count).Append(" 行（全部は指示のとおり -Read で）:\n")
+                .Append(Fenced(string.Join("\n", screen.Lines)));
             if (screen.Selection.Trim().Length > 0)
-                text.Append("共通ターミナルで選んでいる文字:\n```\n").Append(screen.Selection).Append("\n```\n");
+                text.Append("共通ターミナルで選んでいる文字:\n").Append(Fenced(screen.Selection));
             if (_aiShellQueue.Count > 0)
                 text.Append("共通ターミナルには、1行ずつ置いている残りが ").Append(_aiShellQueue.Count).Append(" 行ある。\n");
             else if (_aiShellPending)

@@ -289,7 +289,8 @@ namespace Tsuzuri
                     window.Status("固定したページが文書にありません: " + PinLabel(pin));
                     return;
                 }
-                var line = ResolvePinLine(document.TextOf(pin.Page), pin, out _);
+                PinMatch match;
+                var line = ResolvePinLine(document.TextOf(pin.Page), pin, out match);
                 var view = window.FindView(document, pin.Page);
                 if (view == null || !window._visible.Contains(view)) view = window.ShowPage(document, pin.Page);
                 if (view == null) return;
@@ -297,123 +298,156 @@ namespace Tsuzuri
             });
         }
 
+        private enum PinMatch { Found, Short, Missing }
+
         /// <summary>
-        /// 固定した行の、今の行番号（ページの中。1 始まり）。固定したときの行に同じ文字があればそこ、無ければ近い順に同じ文字の行を探す。
-        /// 見つからなければ固定したときの行番号（ページの行の数を越えれば最後の行）で、found は false。
+        /// 固定した行の、今の行番号（ページの中。1 始まり）。固定したときの行に同じ文字があればそこ、無ければ近い順に同じ文字の行を探す（ページ全体）。
+        /// 空行や4文字に満たない行は探し直さない（ほかにもいくらでもあり、近くの別の行を当ててしまう）。
+        /// 見つからなければ固定したときの行番号（ページの行の数を越えれば最後の行）。
         /// </summary>
-        private static int ResolvePinLine(string pageText, AiPinState pin, out bool found)
+        private static int ResolvePinLine(string pageText, AiPinState pin, out PinMatch match)
         {
             var lines = (pageText ?? string.Empty).Replace("\r\n", "\n").Replace('\r', '\n').Split('\n');
             var at = Math.Max(1, pin.Line);
             var text = pin.Text ?? string.Empty;
-            found = true;
-            if (at <= lines.Length && lines[at - 1] == text) return at;
-            for (var distance = 1; distance < lines.Length; distance++)
+            var fallback = Math.Min(at, lines.Length);
+
+            if (text.Trim().Length < 4)
             {
-                if (at - distance >= 1 && at - distance <= lines.Length && lines[at - distance - 1] == text) return at - distance;
-                if (at + distance <= lines.Length && lines[at + distance - 1] == text) return at + distance;
+                match = PinMatch.Short;
+                return fallback;
             }
-            found = false;
-            return Math.Min(at, lines.Length);
+
+            match = PinMatch.Found;
+            if (at <= lines.Length && lines[at - 1] == text) return at;
+            var reach = Math.Max(at, lines.Length);   // at がページの行の数を越えていても、上へ1行目まで探す
+            for (var distance = 1; distance <= reach; distance++)
+            {
+                var up = at - distance;
+                if (up >= 1 && up <= lines.Length && lines[up - 1] == text) return up;
+                var down = at + distance;
+                if (down <= lines.Length && lines[down - 1] == text) return down;
+            }
+            match = PinMatch.Missing;
+            return fallback;
         }
 
         // =====================================================================
         // 今の状態に書く
         // =====================================================================
 
-        /// <summary>
-        /// 話しかけてきた会話のフォルダと固定したカーソルを、今の状態に書く。カーソルを固定していて、その位置を書けたら true
-        /// （そのときは、このあとに書くエディタの位置を「参考」とし、まず読む範囲は固定した位置の分だけにする）。
-        /// </summary>
-        private bool AppendAiTabContext(StringBuilder text, AiTab tab)
+        /// <summary>この会話のプロジェクトのフォルダの行（入っていれば毎回）。</summary>
+        private void AppendAiProject(StringBuilder text, AiTab tab)
         {
-            if (tab == null) return false;
-
-            if (!string.IsNullOrEmpty(tab.Project))
+            if (tab == null) return;
+            if (string.IsNullOrEmpty(tab.Project))
             {
-                if (AiGuard.IsGuarded(tab.Project))
-                {
-                    text.Append("この会話のプロジェクトのフォルダ: 利用者が指定したが、AI に渡さない場所なので伝えない。尋ねたり探したりしない。\n");
-                }
-                else
-                {
-                    text.Append("この会話のプロジェクトのフォルダ（利用者が指定）: ").Append(tab.Project);
-                    if (!DirectoryExists(tab.Project)) text.Append("（今は見つからない）");
-                    text.Append("。開いている文書の場所とは別。ソースを読む・書く・コマンドを動かすのは、断りが無ければこのフォルダで。\n");
-                }
+                // 無いときも書く（2026-11-22。消したあと、前のフォルダで作業を続けないように）
+                text.Append("この会話のプロジェクトのフォルダ: 指定なし（前の頼みで指定があっても、今は外されている）。\n");
+                return;
             }
 
-            var pin = tab.Pin;
-            if (pin == null) return false;
+            if (AiGuard.IsGuarded(tab.Project))
+            {
+                text.Append("この会話のプロジェクトのフォルダ: 利用者が指定したが、AI に渡さない場所なので伝えない。その場所を推し量ったり探したりしない。")
+                    .Append("「このフォルダ」「プロジェクト」を頼まれたら、尋ねず、渡されていないので扱えないと利用者に伝える。\n");
+                return;
+            }
+            text.Append("この会話のプロジェクトのフォルダ（利用者がこの会話のために指定した）: ").Append(tab.Project);
+            if (!DirectoryExists(tab.Project)) text.Append("（今は見つからない）");
+            text.Append("。下の「ファイル」の行（話題の文書。あれば）の場所とは別。ソースを読む・書く・コマンドを動かすのは、断りが無ければこのフォルダで。")
+                .Append("話題の文書（メモ・手順など）を読み書きするのは、今までどおり「ファイル」の行の文書。\n");
+        }
+
+        /// <summary>
+        /// カーソルを固定しているときの、話題の文書・ページ・カーソル。呼び名は固定していないときと同じ（ファイル・見ているページ・カーソル・まず読む範囲）。
+        /// 頭に、固定していること・エディタの画面の位置とは違うことを書く。書いた話題の文書を返す（ファイルが無い・読めない・AI に渡さない場所なら null）。
+        /// </summary>
+        private PageDocument AppendAiPinnedSubject(StringBuilder text, AiPinState pin)
+        {
             if (AiGuard.IsGuarded(pin.File))
             {
-                text.Append("この会話で固定した位置は、AI に渡さない場所の文書にある。場所も中身も渡していない。\n");
-                return false;
+                text.Append("この会話は、利用者がカーソルの位置を固定しているが、その位置は AI に渡さない場所の文書にあるので、場所も中身も渡していない。")
+                    .Append("この会話の話題の位置は分からない。「ここ」「このページ」などで頼まれたら、どこのことかを利用者に尋ねる（下の「エディタの画面（参考）」を話題の位置と思わない）。\n");
+                return null;
             }
 
-            text.Append("この会話の話題の位置（利用者がこの会話のために固定した。エディタの今のカーソルではない。「ここ」「このページ」「カーソル」は、断りが無ければこちらを指す）:\n");
-            text.Append("ファイル: ").Append(pin.File).Append('\n');
+            text.Append("この会話は、利用者がカーソルの位置を固定している（同じ文書の別々のページの話を、別々の会話で同時に進めるため）。")
+                .Append("下の「ファイル」「見ているページ」「カーソル」「まず読む範囲」は固定した位置で、エディタの画面で今カーソルがある所ではない。")
+                .Append("「ここ」「この節」「このページ」「カーソル」「この文書」は、断りが無ければこの固定した位置（とその文書）を指す。")
+                .Append("エディタの画面の位置は、そのあとの「エディタの画面（参考）」に書いた。\n");
 
+            // 開いている文書があればそれを使う。ただし未保存の編集が無く、ファイルが外で書き換わっていれば（ほかの画面の文書は、その画面に移るまで読み直さない）、
+            // ファイルから読む（2026-11-22。古い中身の行番号を渡さないように）
             PageDocument document = null;
             foreach (var window in OpenWindows)
             {
                 document = window.FindOpenDocument(pin.File);
                 if (document != null) break;
             }
-            if (document == null)
+            string unreadable = null;
+            var changed = false;
+            try
+            {
+                changed = document != null && !document.IsDirty && document.IsChangedOnDisk;
+            }
+            catch (Exception)
+            {
+            }
+            if (document == null || changed)
             {
                 try
                 {
                     if (File.Exists(pin.File)) document = PageDocument.Load(pin.File);
+                    else if (document == null) unreadable = "ファイルが無い";
                 }
-                catch (Exception)
+                catch (Exception ex)
                 {
-                    document = null;
+                    unreadable = ex.Message;
+                    if (changed)
+                    {
+                        // 読めなければ、開いている（古い）中身で書く。古いことは AppendUnsaved が断る（StaleReason）
+                        unreadable = null;
+                    }
+                    else
+                    {
+                        document = null;
+                    }
                 }
-            }
-            if (document == null)
-            {
-                text.Append("（このファイルは今は見つからない・読めない。固定したときは ").Append(PinLabel(pin)).Append("）\n");
-                return true;
-            }
-            if (!document.Contains(pin.Page))
-            {
-                text.Append("（固定したページ ").Append(string.IsNullOrEmpty(pin.Page) ? "ルート" : pin.Page).Append("「").Append(pin.Title).Append("」は、今はこのファイルに無い）\n");
-                return true;
             }
 
-            bool found;
-            var line = ResolvePinLine(document.TextOf(pin.Page), pin, out found);
+            var pageLabel = (string.IsNullOrEmpty(pin.Page) ? "ルート" : pin.Page) + "「" + (pin.Title ?? string.Empty) + "」";
+            if (document == null)
+            {
+                // 「ファイル」の呼び名は使わない（指示は「ファイル」の行があれば履歴・添付の行で決めるため。読めないのに「記録が無い」と取られないように）
+                text.Append("固定した文書（今は読めない）: ").Append(pin.File).Append('\n')
+                    .Append("読めないわけ: ").Append(unreadable ?? "分からない").Append('\n')
+                    .Append("固定したときのページは ").Append(pageLabel).Append("、ページの ").Append(pin.Line)
+                    .Append(" 行目。この文書の添付フォルダ・変更の履歴は分からない。読む・書く前に、利用者に確かめる。\n");
+                return null;
+            }
+
+            AppendDocumentFacts(text, document);
+            if (!document.Contains(pin.Page))
+            {
+                text.Append("見ているページ: ").Append(pageLabel).Append("（固定したページは、今はこのファイルに無い。消えたか、ID が変わった。読む・書く前に、どこのことかを利用者に確かめる）\n");
+                return document;
+            }
+
+            PinMatch match;
+            var line = ResolvePinLine(document.TextOf(pin.Page), pin, out match);
             int first, last;
             bool toEnd;
             var ranged = document.LineRangeOf(pin.Page, out first, out last, out toEnd);
-
-            text.Append("ページ: ").Append(string.IsNullOrEmpty(pin.Page) ? "ルート" : pin.Page).Append("「").Append(pin.Title).Append("」");
-            if (ranged)
-            {
-                text.Append("（中身はファイルの ").Append(first).Append("〜").Append(last).Append(" 行目");
-                text.Append(toEnd ? "。ファイルの末尾まで" : "。" + (last + 1) + " 行目からは別のページ").Append('）');
-            }
-            text.Append('\n');
-
-            text.Append("カーソル: ページの ").Append(line).Append(" 行目");
-            if (ranged) text.Append("（ファイルの ").Append(first - 1 + line).Append(" 行目）");
-            text.Append(found ? ": " + pin.Text : "（固定したときの行「" + pin.Text + "」が見つからない。書き換わったかもしれないので、およその位置）");
-            text.Append('\n');
-
-            if (ranged)
-            {
-                var at = first - 1 + line;
-                int from = first, to = last;
-                if (last - first + 1 > ReadAroundLines * 2)
-                {
-                    from = Math.Max(first, at - ReadAroundLines);
-                    to = Math.Min(last, at + ReadAroundLines);
-                }
-                text.Append("まず読む範囲: ファイルの ").Append(from).Append("〜").Append(to).Append(" 行目（Read の offset ").Append(from)
-                    .Append("・limit ").Append(to - from + 1).Append("）。先頭から読まない。足りなければ広げる\n");
-            }
-            return true;
+            var tail = match == PinMatch.Found
+                ? ": " + pin.Text
+                : match == PinMatch.Short
+                    ? (string.IsNullOrWhiteSpace(pin.Text) ? "（固定した行は空行" : "（固定した行は「" + pin.Text + "」という短い行")
+                      + "で、同じ形の行がほかにもありうるので、探し直していない。固定したときの行番号のままの、およその位置）"
+                    : "（固定したときの行「" + pin.Text + "」が、ページの中に見つからない。書き換わったらしい。固定したときの行番号のままの、およその位置）";
+            AppendPageAndCursor(text, ranged, first, last, toEnd, pageLabel, line, tail);
+            text.Append("（「見ているページ」の題は固定したときのもので、今は変わっていることがある。ページは ID で探す）\n");
+            return document;
         }
     }
 }

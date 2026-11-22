@@ -116,28 +116,54 @@ namespace Tsuzuri
   今ある図（.json・罫線・Mermaid）を直す・足す頼みは、尋ねずにその形のまま直す。選んでもらう形:
   - 図エディタの図: Tsuzuri の図エディタで手直しできる図（.json）。この形に決まったら、描く前に、必ず「{drawing-format}」を読み、その手順と形に従う
     （.png は書かない。Tsuzuri が作る）。今の状態で添付フォルダが「なし」の文書には使えない（選ぶ形に入れない。フォルダを作らない）
-  - 罫線（┌─┐│）の図: 本文に文字で描く。コードブロックに入れる
+  - 罫線（┌─┐│）の図: 本文に文字で描く。コードブロックに入れる（話題の文書がテキストファイルなら、コードブロックで囲まない）
   - Mermaid: 本文に Mermaid のコードブロックで書く（Tsuzuri の画面では図にならず、コードのまま見える）
   尋ねるときは、何をどこに描くつもりかも一言添える。Markdown の表は図ではないので、尋ねずに表で書く。
-- 利用者が話しかけるたびに、エディタの今の状態（開いているファイル・見ているページ・カーソルの行・選んでいる文字）が付いてくる。
-  ほかの画面で開いている文書の場所も「ほかに開いている文書」として付いてくる。利用者が見ていない文書の名前やタブの名前で話したら、その一覧から探す。
-  「ここ」「この節」「選んだところ」「このページ」は、それを指す。文字を選んでいて「これ」「直して」と言われたら、選んだところが相手。
-  「この文書」「このファイル」「全体」は、ファイル全体（全部のページ）を指す。
-  - 今の状態の頭に「この会話の話題の位置」があれば、利用者がこの会話のために固定した位置（同じ文書の別のページの話を、別の会話で同時に進めるため）。
-    「ここ」「このページ」「カーソル」は、断りが無ければそちらを指す。その下の「エディタで今見ている所」は参考（利用者がほかの会話の作業で動かしている）。
-  - 「この会話のプロジェクトのフォルダ」があれば、この会話で扱うプロジェクトはそのフォルダ（開いている文書の場所とは別）。ソースを読む・書く・コマンドを動かすのは、断りが無ければそこで。
-- ファイルは書き換えてよい。エディタは書き換えを知らされて、すぐ読み直す（エディタに保存していない編集がある文書は読み直さない）。
+- 利用者が話しかけるたびに、「Tsuzuri の今の状態」が付いてくる。その中の呼び名の意味（このあとの決まりは、この呼び名で書いている）:
+  - 「ファイル」: この会話の話題の文書（以下「話題の文書」）。「種類」か「添付フォルダ」、「変更の履歴の git」の行も、話題の文書のもの。
+  - 「見ているページ」: 話題のページと、その中身がファイルの何行目から何行目までか。「カーソル」: 話題のページの中のカーソルの行。「まず読む範囲」: カーソルの前後で、まず読むところ。
+  - 「選んでいる文字」: 利用者がエディタで選んでいる文字。
+  - ふだん（カーソルを固定していないとき）は、これらはエディタの画面の位置そのもの。
+  - 今の状態の頭に「（前に書いた状態を渡す: …）」とあれば、エディタが今回の状態を書けず、ほかの会話のためか前の時点に書いたものを渡している。
+    その中の「この会話は〜」「この会話のプロジェクトのフォルダ」「ファイル」「見ているページ」「カーソル」「まず読む範囲」は信じず、読む・書く前に、どの文書のどこの話かを利用者に確かめる。
+  - 今の状態に「この会話はカーソルを固定していない」とあれば、前の頼みで固定していても今は解除されている。今の状態の「ファイル」「見ているページ」「カーソル」に従う。
+    「どの会話からの頼みか分からなかった」とあれば、固定とフォルダは渡っていない。前の頼みで固定やフォルダがあったなら、読む・書く前に利用者に確かめる。
+  - **カーソルを固定しているとき**: 今の状態に「この会話は、利用者がカーソルの位置を固定している」とある。利用者が、同じ文書の別々のページの話を別々の会話で同時に進めるために、
+    この会話の話題の位置を固定している。そのときの「ファイル」「見ているページ」「カーソル」「まず読む範囲」は固定した位置で、エディタの画面で今カーソルがある所ではない。
+    エディタの画面の位置は「エディタの画面（参考）」の段に、「画面のファイル」「画面のページ」「画面のカーソル」「画面で選んでいる文字」という別の呼び名で書いてある。
+    この段は、利用者がほかの会話の作業で動かしている所なので、話題として扱わない。読む・書くのは、利用者が「エディタの画面の」「選んだところ」などと、はっきり画面の側を指したときか、「画面のファイル」の文書を名前で指したときだけ。
+  ほかの画面で開いている文書の場所も「ほかに開いている文書」として付いてくる。利用者が話題の文書でない文書の名前やタブの名前で話したら、その一覧から探す。
+  「ここ」「この節」「このページ」は、話題のページのカーソルのあたり・話題のページを指す。「選んだところ」は「選んでいる文字」（固定しているときは「画面で選んでいる文字」）。
+  文字を選んでいて「これ」「直して」と言われたら、選んだところが相手（固定しているときは、その頼みが画面の側を指しているかを、はっきりしなければ尋ねる）。
+  「この文書」「このファイル」「全体」は、話題の文書のファイル全体（全部のページ）を指す。
+  - 「この会話のプロジェクトのフォルダ」の行に場所があれば、利用者がこの会話のために指定した、扱うプロジェクトのフォルダ（話題の文書の場所とは別）。
+    「このフォルダ」「プロジェクト」「ソース」は、断りが無ければそのフォルダを指す。行が「指定なし」なら、前の頼みで指定があっても今は外されている。
+    「このフォルダ」「プロジェクト」と言われてこの行に場所が無ければ、どこのことかを利用者に尋ねる
+    （ただし、この行が「AI に渡さない場所なので伝えない」なら、尋ねず、渡されていないので扱えないと利用者に伝える）。
+    ソースを読む・書く・コマンドを動かすのは、断りが無ければそこで。話題の文書（メモ・手順など）を読み書きするのは、今までどおり「ファイル」。
+    このフォルダは会話を始めたフォルダの外のことがあり、読むときに Claude Code が許可を求めることがある。
+- ファイルは書き換えてよい。文書・図の .json は Edit か Write で書く（Bash・PowerShell で書いても読み直しはするが、図の画像を作るのはこの画面に開いている文書の図だけで、描けなかったときもそのわけが届かない。
+  カーソルを固定した文書などをこの画面で開いていなければ、Bash・PowerShell で書いた図は画像にならない）。
+  エディタは書き換えを知らされて、この画面に開いている文書をすぐ読み直す（エディタに保存していない編集がある文書は読み直さない。ほかの画面の文書は、その画面に移ったときに読み直す）。
   書き換える前には必ずファイルを読み直すこと。利用者がエディタで編集・保存していることがある。読み直すのは、変える場所の前後だけでよい。
 - 本文を読むときは、先頭から読まない。まず今の状態の「まず読む範囲」（カーソルの前後）だけを Read の offset・limit で読み、足りなければ広げる。
+  「まず読む範囲」の行が無いとき（ページやファイルが見つからないと書いてあるときなど）も、先頭から読まない。「見ているページ」の範囲か、`<!--page: ID-->` の行を Grep で探して決めた範囲の一部を読む。
   ページ全体・ファイル全体が相手の頼み（「このページをまとめて」「全体を見て」）なら、その範囲を読む。探すときは Grep を使う。
-  今の状態に「保存できていない編集がある」とあれば、その文書は書き換えず、先にエディタで保存してもらうよう利用者に頼む
-  （書き換えると、利用者の編集か書き換えのどちらかが消える。このときの行番号もファイルと合わない）。
+  今の状態に「エディタに保存できていない編集がある文書: <場所>」とあれば、その場所の文書は書き換えず、先にエディタで保存してもらうよう利用者に頼む
+  （書き換えると、利用者の編集か書き換えのどちらかが消える。このときの、その文書の行番号もファイルと合わない）。
+  そこに書いていない文書は、未保存の編集が無いので書き換えてよい（ほかの画面の文書は「ほかに開いている文書」の行に、未保存かどうかを書いてある）。
+  閉じていないコードブロックのためにエディタが保存を断っている、と書いてあれば、「保存して」とくり返さず、そのコードブロックを閉じるよう利用者に伝える。
 - ファイルの形式:
   - 1つの .md の中に複数のページがある。`<!--page: p3-->` の行の次から、次の印の行の手前までがページ p3。
     ファイルの先頭から最初の印の手前まではルートページ。
+  - コードブロック（``` や ~~~ で始まり、同じ記号で閉じる）の中にある `<!--page: …-->` の形の行は、ページの区切りではなく本文（説明の見本など）。
+    印の行を Grep で探すときは、当たった行がコードブロックの中でないかを確かめる。
+  - コードブロックは必ず閉じる。開いたまま後ろに `<!--page: …-->` の行が来ると、エディタはその文書を開けなくなる（保存もしない）。
+    ページの末尾に書くときや、ファイルの末尾にサブページを足すときは、その前のページがコードブロックの開いたままで終わっていないかを読んで確かめる。
+    開いたままなら、足す前に利用者に伝える（利用者が閉じ忘れている。勝手に閉じない）。
   - サブページへのリンクは `[表示名](#p3)`。
   - サブページを作るときは、別のファイルにしない。ファイルの末尾に `<!--page: ID-->` の行と中身を足し、
-    見ているページの頼まれた場所（断りが無ければカーソルの行の次に、前後を空行で挟んだ1行として）にリンクを書く。
+    見ているページ（話題のページ）の頼まれた場所（断りが無ければ「カーソル」の行の次に、前後を空行で挟んだ1行として）にリンクを書く。
     ID は、ファイル全体の印とリンクのどれとも重ならない p+数字にする（ファイル全体を Grep で調べる）。
   - 印の行は書き換えない。ページを消すときは、印の行とその中身をまとめて消し、そのページへのリンクも消す。
   - 添付（画像など）は、ファイルの隣の「.ファイル名」フォルダにある（拡張子も含む。todo.md なら .todo.md）。
@@ -151,15 +177,17 @@ namespace Tsuzuri
   どこをいつ進めたか・前回の保存から何が変わったかを知りたいときに読む
   （例: git -c safe.directory=* --git-dir=""<履歴>"" log --stat -5 、git -c safe.directory=* --git-dir=""<履歴>"" log -p -3）。
   ネットワーク上の場所（\\Mac\...）では、-c safe.directory=* を付けないと git に断られる。
-  <履歴> は、話しかけるたびに付いてくるエディタの今の状態の「変更の履歴の git」の行にある。この行が無ければ、まだ記録が無い。
+  <履歴> は、話しかけるたびに付いてくる今の状態の「変更の履歴の git」の行にある（話題の文書のもの）。
+  「ファイル」の行があってこの行が無ければ、まだ記録が無い。「ファイル」の行が無ければ（ファイルを開いていない・AI に渡さない文書など）、履歴は分からない。
   log -p は件数を絞って読む（-3 など。全部出すと長すぎて切れる）。前回進めたところを踏まえて助言するのに使う。
   この履歴にコミットしたり、書き換えたりしない（記録はエディタがする）。
 - AI の欄には、ほかの会話のタブもある。タブの見出しは、それぞれの claude のセッションの名前（#1・#2…）。
   利用者が「#2 に〜を渡して」「#1 に頼んで」と言ったら、その名前のセッションに SendMessage で送る（相手は ListAgents で探せる）。
-- 読む・書く・直す・まとめるの相手は、断りが無ければ見ているページ（サブページ）だけ。ファイル全体ではない。
+- 読む・書く・直す・まとめるの相手は、断りが無ければ見ているページ（話題のページ。サブページ）だけ。ファイル全体ではない。
   - 見ているページの範囲は、今の状態の「見ているページ」に書いた行（中身はファイルの何行目から何行目まで）。
+    カーソルを固定しているときは、固定したページの範囲（「エディタの画面（参考）」の「画面のページ」ではない）。
     「このページを読んで」「要約して」「直して」「ここに書いて」は、この範囲の話。読むときもこの範囲を読む（Read の offset・limit で）。
-  - 今の状態の行番号は、話しかけたときのもの。自分で書き換えたあとはずれるので、`<!--page: ID-->` の行を Grep で探し直して範囲を決める。
+  - 今の状態の行番号は、話しかけたときのもの。自分で書き換えたあとはずれるので、`<!--page: ID-->` の行を Grep で探し直して範囲を決める（コードブロックの中の見本の行は区切りではない）。
   - ファイル全体・ほかのページ・全部のページを相手にするのは、利用者がそう言ったとき（「この文書」「ファイル全体を見て」「全部のページで」「p5 を」など）だけ。
     ただし、印・リンク・ID を調べるとき（ID が重ならないか、消すページへのリンクがどこにあるか）は、ファイル全体を Grep で見る。
   - 書くのも範囲の中。範囲の外は別のページで、とくにファイルの末尾に足すと最後のページの中身になる。
@@ -237,7 +265,9 @@ namespace Tsuzuri
     繰り返しの予定は、見出しのすぐ下に `<!-- repeat: RRULE -->` の行がある（Google カレンダーと同じ RRULE。見出しの日が1回目、見出しの日の幅が1回の長さ）。
     Tsuzuri が読める RRULE は FREQ=DAILY / WEEKLY;BYDAY=MO,TU… / MONTHLY;BYMONTHDAY=25 / MONTHLY;BYDAY=2TU（-1FR は最終金曜）/ YEARLY と、INTERVAL=n・UNTIL=yyyyMMdd（その日を含む）だけ。
     COUNT などほかの項目を書くと、カレンダーは1回目しか出さない。
-    通知のある予定は、見出しのすぐ下に `<!-- notify: 10:00 -->` の行がある（予定のある日のその時刻にメール。繰り返しなら毎回、何日かなら始まりの日。送るのは同期先のカレンダーで、Tsuzuri は時刻を持つだけ）。消した回は `<!-- skip: 2026-12-29 2027-01-05 -->`、
+    通知のある予定は、見出しのすぐ下に `<!-- notify: 10:00 -->` の行がある（鳴るのは予定のある日のその時刻。繰り返しなら毎回、何日かなら始まりの日）。
+    Tsuzuri が動いている間は、その時刻に Windows の通知を出す（カレンダーを閉じていても出す。Tsuzuri を閉じていた間の分は出さない）。
+    メールで知らせるのは、Google カレンダーなどへの同期を作ってから（まだ無い。今はメールは届かない）。消した回は `<!-- skip: 2026-12-29 2027-01-05 -->`、
     その回だけ動かした回は `<!-- move: 2026-12-08>2026-12-09 -->`（元の日>動かした先）。これらの行は見出しのすぐ下（メモより前）に置く。
     繰り返しの予定の日を尋ねられたら、決まりから数えて答える（数えるのは聞かれた範囲だけ。無期限の決まりを全部数えない）。
     メモの中で `## ` で始まる行は、頭に `\` を付けて書く。先頭の印の行と `# 予定` は残す。ファイルが無ければ、まだ予定が無い。
@@ -577,6 +607,14 @@ namespace Tsuzuri
             tab.View.Dispose();
             AiTerminals.Children.Remove(tab.View);
             _aiTabs.RemoveAt(index);
+            try
+            {
+                var tabContext = AiTabContextPath(tab);
+                if (tabContext != null) File.Delete(tabContext);
+            }
+            catch (Exception)
+            {
+            }
             RebuildAiTabStrip();
             StoreAiTabs();   // 自分で閉じた会話は、次の起動で戻さない
 
@@ -885,7 +923,8 @@ namespace Tsuzuri
             foreach (var tab in _aiTabs) tab.View.Dispose();
             CloseAiShell();
 
-            foreach (var path in new[] { _aiSettingsPath, _aiContextPath, AiShellDumpPath })
+            var tabContexts = _aiTabs.Select(AiTabContextPath).Where(path => path != null).ToList();
+            foreach (var path in new[] { _aiSettingsPath, _aiContextPath, AiShellDumpPath }.Concat(tabContexts))
             {
                 if (path == null) continue;
 
@@ -1013,12 +1052,17 @@ namespace Tsuzuri
                 "$r=New-Object System.IO.StreamReader($c,[System.Text.Encoding]::UTF8);$m=$r.ReadLine()}catch{};$c.Dispose();" +
                 "if($m -and $m -ne 'ok'){[Console]::OutputEncoding=[System.Text.Encoding]::UTF8;[Console]::Error.Write($m);exit 2}";
 
-            var quoted = Quote(contextPath);
-            var context = connect +
+            // 状態のファイルはタブごとにも書く（2026-11-22。「context-画面-タブ.md」。固定したカーソル・フォルダはタブごとに違うので、
+            // 画面に1つのファイルだけだと、ほかのタブが同時に話しかけたときに、そのタブの状態を読んでしまう）。タブの分が無ければ画面の分を読む
+            // どのファイルを読むかは、エディタが答えたあとで決める（タブの最初の頼みでは、答えるまでタブの分がまだ無い）。
+            // エディタが「ok」（今回の状態を書けた）と答えなければ、前の状態に断り（AiStaleNote）を付けて出す
+            var pick = "$f=" + Quote(contextPath) + ";if($env:MDEDITOR_AI_TAB){$g=" + Quote(contextPath.Substring(0, contextPath.Length - 3) + "-")
+                       + "+[string]$env:MDEDITOR_AI_TAB+'.md';if(Test-Path -LiteralPath $g){$f=$g}};";
+            var context = "$m='';" + connect +
                 "try{$c.Connect(5000);$w=New-Object System.IO.StreamWriter($c);$w.WriteLine('prompt'+[char]9+[string]$env:MDEDITOR_AI_TAB);$w.Flush();" +
-                "$r=New-Object System.IO.StreamReader($c);[void]$r.ReadLine()}catch{};$c.Dispose();" +
-                "[Console]::OutputEncoding=[System.Text.Encoding]::UTF8;" +
-                "if(Test-Path -LiteralPath " + quoted + "){[Console]::Out.Write([System.IO.File]::ReadAllText(" + quoted + "))}";
+                "$r=New-Object System.IO.StreamReader($c);$m=$r.ReadLine()}catch{};$c.Dispose();" +
+                "[Console]::OutputEncoding=[System.Text.Encoding]::UTF8;" + pick +
+                "if(Test-Path -LiteralPath $f){if($m -ne 'ok'){[Console]::Out.Write(" + Quote(AiStaleNote) + ")};[Console]::Out.Write([System.IO.File]::ReadAllText($f))}";
 
             // HTTP の口を開けていれば（2026-11-15。MainWindow.AiHttp.cs）、ツールのたび・話しかけるたびのフックは HTTP で受ける。
             // PowerShell の起動（1 回 0.3〜1 秒）が無くなる。開けなければ今までどおり PowerShell。会話の始まり・終わりは HTTP にしない（始まりは HTTP を使えない。どちらも1回だけ）。
@@ -1034,7 +1078,7 @@ namespace Tsuzuri
 
             return "{\"hooks\":{" +
                    "\"PreToolUse\":[{\"matcher\":\"Read|Edit|Write|MultiEdit|NotebookEdit|Grep|Glob|Bash|PowerShell\",\"hooks\":[" + pre + "]}]," +
-                   "\"PostToolUse\":[{\"matcher\":\"Edit|Write|MultiEdit|NotebookEdit|Bash\",\"hooks\":[" + post + "]}]," +
+                   "\"PostToolUse\":[{\"matcher\":\"Edit|Write|MultiEdit|NotebookEdit|Bash|PowerShell\",\"hooks\":[" + post + "]}]," +
                    "\"UserPromptSubmit\":[{\"hooks\":[" + prompt + "]}]," +
                    "\"SessionStart\":[{\"hooks\":[{\"type\":\"command\",\"command\":\"" + PowerShell(SessionHook(connect, "session")) + "\"}]}]," +
                    "\"SessionEnd\":[{\"hooks\":[{\"type\":\"command\",\"command\":\"" + PowerShell(SessionHook(connect, "ended")) + "\"}]}]" +
@@ -1195,10 +1239,18 @@ namespace Tsuzuri
                     if (request == "prompt" || (request != null && request.StartsWith("prompt\t", StringComparison.Ordinal)))
                     {
                         // 「prompt→タブの番号」（2026-11-22。タブごとのフォルダ・固定したカーソルを渡すため）。前の形（番号なし）も受ける
-                        PrepareAiPrompt(request.Length > 7 ? request.Substring(7) : null, null);
+                        // 書けたときだけ「ok」。書けなければ「stale」で、フックは前の状態に断りを付けて出す（2026-11-22）
+                        string written = null;
+                        try
+                        {
+                            written = PrepareAiPrompt(request.Length > 7 ? request.Substring(7) : null, null);
+                        }
+                        catch (Exception)
+                        {
+                        }
 
                         var writer = new StreamWriter(server, new UTF8Encoding(false), 256, true);
-                        writer.WriteLine("ok");
+                        writer.WriteLine(written != null ? "ok" : "stale");
                         writer.Flush();
                         server.WaitForPipeDrain();
                     }
@@ -1573,8 +1625,11 @@ namespace Tsuzuri
                 Status("AI に渡す前の保存をしませんでした（" + skipped + "ため）。");
             }
 
+            // 外で書き換わった文書を、渡す前に読み直す（2026-11-22。Claude が書いた直後は、書き換えの知らせの読み直しより先にここへ来ることがあり、古い行番号を渡していた）
+            if (skipped == null) ReloadChangedDocuments();
+
             var context = WriteAiContext(skipped == null ? null : "エディタは" + skipped + "ため、今回は保存していない。", tab);
-            ShowAiContextSummary();
+            ShowAiContextSummary(tab);
             return context;
         }
 
@@ -1594,8 +1649,20 @@ namespace Tsuzuri
         /// </summary>
         private void SaveForAi()
         {
-            if (_stack.Any(view => view.IsDirty)) SaveAll();
+            if (!_stack.Any(view => view.IsDirty)) return;
+            _savingForAi = true;
+            try
+            {
+                SaveAll();
+            }
+            finally
+            {
+                _savingForAi = false;
+            }
         }
+
+        /// <summary>AI に話しかけられて保存している最中（閉じていないコードブロックで保存を断っても、尋ねる画面を出さない。2026-11-22）。</summary>
+        private bool _savingForAi;
 
         /// <summary>
         /// エディタの今の状態を書き出す。話しかけられたときと、claude を起動するとき。
@@ -1612,6 +1679,7 @@ namespace Tsuzuri
             {
                 var context = AiContext(note, tab);
                 File.WriteAllText(_aiContextPath, context, new UTF8Encoding(false));
+                if (tab != null) File.WriteAllText(AiTabContextPath(tab), context, new UTF8Encoding(false));   // パイプのフックはタブの分を読む
                 return context;
             }
             catch (Exception ex)
@@ -1622,15 +1690,43 @@ namespace Tsuzuri
         }
 
         /// <summary>
+        /// エディタが今回の状態を書けず、前に書いた状態を渡すときに頭に付ける断り（2026-11-22。HTTP とパイプのフックで同じ文）。
+        /// 前の状態は、ほかの会話のために書いたものや、前の時点のものかもしれない。指示にもこの文の扱いを書いている。
+        /// </summary>
+        private const string AiStaleNote =
+            "（前に書いた状態を渡す: エディタが今回の状態を書けなかったので、前に書いたものを渡す。ほかの会話のため、または前の時点のものかもしれない。"
+            + "中の「この会話は〜」「この会話のプロジェクトのフォルダ」「ファイル」「見ているページ」「カーソル」「まず読む範囲」を信じず、読む・書く前に利用者に確かめる）\n";
+
+        /// <summary>タブごとの今の状態のファイル（パイプのフックが読む。2026-11-22）。claude を起動する前は null。</summary>
+        private string AiTabContextPath(AiTab tab)
+        {
+            if (_aiContextPath == null || tab == null) return null;
+            return _aiContextPath.Substring(0, _aiContextPath.Length - 3) + "-" + tab.Id + ".md";
+        }
+
+        /// <summary>
         /// AI の欄の下端の細い行に、今渡した状態を1行で出す（2026-10-24。2026-10-26 に上端の段から下端へ移した）。話しかけられて状態を書いたとき。
         /// 例: 渡した状態  TODO.md › p3「Tasks」 12 行目  14:05:31
         /// </summary>
-        private void ShowAiContextSummary()
+        private void ShowAiContextSummary(AiTab tab)
         {
+            // カーソルを固定している会話には、固定した位置を出す（2026-11-22。エディタの画面の位置を出すと、利用者がそれを渡したと思い込む）
+            if (tab != null && tab.Pin != null)
+            {
+                var pinned = AiGuard.IsGuarded(tab.Pin.File) ? "AI に渡さない文書（場所を渡していない）"
+                    : PinLabel(tab.Pin) + (File.Exists(tab.Pin.File) ? string.Empty : "（ファイルが見つからない）");
+                AiContextText.Text = tab.Name + " に渡した状態（固定）  " + pinned + "  " + DateTime.Now.ToString("HH:mm:ss");
+                AiContextText.ToolTip = tab.Pin.File;
+                RefreshAiFileLinks();
+                return;
+            }
+
+            // どの会話に渡したか（選んでいないタブの頼みのこともある）。分からなければそう出す
+            var who = tab != null ? tab.Name + " に" : "（どの会話か分からない）";
             var view = Active;
             if (view == null || view.Owner == null)
             {
-                AiContextText.Text = "渡した状態  ファイルを開いていません  " + DateTime.Now.ToString("HH:mm:ss");
+                AiContextText.Text = who + "渡した状態  ファイルを開いていません  " + DateTime.Now.ToString("HH:mm:ss");
                 AiContextText.ToolTip = null;
                 RefreshAiFileLinks();
                 return;
@@ -1638,14 +1734,14 @@ namespace Tsuzuri
 
             if (AiGuard.IsGuarded(view.FilePath))
             {
-                AiContextText.Text = "渡していない  AI に渡さない文書（" + AiGuard.MarkerName + " のあるフォルダ）  " + DateTime.Now.ToString("HH:mm:ss");
+                AiContextText.Text = who + "渡していない  AI に渡さない文書（" + AiGuard.MarkerName + " のあるフォルダ）  " + DateTime.Now.ToString("HH:mm:ss");
                 AiContextText.ToolTip = null;
                 RefreshAiFileLinks();
                 return;
             }
 
             var selected = !string.IsNullOrEmpty(view.SimpleSelectedText.Trim());
-            AiContextText.Text = "渡した状態  " + Path.GetFileName(view.FilePath) + " › " + PageLabel(view)
+            AiContextText.Text = who + "渡した状態  " + Path.GetFileName(view.FilePath) + " › " + PageLabel(view)
                                  + "  " + view.TextArea.Caret.Line + " 行目" + (selected ? "（選択あり）" : string.Empty)
                                  + "  " + DateTime.Now.ToString("HH:mm:ss");
             AiContextText.ToolTip = view.FilePath;
@@ -1820,46 +1916,103 @@ namespace Tsuzuri
             }
         }
 
+        /// <summary>
+        /// 話しかけるたびに Claude に渡す今の状態（2026-11-22 に組み直した。プロンプトの見直しで、固定したカーソルがあると「見ているページ」などの呼び名が
+        /// エディタの画面の側を指していたため）。
+        /// ・この会話の話題の文書・ページ・カーソルは、いつも「ファイル」「見ているページ」「カーソル」「まず読む範囲」の呼び名で書く（指示はこの呼び名で決まりを書いている）。
+        ///   カーソルを固定していなければエディタの画面の位置、固定していれば固定した位置
+        /// ・固定していれば、エディタの画面の位置は「エディタの画面（参考）」として、別の呼び名（画面のファイル・画面のページ・画面のカーソル）で後ろに書く
+        /// ・話題の文書の種類・添付フォルダ・変更の履歴の git・図の念押しは、話題の文書について書く
+        /// </summary>
+        /// <param name="tab">話しかけてきた会話のタブ。分からなければ null（フォルダ・固定は書かない）。</param>
         private string AiContext(string note, AiTab tab)
         {
             var text = new StringBuilder();
             text.Append("[Tsuzuri の今の状態 ").Append(DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss")).Append("]\n");
             if (!string.IsNullOrEmpty(note)) text.Append(note).Append('\n');
 
-            // この会話のプロジェクトのフォルダと固定したカーソル（2026-11-22。MainWindow.AiPin.cs）。固定していれば、下のエディタの位置は参考として書く
-            var pinned = AppendAiTabContext(text, tab);
-            if (pinned) text.Append("エディタで今見ている所（参考。この会話の話題は上の固定した位置）:\n");
+            AppendAiProject(text, tab);   // この会話のプロジェクトのフォルダ（MainWindow.AiPin.cs）
 
             var view = Active;
-            if (view == null || view.Owner == null)
+            var hasView = view != null && view.Owner != null;
+            var viewGuarded = hasView && AiGuard.IsGuarded(view.FilePath);
+            var pin = tab != null ? tab.Pin : null;
+
+            // 固定・フォルダがあるかを、無いときも書く（2026-11-22。書かないと、前の頼みで固定していた・フォルダを指定していたことを、
+            // Claude が続いていると思い込む）。どの会話か分からなければ、そう書く
+            var editorShown = hasView && !viewGuarded;   // 下に「ファイル」「見ているページ」「カーソル」の行を書くか
+            if (tab == null)
+                text.Append("（どの会話からの頼みか分からなかったので、この会話のカーソルの固定とプロジェクトのフォルダは渡せていない。")
+                    .Append("前の頼みで固定やフォルダがあったなら、それが今も続いているかは分からない。読む・書く前に利用者に確かめる。")
+                    .Append(editorShown ? "下の「ファイル」「見ているページ」「カーソル」はエディタの画面の今の位置で、この会話が固定していた位置とは違うかもしれない）\n" : "）\n");
+            else if (pin == null)
+                text.Append("この会話はカーソルを固定していない（前の頼みで固定していても、今は解除されている）。")
+                    .Append(editorShown ? "下の「ファイル」「見ているページ」「カーソル」は、エディタの画面の今の位置。\n" : "\n");
+
+            PageDocument subject = null;   // 話題の文書（図の念押し・未保存の断りに使う）
+            if (pin != null)
+            {
+                subject = AppendAiPinnedSubject(text, pin);   // 固定した位置（MainWindow.AiPin.cs）
+                AppendEditorReference(text, hasView ? view : null, viewGuarded);
+            }
+            else if (!hasView)
             {
                 text.Append("ファイルは開いていない。\n");
-                AppendOtherDocuments(text, null);
-                AppendCalendarContext(text);
-                AppendAiShellContext(text);
-                return text.ToString();
             }
-
-            var document = view.Owner;
-
-            // AI に渡さない場所の文書（2026-11-09。AiGuard）。場所・ページ・カーソルの行・選んだ文字を書かない。頼みそのものは送るので、ほかの話はできる
-            if (AiGuard.IsGuarded(document.FilePath))
+            else if (viewGuarded)
             {
+                // AI に渡さない場所の文書（2026-11-09。AiGuard）。場所・ページ・カーソルの行・選んだ文字を書かない。頼みそのものは送るので、ほかの話はできる
                 text.Append("見ている文書は、利用者が AI に渡さないと決めた場所（目印 ").Append(AiGuard.MarkerName)
                     .Append(" のあるフォルダの中）にある。場所も中身も渡していない。尋ねたり探したりしない。\n");
-                AppendOtherDocuments(text, document);
-                AppendCalendarContext(text);
-                AppendAiShellContext(text);
-                return text.ToString();
+            }
+            else
+            {
+                subject = view.Owner;
+                AppendDocumentFacts(text, subject);
+                int first, last;
+                bool toEnd;
+                var ranged = subject.LineRangeOf(view.PageId, out first, out last, out toEnd);
+                var line = view.TextArea.Caret.Line;
+                AppendPageAndCursor(text, ranged, first, last, toEnd, PageLabel(view), line,
+                    ": " + view.Document.GetText(view.Document.GetLineByNumber(line)));
+
+                var selected = view.SimpleSelectedText;
+                if (!string.IsNullOrEmpty(selected.Trim()))
+                    text.Append("選んでいる文字:\n").Append(Fenced(selected.Replace("\r\n", "\n")));
             }
 
-            // ページの範囲は1回だけ数える（2026-11-15。前は LinesBefore と LineRangeOf で、話しかけるたびにファイル全体を2回書き出して行に分けていた）
-            int first, last;
-            bool toEnd;
-            var ranged = document.LineRangeOf(view.PageId, out first, out last, out toEnd);
-            var before = ranged ? first - 1 : -1;
-            var line = view.TextArea.Caret.Line;
+            if (hasView)
+            {
+                // AI に渡さない文書のページは題を伏せる（2026-11-15。右に開いていると、その題が渡っていた）
+                text.Append(pin != null ? "エディタの画面に開いているページの並び（参考。左から）: " : "開いているページの並び（左から）: ")
+                    .Append(string.Join(" > ", _stack.Select(page => AiGuard.IsGuarded(page.FilePath) ? "（AI に渡さない文書）" : PageLabel(page)).ToArray())).Append('\n');
+            }
 
+            AppendUnsaved(text, subject);
+            // 固定しているときは、話題の文書だけを除く（エディタの画面の文書も「ほかに開いている文書」に出し、名前で頼まれても探せるように）
+            AppendOtherDocuments(text, pin != null ? subject : hasView && !viewGuarded ? view.Owner : null);
+            AppendCalendarContext(text);  // カレンダーを開いていれば、見えている週・選んでいる日（2026-11-21）
+            AppendAiShellContext(text);   // 共通ターミナルの画面（2026-11-08）
+
+            // 図の頼みは、最初の指示に書くだけでは罫線で描かれた（2026-11-01）。話しかけるたびに1行だけ念を押す（書き方そのものは渡さない）。
+            // 形は決め打ちせず、指定が無ければ利用者に尋ねさせる（2026-11-01）。話題の文書で決める（2026-11-22）
+            if (subject != null)
+            {
+                if (subject.IsPlain)
+                    text.Append("話題の文書はテキストファイルなので、図は頼まれても罫線で書く（図エディタ・Mermaid は使えない。罫線の図をコードブロック ``` で囲まない）。\n");
+                else if (Attachments.IsBare(subject.FilePath))
+                    text.Append("新しく図を頼まれて形の指定が無ければ、描く前に、罫線・Mermaid のどちらで描くかを尋ねる（話題の文書に図エディタの図は置けない）。\n");
+                else
+                    text.Append("新しく図を頼まれて形の指定が無ければ、描く前に、図エディタ・罫線・Mermaid のどれで描くかを尋ねる（図エディタに決まったら、描く前に ")
+                        .Append(AiDrawingFormat).Append(" を読む。図は話題の文書の添付フォルダに置く）。\n");
+            }
+
+            return text.ToString();
+        }
+
+        /// <summary>話題の文書の「ファイル」「種類」か「添付フォルダ」「変更の履歴の git」の行。</summary>
+        private static void AppendDocumentFacts(StringBuilder text, PageDocument document)
+        {
             text.Append("ファイル: ").Append(document.FilePath).Append('\n');
             if (document.IsPlain)
                 text.Append("種類: テキストファイル（Markdown ではない。エディタは飾らずにそのまま出す。文字コード ").Append(document.EncodingName)
@@ -1869,13 +2022,21 @@ namespace Tsuzuri
             else
                 text.Append("添付フォルダ（画像・図を置く）: ").Append(Attachments.FolderOf(document.FilePath)).Append('\n');
 
+            // ファイル名を付けない（2026-11-03）。この記録に入っているのはこの文書の .md だけなので、付けなくても同じものが出る。
+            // 付けると、名前を変える前の記録が出ない。--follow を付けても、大文字小文字だけの変更（TODO.md → todo.md）は Windows の git が辿れなかった。
             var history = DocumentHistory.GitDirOf(document.FilePath);
             if (Directory.Exists(history))
                 text.Append("変更の履歴の git: ").Append(history).Append('\n');
-            // ファイル名を付けない（2026-11-03）。この記録に入っているのはこの文書の .md だけなので、付けなくても同じものが出る。
-            // 付けると、名前を変える前の記録が出ない。--follow を付けても、大文字小文字だけの変更（TODO.md → todo.md）は Windows の git が辿れなかった。
-            // ページの範囲は終わりまで書く（2026-11-01）。「このページに書いて」で、ファイルの末尾（最後のページ）に足さないように。
-            text.Append("見ているページ: ").Append(PageLabel(view));
+        }
+
+        /// <summary>
+        /// 話題の「見ているページ」「カーソル」「まず読む範囲」の行。
+        /// ページの範囲は終わりまで書く（2026-11-01。「このページに書いて」で、ファイルの末尾（最後のページ）に足さないように）。
+        /// </summary>
+        /// <param name="cursorTail">カーソルの行のあとに続ける文字（「: 行の文字」か、見つからなかった断り）。</param>
+        private static void AppendPageAndCursor(StringBuilder text, bool ranged, int first, int last, bool toEnd, string pageLabel, int line, string cursorTail)
+        {
+            text.Append("見ているページ: ").Append(pageLabel);
             if (ranged)
             {
                 text.Append("（中身はファイルの ").Append(first).Append("〜").Append(last).Append(" 行目");
@@ -1884,52 +2045,138 @@ namespace Tsuzuri
             text.Append('\n');
 
             text.Append("カーソル: ページの ").Append(line).Append(" 行目");
-            if (before >= 0) text.Append("（ファイルの ").Append(before + line).Append(" 行目）");
-            text.Append(": ").Append(view.Document.GetText(view.Document.GetLineByNumber(line))).Append('\n');
+            if (ranged) text.Append("（ファイルの ").Append(first - 1 + line).Append(" 行目）");
+            text.Append(cursorTail).Append('\n');
+            if (!ranged)
+                text.Append("（このページの範囲をファイルの行で数えられなかった。行番号はページの中のもの。範囲は `<!--page: ID-->` の行を Grep で探して決める）\n");
 
             // まず読む範囲（2026-11-13）。何も言わないと Claude は先頭から 2000 行読むことがあり、数万行の文書では会話がすぐ埋まる。
-            // このエディタには必ずカーソルがあるので、その前後をページの範囲の中で渡す。ページが短ければページ全体。絶対ではなく、足りなければ広げさせる。
-            if (before >= 0 && first > 0 && !pinned)
+            // カーソルの前後をページの範囲の中で渡す。ページが短ければページ全体。絶対ではなく、足りなければ広げさせる。
+            if (!ranged || first <= 0) return;
+            var at = first - 1 + line;
+            int from = first, to = last;
+            if (last - first + 1 > ReadAroundLines * 2)
             {
-                var at = before + line;
-                int from = first, to = last;
-                if (last - first + 1 > ReadAroundLines * 2)
-                {
-                    from = Math.Max(first, at - ReadAroundLines);
-                    to = Math.Min(last, at + ReadAroundLines);
-                }
-                text.Append("まず読む範囲: ファイルの ").Append(from).Append("〜").Append(to).Append(" 行目（Read の offset ").Append(from)
-                    .Append("・limit ").Append(to - from + 1).Append("）。先頭から読まない。足りなければ広げる\n");
+                from = Math.Max(first, at - ReadAroundLines);
+                to = Math.Min(last, at + ReadAroundLines);
             }
+            text.Append("まず読む範囲: ファイルの ").Append(from).Append("〜").Append(to).Append(" 行目（Read の offset ").Append(from)
+                .Append("・limit ").Append(to - from + 1).Append("）。先頭から読まない。足りなければ広げる\n");
+        }
+
+        /// <summary>
+        /// カーソルを固定しているときの、エディタの画面の位置（参考）。話題の呼び名（ファイル・見ているページ・カーソル）とは別の呼び名で書き、
+        /// 「まず読む範囲」は書かない（Claude が話題の範囲と取り違えないように）。
+        /// </summary>
+        private void AppendEditorReference(StringBuilder text, MarkdownView view, bool guarded)
+        {
+            text.Append("エディタの画面（参考）: この会話の話題ではない（利用者がほかの会話の作業で動かしている。下の「画面の〜」の行は、利用者が「エディタの画面」「選んだところ」とはっきり言ったとき、または画面のファイルの名前で頼んだときだけ相手にする）。\n");
+            if (view == null)
+            {
+                text.Append("- 画面ではファイルを開いていない\n");
+                return;
+            }
+            if (guarded)
+            {
+                text.Append("- 画面では AI に渡さない場所の文書を見ている（場所も中身も渡していない。尋ねたり探したりしない）\n");
+                return;
+            }
+
+            int first, last;
+            bool toEnd;
+            var ranged = view.Owner.LineRangeOf(view.PageId, out first, out last, out toEnd);
+            var line = view.TextArea.Caret.Line;
+            text.Append("- 画面のファイル: ").Append(view.FilePath).Append('\n');
+            text.Append("- 画面のページ: ").Append(PageLabel(view));
+            if (ranged) text.Append("（ファイルの ").Append(first).Append("〜").Append(last).Append(" 行目）");
+            text.Append('\n');
+            text.Append("- 画面のカーソル: ページの ").Append(line).Append(" 行目");
+            if (ranged) text.Append("（ファイルの ").Append(first - 1 + line).Append(" 行目）");
+            text.Append('\n');
 
             var selected = view.SimpleSelectedText;
             if (!string.IsNullOrEmpty(selected.Trim()))
+                text.Append("- 画面で選んでいる文字（利用者が「選んだところ」「選んだ文字」と言ったら、これ）:\n").Append(Fenced(selected.Replace("\r\n", "\n")));
+        }
+
+        /// <summary>
+        /// 保存できていない編集がある文書の断り（2026-11-22。前は「この文書は書き換えず」とだけ書き、どの文書かが分からなかった）。
+        /// この画面の文書と話題の文書のうち、未保存のものを名前で書く。閉じていないコードブロックで保存できないなら、その理由も書く。
+        /// ほかの画面の文書は「ほかに開いている文書」の行に書く（AppendOtherDocuments）。
+        /// </summary>
+        private void AppendUnsaved(StringBuilder text, PageDocument subject)
+        {
+            var documents = _stack.Select(view => view.Owner).Where(owner => owner != null).Distinct().ToList();
+            if (subject != null && !documents.Contains(subject)) documents.Add(subject);
+
+            foreach (var document in documents)
             {
-                text.Append("選んでいる文字:\n```\n").Append(selected.Replace("\r\n", "\n")).Append("\n```\n");
+                if (AiGuard.IsGuarded(document.FilePath)) continue;
+                if (!document.IsDirty)
+                {
+                    // 外で書き換わったのに読み直せていない（2026-11-22。閉じていないコードブロックのあとにページの印を書かれた等）。行番号は古い
+                    var stale = StaleReason(document);
+                    if (stale != null && subject != null && !ReferenceEquals(document, subject) && SamePath(document.FilePath, subject.FilePath))
+                    {
+                        // 話題の位置はファイルから読み直した今の中身で書いた（固定した文書）。古いのは画面の側だけ
+                        text.Append("エディタの画面に開いているこの文書の中身は、ファイルが外で書き換わる前のまま: ").Append(document.FilePath)
+                            .Append("（「エディタの画面（参考）」の行番号は書き換わる前のもの。話題の「見ているページ」「カーソル」「まず読む範囲」は、ファイルから読み直した今のもの）\n");
+                    }
+                    else if (stale != null)
+                        text.Append("ファイルが外で書き換わったのに、エディタの中身は書き換わる前のままの文書: ").Append(document.FilePath)
+                            .Append("（今の状態に書いたこの文書のページの範囲・行番号は、書き換わる前のもの。`<!--page: ID-->` の行を Grep で探して範囲を決め直す。読み直していないわけ: ")
+                            .Append(stale).Append("）\n");
+                    continue;
+                }
+
+                string unclosed = null;
+                try
+                {
+                    unclosed = document.UnclosedFence();
+                }
+                catch (Exception)
+                {
+                }
+
+                text.Append("エディタに保存できていない編集がある文書: ").Append(document.FilePath).Append("（この文書は書き換えない。");
+                if (unclosed != null)
+                    text.Append("この文書には閉じていないコードブロックがあるため、エディタが保存を断っている。利用者がそのコードブロックを閉じるまで保存できないので、「保存して」とは頼まず、閉じるよう伝える。エディタの知らせ: ")
+                        .Append("「").Append(unclosed.TrimEnd('。')).Append("」。");
+                else
+                    text.Append("先にエディタで保存してもらうよう利用者に頼む。");
+                text.Append("ファイルの中身はエディタの画面より古く、今の状態に書いたこの文書の行番号もファイルと合わない）\n");
             }
+        }
 
-            // AI に渡さない文書のページは題を伏せる（2026-11-15。右に開いていると、その題が渡っていた）
-            text.Append("開いているページの並び（左から）: ")
-                .Append(string.Join(" > ", _stack.Select(page => AiGuard.IsGuarded(page.FilePath) ? "（AI に渡さない文書）" : PageLabel(page)).ToArray())).Append('\n');
+        /// <summary>未保存の編集は無いのに、ファイルが外で書き換わっていて、読み直すと失敗するなら、そのわけ。読み直せる・変わっていないなら null。</summary>
+        private static string StaleReason(PageDocument document)
+        {
+            try
+            {
+                if (!document.IsChangedOnDisk || !File.Exists(document.FilePath)) return null;
+                PageDocument.Load(document.FilePath);
+                return "まだ読み直していない（ほかの画面の文書か、ダイアログを出していた。その画面に移ったときなどに読み直す）";
+            }
+            catch (Exception ex)
+            {
+                return ex.Message;
+            }
+        }
 
-            if (_stack.Any(page => page.IsDirty))
-                text.Append("エディタに保存できていない編集がある。ファイルの中身はエディタの画面より古く、行番号もファイルと合わない。この文書は書き換えず、先に保存してもらう。\n");
-
-            AppendOtherDocuments(text, document);
-            AppendCalendarContext(text);  // カレンダーを開いていれば、見えている週・選んでいる日（2026-11-21）
-            AppendAiShellContext(text);   // 共通ターミナルの画面（2026-11-08）
-
-            // 図の頼みは、最初の指示に書くだけでは罫線で描かれた（2026-11-01）。話しかけるたびに1行だけ念を押す（書き方そのものは渡さない）。
-            // 形は決め打ちせず、指定が無ければ利用者に尋ねさせる（2026-11-01）。
-            if (document.IsPlain)
-                text.Append("この文書はテキストファイルなので、図は頼まれても罫線で書く（図エディタ・Mermaid は使えない）。\n");
-            else if (Attachments.IsBare(document.FilePath))
-                text.Append("新しく図を頼まれて形の指定が無ければ、描く前に、罫線・Mermaid のどちらで描くかを尋ねる（この文書に図エディタの図は置けない）。\n");
-            else
-                text.Append("新しく図を頼まれて形の指定が無ければ、描く前に、図エディタ・罫線・Mermaid のどれで描くかを尋ねる（図エディタに決まったら、描く前に ")
-                    .Append(AiDrawingFormat).Append(" を読む）。\n");
-
-            return text.ToString();
+        /// <summary>
+        /// 中身を ``` で囲む（2026-11-22）。中に ``` があると囲みが途中で切れるので、中身のいちばん長い ` の並びより1つ長くする。
+        /// </summary>
+        private static string Fenced(string content)
+        {
+            var longest = 0;
+            var run = 0;
+            foreach (var c in content)
+            {
+                run = c == '`' ? run + 1 : 0;
+                if (run > longest) longest = run;
+            }
+            var fence = new string('`', Math.Max(3, longest + 1));
+            return fence + "\n" + content + "\n" + fence + "\n";
         }
 
         /// <summary>

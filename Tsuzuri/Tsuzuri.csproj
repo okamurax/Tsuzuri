@@ -43,6 +43,7 @@
     <Reference Include="System.Core" />
     <Reference Include="System.Web.Extensions" />
     <Reference Include="System.Drawing" />
+    <Reference Include="System.Windows.Forms" />
     <Reference Include="System.Xml" />
     <Reference Include="Microsoft.VisualBasic" />
     <Reference Include="System.Xaml">
@@ -208,6 +209,7 @@
     <Compile Include="Views\RuleRenderer.cs" />
     <Compile Include="Views\HeadingRuleRenderer.cs" />
     <Compile Include="PerfLog.cs" />
+    <Compile Include="ScheduleNotifier.cs" />
     <Compile Include="Views\ScrollThumbLength.cs" />
     <Compile Include="Views\CodeCopyLayer.cs" />
     <Compile Include="Views\CalendarView.cs" />

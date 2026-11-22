@@ -27,6 +27,15 @@ namespace Tsuzuri.Markdown
         }
     }
 
+    /// <summary>通知を出す1回分（ScheduleRepeat.Alarms）。</summary>
+    public sealed class ScheduleAlarm
+    {
+        public ScheduleOccurrence Occurrence;
+
+        /// <summary>鳴らす日時（回の始まりの日＋通知の時刻）。</summary>
+        public DateTime At;
+    }
+
     public enum RepeatKind { Daily, Weekly, MonthlyDay, MonthlyNth, Yearly }
 
     /// <summary>
@@ -288,6 +297,27 @@ namespace Tsuzuri.Markdown
                 list.Add(new ScheduleOccurrence { Item = item, Original = move.Key, Start = start, End = start.AddDays(length) });
             }
             return list;
+        }
+
+        /// <summary>
+        /// 通知を出す時刻が after より後で until まで（after は含まず until は含む）の、予定の回（2026-11-22。SPEC 22章「通知の時刻」）。
+        /// 鳴るのは回の始まりの日の、その予定の通知の時刻（何日かの予定は始まりの日だけ・消した回は無し・動かした回は動かした先の日）。時刻の順。
+        /// </summary>
+        public static List<ScheduleAlarm> Alarms(IEnumerable<ScheduleItem> items, DateTime after, DateTime until)
+        {
+            var list = new List<ScheduleAlarm>();
+            if (items == null || until <= after) return list;
+            foreach (var item in items)
+            {
+                if (item == null || !item.Notify.HasValue) continue;
+                var time = item.Notify.Value;
+                foreach (var occurrence in Occurrences(item, after.Date, until.Date))
+                {
+                    var at = occurrence.Start.Date + time;
+                    if (at > after && at <= until) list.Add(new ScheduleAlarm { Occurrence = occurrence, At = at });
+                }
+            }
+            return list.OrderBy(alarm => alarm.At).ToList();
         }
 
         /// <summary>決まりが変わったとき、もう回でない日の「消した」「動かした」を捨てる。</summary>

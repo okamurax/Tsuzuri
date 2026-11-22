@@ -68,6 +68,10 @@ namespace Tsuzuri
             var window = new Tsuzuri.MainWindow(settings);
             MainWindow = window;
             window.Show();
+
+            // カレンダーの予定の通知を Windows の通知で出す（2026-11-22。カレンダーを開いていなくても、動いている間は出す）
+            ScheduleNotifier.Start(() => Tsuzuri.MainWindow.SchedulePathOf(settings), Tsuzuri.MainWindow.ShowCalendarFromNotice);
+            Exit += delegate { ScheduleNotifier.Stop(); };
         }
 
         /// <summary>画面のスレッドで漏れた例外の時刻（短い間に何度も起きたら、続けずに落とす）。</summary>

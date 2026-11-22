@@ -922,7 +922,7 @@ namespace Tsuzuri.Views
                        + (occ.Original.HasValue && occ.Original.Value != occ.Start ? "（この回は " + occ.Original.Value.ToString("M/d", CultureInfo.InvariantCulture) + " から動かした）" : string.Empty);
             }
             if (item.Notify.HasValue)
-                tip += "\n通知: " + (item.IsRepeat ? "毎回" : item.Days > 1 ? "始まりの日" : "その日") + "の " + ScheduleFile.NotifyText(item.Notify.Value) + " にメール（Google カレンダーに送ったとき）";
+                tip += "\n通知: " + (item.IsRepeat ? "毎回" : item.Days > 1 ? "始まりの日" : "その日") + "の " + ScheduleFile.NotifyText(item.Notify.Value) + " に Windows の通知（Tsuzuri が動いている間）。Google カレンダーに送ればメールも";
             if (item.IsLinked)
                 tip += "\n" + (found ? "見出し: " : "見出しが見つかりません（名前を変えた・消した）: ")
                        + Path.GetFileName(item.LinkFile) + " > " + item.LinkHeading

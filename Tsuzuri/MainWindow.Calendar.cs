@@ -29,12 +29,28 @@ namespace Tsuzuri
         /// </summary>
         private string ScheduleFilePath
         {
-            get
-            {
-                var path = _settings.ScheduleFile;
-                if (!string.IsNullOrWhiteSpace(path)) return Environment.ExpandEnvironmentVariables(path.Trim());
-                return Path.Combine(Path.GetDirectoryName(AppSettings.StorePath) ?? ".", "schedule.md");
-            }
+            get { return SchedulePathOf(_settings); }
+        }
+
+        /// <summary>予定の保存先（ScheduleFilePath と同じ。通知を出す ScheduleNotifier からも使う）。</summary>
+        internal static string SchedulePathOf(AppSettings settings)
+        {
+            var path = settings.ScheduleFile;
+            if (!string.IsNullOrWhiteSpace(path)) return Environment.ExpandEnvironmentVariables(path.Trim());
+            return Path.Combine(Path.GetDirectoryName(AppSettings.StorePath) ?? ".", "schedule.md");
+        }
+
+        /// <summary>
+        /// 予定の通知（Windows の通知）を押したとき（2026-11-22）。前に出ている画面を前に出し、カレンダーを開く。
+        /// 開いていればそのまま（ランチャーの下に隠れていれば、ランチャーを閉じて見せる）。
+        /// </summary>
+        internal static void ShowCalendarFromNotice()
+        {
+            var window = FrontWindow();
+            if (window == null) return;
+            if (window.WindowState == WindowState.Minimized) window.WindowState = WindowState.Normal;
+            window.Activate();
+            if (window._calendar == null || window._launcher != null) window.ToggleCalendar();
         }
 
         /// <summary>「カレンダー」のタブ。見た目はランチャーのタブと同じ（App.xaml の LauncherTabButton）。Alt+C でも。</summary>

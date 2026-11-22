@@ -154,6 +154,21 @@ internal static class Program
             Check(pair.Item2.Length > 0 ? ok && ScheduleFile.NotifyText(time) == pair.Item2 : !ok, "時刻の欄: " + pair.Item1 + " → " + (ok ? ScheduleFile.NotifyText(time) : "読めない"));
         }
 
+        // 通知を出す回（2026-11-22。Windows の通知）
+        var alarmItems = ScheduleFile.Parse(
+            "## 2026-11-24 定例\n<!-- notify: 10:00 -->\n<!-- repeat: FREQ=WEEKLY;BYDAY=TU -->\n<!-- skip: 2026-12-01 -->\n<!-- move: 2026-12-08>2026-12-09 -->\n" +
+            "## 2026-11-25〜2026-11-27 出張\n<!-- notify: 7:30 -->\n" +
+            "## 2026-11-25 通知なし\n" +
+            "## 2026-11-26 締め\n<!-- notify: 23:59 -->\n");
+        Func<DateTime, DateTime, string> alarms = (after, until) => string.Join(",", ScheduleRepeat.Alarms(alarmItems, after, until)
+            .Select(alarm => alarm.At.ToString("MM-dd HH:mm") + " " + alarm.Occurrence.Item.Title));
+        Check(alarms(D(2026, 11, 20), D(2026, 12, 16)) == "11-24 10:00 定例,11-25 07:30 出張,11-26 23:59 締め,12-09 10:00 定例,12-15 10:00 定例",
+              "通知の回（消した回・動かした回・何日かは始まりの日だけ）: " + alarms(D(2026, 11, 20), D(2026, 12, 16)));
+        Check(alarms(D(2026, 11, 24).AddHours(10), D(2026, 11, 25).AddHours(7.5)) == "11-25 07:30 出張", "after は含まず until は含む: " + alarms(D(2026, 11, 24).AddHours(10), D(2026, 11, 25).AddHours(7.5)));
+        Check(alarms(D(2026, 11, 26), D(2026, 11, 27).AddHours(12)) == "11-26 23:59 締め", "何日かの予定の2日目からは鳴らない: " + alarms(D(2026, 11, 26), D(2026, 11, 27).AddHours(12)));
+        Check(alarms(D(2026, 11, 24).AddHours(9.99), D(2026, 11, 24).AddHours(10)) == "11-24 10:00 定例", "ちょうどの時刻");
+        Check(alarms(D(2026, 11, 24).AddHours(11), D(2026, 11, 24).AddHours(10)) == "", "時刻が戻ったら何も出さない");
+
         // 名前の改行
         Check(ScheduleFile.OneLine(" a\r\n b \n") == "a b", "名前の改行");
 

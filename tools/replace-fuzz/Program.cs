@@ -158,6 +158,19 @@ internal static class Program
 
         Check(plan.Count == expectedCount, label + ": 件数 " + plan.Count + "（答え " + expectedCount + "）");
 
+        // 確かめの問いに出す、変わる行の数と例（答え: 行ごとに比べる）
+        var beforeLines = Breaks.Split(text).Where((part, i) => i % 2 == 0).ToList();
+        var afterLines = Breaks.Split(expected).Where((part, i) => i % 2 == 0).ToList();
+        if (beforeLines.Count == afterLines.Count)
+        {
+            var changedLines = Enumerable.Range(0, beforeLines.Count).Where(i => beforeLines[i] != afterLines[i]).ToList();
+            Check(plan.Lines == changedLines.Count, label + ": 変わる行の数 " + plan.Lines + "（答え " + changedLines.Count + "）");
+            var samples = changedLines.Take(SearchReplace.MaxSamples).ToList();
+            Check(plan.Samples.Count == samples.Count && samples.Select((line, k) => plan.Samples[k].Line == line + 1
+                  && plan.Samples[k].Before == beforeLines[line] && plan.Samples[k].After == afterLines[line]).All(ok => ok),
+                  label + ": 確かめに出す例が違う");
+        }
+
         string after;
         if (!plan.Changes)
         {

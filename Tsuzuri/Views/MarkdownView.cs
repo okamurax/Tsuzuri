@@ -3188,6 +3188,15 @@ namespace Tsuzuri.Views
                 return;
             }
 
+            // 置き換える前に確かめる（2026-11-22。利用者）。一覧は 300 行までで長い行は切れ、リンク先など見えにくい所も置き換わり、
+            // ページを移ると Ctrl+Z で戻せなくなるので、件数と行数、はじめの何行かの前と後を見せる。既定は「いいえ」。
+            if (!ConfirmReplace(plan, replacement))
+            {
+                Status("置換: やめました");
+                _replaceBox.Focus();
+                return;
+            }
+
             var caretLine = TextArea.Caret.Line;
             var caretColumn = TextArea.Caret.Column;
             TextArea.ClearSelection();
@@ -3205,6 +3214,38 @@ namespace Tsuzuri.Views
             _replaceJustDone = true;   // Replace の中の OnDocumentChanged で下りたあとに立てる
             Status("置換: " + plan.Count + " 件を置き換えました（Ctrl+Z で戻せます）");
             Focus();
+        }
+
+        /// <summary>置換の確かめの問い。「はい」なら true。</summary>
+        private bool ConfirmReplace(SearchReplace.Plan plan, string replacement)
+        {
+            var text = new StringBuilder();
+            text.Append("このページの ").Append(plan.Count).Append(" 件（").Append(plan.Lines).Append(" 行）を置き換えます。").AppendLine();
+            text.Append("検索: ").Append(Clip(_searchBox.Text, 60)).AppendLine();
+            text.Append("置換: ").Append(replacement.Length == 0 ? "（空。当たりを消す）" : Clip(replacement, 60)).AppendLine();
+            text.AppendLine();
+            foreach (var sample in plan.Samples)
+            {
+                text.Append(sample.Line).Append(" 行目").AppendLine();
+                text.Append("  前: ").Append(Clip(sample.Before.Trim(), 70)).AppendLine();
+                text.Append("  後: ").Append(Clip(sample.After.Trim(), 70)).AppendLine();
+            }
+            if (plan.Lines > plan.Samples.Count) text.Append("ほか ").Append(plan.Lines - plan.Samples.Count).Append(" 行").AppendLine();
+            text.AppendLine();
+            text.Append("リンクの URL・ID の中の当たりも置き換わります。ほかのページへ移ると、Ctrl+Z では戻せなくなります。").AppendLine();
+            text.Append("置き換えますか？");
+
+            var answer = MessageBox.Show(Window.GetWindow(this), text.ToString(), "置換",
+                MessageBoxButton.YesNo, MessageBoxImage.Question, MessageBoxResult.No);
+            return answer == MessageBoxResult.Yes;
+        }
+
+        private static string Clip(string text, int max)
+        {
+            if (text.Length <= max) return text;
+            var cut = max;
+            if (char.IsHighSurrogate(text[cut - 1])) cut--;   // 絵文字を割らない
+            return text.Substring(0, cut) + "…";
         }
 
         private void Status(string message)

@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Text;
 using System.Text.RegularExpressions;
 
@@ -23,7 +24,23 @@ namespace Tsuzuri.Markdown
             public int Offset;
             public int Length;
             public string Text;
+
+            /// <summary>中身が変わる行の数（確かめの問いに出す。2026-11-22）。</summary>
+            public int Lines;
+
+            /// <summary>変わる行の、はじめの MaxSamples 行（確かめの問いに出す）。</summary>
+            public readonly List<Sample> Samples = new List<Sample>();
         }
+
+        public sealed class Sample
+        {
+            /// <summary>行番号（1 始まり）。</summary>
+            public int Line;
+            public string Before;
+            public string After;
+        }
+
+        public const int MaxSamples = 5;
 
         /// <summary>置き換える文字として使えないなら、その理由。使えるなら null。</summary>
         public static string Refuse(string replacement)
@@ -83,6 +100,7 @@ namespace Tsuzuri.Markdown
             var result = new StringBuilder(text.Length);
             var position = 0;
             var afterLoneCr = false;   // 前の行の後ろの改行が単独の \r か
+            var lineNumber = 0;
             while (position <= text.Length)
             {
                 // 行の中身 [position, end) と、その後ろの改行 [end, next)
@@ -106,7 +124,13 @@ namespace Tsuzuri.Markdown
                 if (hits > 0 && replaced.Length == 0 && afterLoneCr && end < text.Length && text[end] == '\n')
                     throw new ArgumentException("置き換えると行がなくなり、前後の改行（CR と LF）が1つにくっつきます");
 
+                lineNumber++;
                 plan.Count += hits;
+                if (hits > 0 && replaced != line)
+                {
+                    plan.Lines++;
+                    if (plan.Samples.Count < MaxSamples) plan.Samples.Add(new Sample { Line = lineNumber, Before = line, After = replaced });
+                }
                 result.Append(hits > 0 ? replaced : line);
                 result.Append(text, end, next - end);
 

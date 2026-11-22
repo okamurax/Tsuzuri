@@ -814,6 +814,15 @@ namespace Tsuzuri
         {
             if (source.Owner == null) return;
 
+            // 閉じていないコードブロックの後ろにページがあると、写した記事で後ろのページがコードの中になる（2026-11-22。保存と同じく断る）
+            var unclosed = source.Owner.UnclosedFence();
+            if (unclosed != null)
+            {
+                MessageBox.Show(this, "WordPress の記事にできませんでした。" + Environment.NewLine + Environment.NewLine + unclosed, "WordPress",
+                    MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
+
             var text = source.Owner.ComposeText().Replace("\r\n", "\n");
             text = AbsolutizeImageLinks(text, source.FilePath);
 
@@ -1149,6 +1158,14 @@ namespace Tsuzuri
             };
             if (_filer != null && !string.IsNullOrEmpty(_filer.Folder) && Directory.Exists(_filer.Folder))
                 dialog.InitialDirectory = _filer.Folder;
+
+            var unclosed = view.Owner.UnclosedFence();   // 書いたファイルを開き直せるように、保存と同じく断る（2026-11-22）
+            if (unclosed != null)
+            {
+                MessageBox.Show(this, "手元に保存できませんでした。" + Environment.NewLine + Environment.NewLine + unclosed, "WordPress",
+                    MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
 
             if (dialog.ShowDialog(this) != true) return;
 

@@ -305,7 +305,7 @@ static class Program
         var s0 = Snap(d0);
         byte[] saved;
         try { saved = Save(d0); }
-        catch (IOException ex) { Report("BUG roundtrip: save refused without edits", input, ex.Message); return; }
+        catch (IOException ex) { Report("BUG roundtrip: save refused without edits", input, ex.Message); return; }   // 開けたのに何も変えずに保存できないのは壊れ（閉じていないコードブロックでも）
 
         PageDocument d1;
         try { d1 = Open(saved); }
@@ -362,6 +362,7 @@ static class Program
 
         byte[] saved;
         try { saved = Save(d); }
+        catch (UnclosedFenceException ex) { Report("by design: save refused (unclosed fence before a later page. 2026-11-22)", baseText, "page " + before[k].Key + " <- " + Show(now) + "\n" + ex.Message); return; }
         catch (IOException ex) { Report("BUG edit: save refused", baseText, "page " + before[k].Key + " <- " + Show(now) + "\n" + ex.Message); return; }
         PageDocument back;
         try { back = Open(saved); }
@@ -437,6 +438,7 @@ static class Program
         {
             byte[] saved;
             try { saved = Save(d); }
+            catch (UnclosedFenceException ex) { Report("by design: save refused (unclosed fence before a later page. 2026-11-22)", baseText, desc + "\n" + ex.Message); return; }
             catch (IOException ex) { Report("BUG subpage: save refused after extract", baseText, desc + "\n" + ex.Message); return; }
             try { d = Open(saved); }
             catch (IOException ex) { Report("BUG subpage: saved file does not reopen", baseText, desc + "\n" + ex.Message + "\n" + Show(Text(saved))); return; }

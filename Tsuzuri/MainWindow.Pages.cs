@@ -721,6 +721,15 @@ namespace Tsuzuri
                 RecordHistory(document);
                 return true;
             }
+            catch (UnclosedFenceException ex)
+            {
+                // 閉じれば保存できるが、開けない孤立ページの中などで閉じられないこともあるので、ほかの失敗と同じく別名で書き出すかも尋ねる（2026-11-22）。
+                // 別名のファイルは、閉じていないコードブロックをページの終わりで閉じて書く（開き直せるように）。
+                Status("保存できませんでした: コードブロックが閉じていません");
+                ShowBeforeAsking();
+                OfferRecoveryCopy(document, "「" + Path.GetFileName(document.FilePath) + "」を保存できませんでした。" + Environment.NewLine + Environment.NewLine + ex.Message);
+                return false;
+            }
             catch (ExternalChangeException)
             {
                 // どれだけのものを上書きするのか分かるよう、ディスクと画面の文字数を出す（2026-10-27）。

@@ -14,6 +14,14 @@ namespace Tsuzuri.Markdown
         }
     }
 
+    /// <summary>閉じていないコードブロックがあって保存をやめた（2026-11-22。PageDocument.UnclosedFence）。別名で書き出すかは尋ねない（閉じれば保存できる）。</summary>
+    public sealed class UnclosedFenceException : IOException
+    {
+        public UnclosedFenceException(string message) : base(message)
+        {
+        }
+    }
+
     /// <summary>ファイルの中の1ページぶん。Id が空ならルート。</summary>
     public sealed class PageRegion
     {
@@ -345,6 +353,12 @@ namespace Tsuzuri.Markdown
         /// <param name="overwrite">外で書き換わっていても上書きする。利用者が「上書き保存」を選んだときだけ。</param>
         public void Save(bool overwrite = false)
         {
+            // 閉じていないコードブロックの後ろに次のページがあると、書いたものを開き直したときにページの区切りを決められない。
+            // 前は保存のときに閉じる行を足して書いていた（印のタブで見分けて、開くときに外す）が、手で書いた同じ形の行を消すことがあったので、
+            // 足すのはやめ、保存をやめて知らせる（2026-11-22。利用者）。画面の内容は残る。
+            var unclosed = UnclosedFence();
+            if (unclosed != null) throw new UnclosedFenceException(unclosed);
+
             // 開いたあとに外で書き換わっていたら、こちらの内容で塗り潰さない。
             // 消された・移されたときも時刻が変わる（無いファイルの時刻は 1601 年）ので、ここで止まる。
             // 止めたら、呼び出し側が上書きするか尋ねる（MainWindow.SaveDocument）。
@@ -954,7 +968,7 @@ namespace Tsuzuri.Markdown
         ///
         /// そのフェンスが後ろで閉じないなら、印か本文か決められないので開かない（例外）。
         /// 以前の版は閉じていないフェンスのあとにもそのまま印を書いていた。手でフェンスを閉じてから開く。
-        /// 今の版は印の前で必ずフェンスを閉じて書く（Serialize）ので、自分で書いたものはここに当たらない。
+        /// 今の版は閉じていないコードブロックの後ろに印が来る形では保存しない（Save・UnclosedFence）ので、自分で書いたものはここに当たらない。
         /// </summary>
         private static List<PageRegion> ParsePages(string text)
         {
@@ -964,7 +978,6 @@ namespace Tsuzuri.Markdown
             var bodies = new List<List<string>>();
             var body = new List<string>();
             var fence = new FenceState();
-            var lastClosed = false;   // ページの最後の行が、開いていたフェンスを閉じたか
 
             ids.Add(RootId);
             bodies.Add(body);
@@ -984,22 +997,17 @@ namespace Tsuzuri.Markdown
 
                 if (!marker.Success)
                 {
-                    var wasOpen = fence.IsOpen;
                     fence.Feed(line);
-                    lastClosed = wasOpen && !fence.IsOpen;
                     body.Add(line);
                     continue;
                 }
 
-                DropAddedCloser(body, lastClosed);
-                lastClosed = false;
                 body = new List<string>();
                 ids.Add(marker.Groups[1].Value);
                 bodies.Add(body);
                 fence = new FenceState();
             }
 
-            DropAddedCloser(body, lastClosed);
 
             // 同じ Id が2つあると、リンクからは前のものしか開けず、書き出しからも黙って抜ける。
             // 後ろのものに空いている Id を付け直し、孤立ページとして見えるようにする。
@@ -1028,7 +1036,11 @@ namespace Tsuzuri.Markdown
             return pages;
         }
 
-        private string Serialize()
+        /// <param name="closeFences">
+        /// 閉じていないコードブロックを、ページの終わりで閉じて書く（UnclosedFence が断る形のときだけ）。回復ファイル（SaveRecoveryCopy）だけで使う。
+        /// 保存できないときの逃げ道なので、閉じる行が1行増えても、開き直せてページが分かれたままのほうがよい（2026-11-22。レビューの指摘）。
+        /// </param>
+        private string Serialize(bool closeFences = false)
         {
             // テキストファイルは、ルートの中身を読んだときの改行で書くだけ（印の行に \ を付けない・フェンスを閉じない）
             if (_plain) return _pages.Count == 0 ? string.Empty : _pages[0].Text.Replace("\r\n", "\n").Replace("\r", "\n").Replace("\n", _newLine);
@@ -1055,7 +1067,7 @@ namespace Tsuzuri.Markdown
                     var line = lines[j];
 
                     // 本文に印と同じ形の行があると、開き直したときにそこでページが割れる。
-                    // 頭に \ を付けて、ただの文字として書く。
+                    // 頭に \ を付けて、ただの文字として書く（コードブロックの中は、読むときに本文として読むのでそのまま）。
                     if (MarkerRe.IsMatch(line))
                     {
                         if (fence.IsOpen) markerInFence = true;
@@ -1069,39 +1081,68 @@ namespace Tsuzuri.Markdown
                     if (j < lines.Length - 1) builder.Append(_newLine);
                 }
 
-                // 閉じていないフェンスは閉じて書く。閉じないと、中にある印の形の行や
-                // 次の印を、読み込みのときにどちらとも決められない。
-                // 閉じていないフェンスはページの終わりで閉じるものとして表示されるので、見た目は変わらない。
-                // 最後のページは後ろに印が無いので、中に印の形の行があるときだけでよい。
-                // 閉じる行の後ろにタブを1つ付け、ここで足したものだと分かるようにする。読むときに外す（ParsePages）。
-                // 外さないと閉じる行がページの本文に入り、そのページを「戻す」と親の本文に ``` が1行増え、
-                // 後ろの本文がコードと入れ替わっていた（2026-11-09）。
-                if (fence.IsOpen && (!last || markerInFence)) builder.Append(_newLine).Append(fence.Closer).Append(AddedCloserMark);
-
+                // 閉じていないコードブロックは閉じて書かない（2026-11-22）。保存では UnclosedFence で先に断る。回復ファイルだけ閉じる
+                if (closeFences && fence.IsOpen && (!last || markerInFence)) builder.Append(_newLine).Append(fence.Closer);
                 if (!last) builder.Append(_newLine);
             }
 
             return builder.ToString();
         }
 
-        /// <summary>保存のときに足した、フェンスを閉じる行の印（Serialize）。</summary>
-        private const string AddedCloserMark = "\t";
-
         /// <summary>
-        /// ページの最後の行が、保存のときに足した閉じる行（``` や ~~~ ＋ タブ1つ）なら外す。
-        /// 手で書いた閉じる行は、後ろにタブがちょうど1つだけ付くことはまず無いので、区別できる。
+        /// 保存すると開き直せない・ページの区切りが決まらない、閉じていないコードブロックがあれば、その説明（2026-11-22）。無ければ null。
+        /// ・ページの終わりで閉じていないコードブロックがあり、後ろに次のページがある（次の印がコードの中になる）
+        /// ・最後のページで、閉じていないコードブロックの中に印の形の行がある（開くときに印か本文か決められない）
+        /// テキストファイル（.txt）はページに分けないので、いつも null。
         /// </summary>
-        private static void DropAddedCloser(List<string> body, bool lastClosed)
+        public string UnclosedFence()
         {
-            if (!lastClosed || body.Count == 0) return;
+            if (_plain) return null;
 
-            var line = body[body.Count - 1];
-            if (!line.EndsWith(AddedCloserMark, StringComparison.Ordinal)) return;
+            for (var i = 0; i < _pages.Count; i++)
+            {
+                var page = _pages[i];
+                var last = i == _pages.Count - 1;
+                var lines = page.Text.Replace("\r\n", "\n").Replace("\r", "\n").Split('\n');
+                var fence = new FenceState();
+                var opened = 0;           // 今開いているコードブロックの始まりの行（1 始まり）
+                var markerInFence = false;
 
-            var run = line.Substring(0, line.Length - AddedCloserMark.Length);
-            if (run.Length < 3 || (run[0] != '`' && run[0] != '~') || run.Trim(run[0]).Length != 0) return;
+                for (var j = 0; j < lines.Length; j++)
+                {
+                    var line = lines[j];
+                    var marker = MarkerRe.IsMatch(line);
+                    if (marker && !fence.IsOpen) line = "\\" + line.TrimStart(' ');   // Serialize と同じ（書く形で追う）
+                    if (marker && fence.IsOpen) markerInFence = true;
 
-            body.RemoveAt(body.Count - 1);
+                    var wasOpen = fence.IsOpen;
+                    fence.Feed(line);
+                    if (!wasOpen && fence.IsOpen) opened = j + 1;
+                    if (!fence.IsOpen) markerInFence = false;
+                }
+
+                if (!fence.IsOpen || (last && !markerInFence)) continue;
+
+                return (string.IsNullOrEmpty(page.Id) ? "ルートのページ" : "ページ「" + PageLabel(lines) + "」（#" + page.Id + "）") + "の " + opened +
+                       " 行目から始まるコードブロック（" + fence.Closer + "）が閉じていません。" +
+                       (last ? "中にページの区切りと同じ形の行があり、" : "後ろに次のページがあり、") +
+                       "このまま保存すると開き直したときにページの区切りが決まらないので、保存をやめました。" +
+                       "コードブロックの終わりに " + fence.Closer + " の行を書いてから保存してください（画面の内容はそのまま残っています）。";
+            }
+
+            return null;
+        }
+
+        /// <summary>知らせに出す、ページの1行目（空行を除く）。見出しの # は外し、長ければ切る。</summary>
+        private static string PageLabel(string[] lines)
+        {
+            foreach (var line in lines)
+            {
+                var text = line.Trim().TrimStart('#').Trim();
+                if (text.Length == 0) continue;
+                return text.Length > 30 ? text.Substring(0, 30) + "…" : text;
+            }
+            return "（空）";
         }
 
         private static bool SamePageIds(List<PageRegion> a, List<PageRegion> b)
@@ -1185,7 +1226,7 @@ namespace Tsuzuri.Markdown
         /// </summary>
         public string SaveRecoveryCopy()
         {
-            return WriteRecovery(_filePath, ".recovered-", Encode(Serialize(), _hadBom));
+            return WriteRecovery(_filePath, ".recovered-", Encode(Serialize(true), _hadBom));
         }
 
         /// <summary>

@@ -36,6 +36,7 @@ internal static class Program
             Directory.Delete(_folder, true);
         }
 
+        Console.WriteLine("（閉じていないコードブロックで保存を断った例 " + _refused + " 個）");
         Console.WriteLine(_ng == 0 ? "全部 OK（でたらめ " + count + " 個。種 " + seed + "）" : "NG: " + _ng + " 件");
         return _ng == 0 ? 0 : 1;
     }
@@ -243,6 +244,46 @@ internal static class Program
         PageRoundTrip("見出し\nPAGE\n本文\n", "PAGE", "<!--page: p1-->", "印の形の行を作る");
         PageRoundTrip("x\nPAGE\n", "PAGE", "\\<!--page: p1-->", "\\ 付きの印の形の行を作る");
         PageRoundTrip("x\nP\ny\n", "^P$", "```", "コードフェンスの形の行を作る");
+
+        // 自分で書いた閉じる行（後ろにタブ1つ）は、保存して読み直しても消えない（2026-11-22。前は保存で足した閉じる行と見分けられず消していた）
+        CheckSaved("```\na\n```\t", "閉じる行の後ろにタブ1つ");
+        CheckSaved("```\na\n```", "閉じたコードブロック");
+        // 閉じていないコードブロックの後ろに次のページがあれば、保存をやめて知らせ、ファイルは変えない
+        foreach (var unclosed in new[] { "```\na", "~~~\na\n", "````\n```\n" })
+        {
+            var path = Path.Combine(_folder, "u" + (_files++) + ".md");
+            File.WriteAllText(path, "root\n<!--page: kid-->\nchild\n", new UTF8Encoding(false));
+            var before = File.ReadAllBytes(path);
+            var document = PageDocument.Load(path);
+            document.SetText(PageDocument.RootId, unclosed);
+            Check(document.UnclosedFence() != null, "閉じていないコードブロックを見つけない: " + Show(unclosed));
+            try
+            {
+                document.Save();
+                Check(false, "閉じていないコードブロックの後ろにページがあるのに保存した: " + Show(unclosed));
+            }
+            catch (UnclosedFenceException)
+            {
+            }
+            Check(File.ReadAllBytes(path).SequenceEqual(before), "保存をやめたのにファイルが変わった: " + Show(unclosed));
+
+            // 別名で書き出したもの（回復ファイル）は、閉じる行を足して書くので、開き直せてページも同じ
+            var copy = document.SaveRecoveryCopy();
+            Check(copy != null, "回復ファイルを書けない: " + Show(unclosed));
+            if (copy == null) continue;
+            try
+            {
+                var recovered = PageDocument.Load(copy);
+                Check(recovered.Pages.Select(page => page.Id).SequenceEqual(new[] { PageDocument.RootId, "kid" }), "回復ファイルのページが違う: " + Show(unclosed));
+                Check(recovered.TextOf(PageDocument.RootId).StartsWith(unclosed.TrimEnd('\n')), "回復ファイルのルートの中身が違う: " + Show(recovered.TextOf(PageDocument.RootId)));
+                Check(recovered.TextOf("kid").TrimEnd('\n') == "child", "回復ファイルの子ページの中身が違う: " + Show(recovered.TextOf("kid")));
+            }
+            catch (IOException ex)
+            {
+                Check(false, "回復ファイルを開けない: " + Show(unclosed) + " " + ex.Message);
+            }
+        }
+
     }
 
     /// <summary>1行の置換の結果（断ったら null）。</summary>
@@ -263,6 +304,7 @@ internal static class Program
     }
 
     private static int _files;
+    private static int _refused;
 
     private static void CheckSaved(string rootText, string what)
     {
@@ -271,6 +313,22 @@ internal static class Program
         var document = PageDocument.Load(path);
         var before = document.Pages.Select(page => page.Id).ToList();
         document.SetText(PageDocument.RootId, rootText);
+        if (document.UnclosedFence() != null)
+        {
+            // 閉じていないコードブロックの後ろに子ページがある。保存をやめ、ファイルを変えないのが正しい（2026-11-22）
+            var bytes = File.ReadAllBytes(path);
+            try
+            {
+                document.Save();
+                Check(false, what + ": 閉じていないコードブロックの後ろにページがあるのに保存した");
+            }
+            catch (UnclosedFenceException)
+            {
+            }
+            Check(File.ReadAllBytes(path).SequenceEqual(bytes), what + ": 保存をやめたのにファイルが変わった");
+            _refused++;
+            return;
+        }
         document.Save();
 
         var reloaded = PageDocument.Load(path);

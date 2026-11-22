@@ -660,10 +660,6 @@ namespace Tsuzuri.Views
             _pageId = pageId ?? PageDocument.RootId;
 
             IsReadOnly = false;
-            // テキストファイルは等幅の字（コードブロックと同じ BIZ UDゴシック）で出す（2026-11-22）。罫線の図や空白でそろえた桁がずれない。
-            // 本文の部分（TextArea。行番号も）だけに掛け、検索欄やタイトルは今の字のまま。
-            if (owner.IsPlain) TextArea.FontFamily = Theme.CodeFont;
-            else TextArea.ClearValue(FontFamilyProperty);
             _lineMarks = null;   // 別のページなので、前の行の目印とは比べない（全部を描き直す）
             _loading = true;
             try

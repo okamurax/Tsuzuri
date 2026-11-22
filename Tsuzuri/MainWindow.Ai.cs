@@ -92,7 +92,7 @@ namespace Tsuzuri
             /// <summary>この会話で固定したカーソルの位置（下端の「カーソル」。2026-11-22）。無ければ null（エディタの今のカーソルを渡す）。</summary>
             public AiPinState Pin;
 
-            /// <summary>この会話の題（タブの段の下の欄。2026-11-22。MainWindow.AiTopic.cs）。無ければ null。</summary>
+            /// <summary>この会話の題（タブの見出しに「#1  題」と出す。2026-11-22。MainWindow.AiTopic.cs）。無ければ null。</summary>
             public string Topic;
 
             /// <summary>題を作るのを頼んだ（この起動の中で、作るのは1回だけ）。</summary>
@@ -190,8 +190,10 @@ namespace Tsuzuri
   「ファイル」の行があってこの行が無ければ、まだ記録が無い。「ファイル」の行が無ければ（ファイルを開いていない・AI に渡さない文書など）、履歴は分からない。
   log -p は件数を絞って読む（-3 など。全部出すと長すぎて切れる）。前回進めたところを踏まえて助言するのに使う。
   この履歴にコミットしたり、書き換えたりしない（記録はエディタがする）。
-- AI の欄には、ほかの会話のタブもある。タブの見出しは、それぞれの claude のセッションの名前（#1・#2…）。
-  利用者が「#2 に〜を渡して」「#1 に頼んで」と言ったら、その名前のセッションに SendMessage で送る（相手は ListAgents で探せる）。
+- AI の欄には、ほかの会話のタブもある。タブの見出しは「#1  題」の形で、頭の #1・#2… がそれぞれの claude のセッションの名前（宛先）。
+  後ろの題は、Tsuzuri がその会話の最初の頼みから付けて見出しに出しているだけで、セッションの名前ではない。
+  利用者が「#2 に〜を渡して」「#1 のスレッドに頼んで」と言ったら、その名前（#2・#1）のセッションに SendMessage で送る（相手は ListAgents で探せる）。
+  利用者が題で指したとき（「ログイン修正の会話に」など）は、どの #番号のことかを利用者に尋ねる（題はこちらからは見えない）。
 - 読む・書く・直す・まとめるの相手は、断りが無ければ見ているページ（話題のページ。サブページ）だけ。ファイル全体ではない。
   - 見ているページの範囲は、今の状態の「見ているページ」に書いた行（中身はファイルの何行目から何行目まで）。
     カーソルを固定しているときは、固定したページの範囲（「エディタの画面（参考）」の「画面のページ」ではない）。
@@ -396,8 +398,9 @@ namespace Tsuzuri
             tab.View.Visibility = Visibility.Collapsed;
             AiTerminals.Children.Add(tab.View);
 
-            // 見出しはセッションの名前（2026-11-01。前は端末のタイトル。端末のタイトルはツールチップに出す）。
-            tab.Title = new TextBlock { Text = tab.Name, VerticalAlignment = VerticalAlignment.Center, FontSize = 12 };
+            // 見出しはセッションの名前と題（2026-11-01 にセッションの名前にし、2026-11-22 に題を足した。端末のタイトルはツールチップに出す）。
+            // 見出しは「#1 題」（2026-11-22。題が付けば後ろに出す。宛先の名前は #1 のまま。AiTopic.cs の AiTabHeaderText）
+            tab.Title = new TextBlock { Text = AiTabHeaderText(tab), VerticalAlignment = VerticalAlignment.Center, FontSize = 12, TextTrimming = TextTrimming.CharacterEllipsis };
             tab.Header = CreateAiTabHeader(tab);
             tab.View.TitleChanged += title => SetAiTabTitle(tab, title);
             tab.View.FocusRequested += delegate
@@ -464,8 +467,8 @@ namespace Tsuzuri
             {
                 Child = panel,
                 Height = 26,
-                MinWidth = 96,
-                MaxWidth = 220,
+                MinWidth = 120,
+                MaxWidth = 320,   // 題を出すので広げた（2026-11-22。前は 96〜220）
                 Background = Brushes.Transparent,   // 文字の無い所も押せるように
                 CornerRadius = new CornerRadius(4),
                 Padding = new Thickness(12, 0, 3, 0),
@@ -501,7 +504,7 @@ namespace Tsuzuri
         /// </summary>
         private static void SetAiTabTitle(AiTab tab, string title)
         {
-            // 見出しはセッションの名前のまま。端末のタイトル（Claude Code が会話の中身に合わせて付ける）はツールチップに出す（2026-11-01）。
+            // 見出しは「#1  題」のまま。端末のタイトル（Claude Code が会話の中身に合わせて付ける）はツールチップに出す（2026-11-01）。
             var text = (title ?? string.Empty).Trim();
             tab.TerminalTitle = text;
             tab.Header.ToolTip = AiTabToolTip(tab);
@@ -563,7 +566,6 @@ namespace Tsuzuri
             ShowAiTabs();
             RefreshAiFileLinks();
             RefreshAiPinRows();
-            RefreshAiTopicBox();
             if (AiPane.Visibility == Visibility.Visible) FocusAiTerminal(tab);
         }
 
@@ -635,7 +637,6 @@ namespace Tsuzuri
                 _aiTab = null;
                 ShowAiTabs();
                 RefreshAiPinRows();
-                RefreshAiTopicBox();
                 HideAiPane();
                 return;
             }

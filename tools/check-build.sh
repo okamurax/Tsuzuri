@@ -45,7 +45,7 @@ types = {"TextBlock": "System.Windows.Controls.TextBlock", "Grid": "System.Windo
          "ItemsControl": "System.Windows.Controls.ItemsControl", "TreeView": "System.Windows.Controls.TreeView",
          "ScrollViewer": "System.Windows.Controls.ScrollViewer", "StackPanel": "System.Windows.Controls.StackPanel", "WrapPanel": "System.Windows.Controls.WrapPanel",
          "DockPanel": "System.Windows.Controls.DockPanel", "GridSplitter": "System.Windows.Controls.GridSplitter",
-         "RowDefinition": "System.Windows.Controls.RowDefinition"}
+         "RowDefinition": "System.Windows.Controls.RowDefinition", "Path": "System.Windows.Shapes.Path"}
 handlers = {"Click": "System.Windows.RoutedEventHandler",
             "DragCompleted": "System.Windows.Controls.Primitives.DragCompletedEventHandler",
             "MouseLeftButtonDown": "System.Windows.Input.MouseButtonEventHandler",

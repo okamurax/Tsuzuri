@@ -173,13 +173,16 @@
                           MouseEnter="CalendarHandle_MouseEnter" MouseLeave="CalendarHandle_MouseLeave">
                         <Border x:Name="CalendarHandleStrip" Width="6" HorizontalAlignment="Left"
                                 Background="{StaticResource SidebarBackground}" />
-                        <Border x:Name="CalendarHandleTab" Width="14" Height="56" HorizontalAlignment="Left" VerticalAlignment="Center"
-                                CornerRadius="0,6,6,0" BorderThickness="0,1,1,1" BorderBrush="{StaticResource BorderBrushSoft}"
-                                Background="{StaticResource SidebarBackground}">
-                            <Border x:Name="CalendarHandleGrip" Width="3" Height="24" CornerRadius="1.5"
-                                    HorizontalAlignment="Center" VerticalAlignment="Center"
-                                    Background="{StaticResource BorderBrushSoft}" />
-                        </Border>
+                        <!-- 持ち手: 右の上下の角を斜めにまっすぐ落とす（面取り。2026-11-24 利用者の希望）。左の辺は帯とつながるので線を引かない（閉じない形。塗りは閉じて塗られる） -->
+                        <Grid Width="14" Height="56" HorizontalAlignment="Left" VerticalAlignment="Center">
+                            <Path x:Name="CalendarHandleTab" SnapsToDevicePixels="True"
+                                  Data="M0,0.5 L9.5,0.5 L13.5,4.5 L13.5,51.5 L9.5,55.5 L0,55.5"
+                                  Fill="{StaticResource SidebarBackground}" Stroke="{StaticResource BorderBrushSoft}" StrokeThickness="1" />
+                            <!-- 中の印は細い縦の線を2本 -->
+                            <Path x:Name="CalendarHandleGrip" Width="4" Height="24" HorizontalAlignment="Center" VerticalAlignment="Center"
+                                  SnapsToDevicePixels="True" Data="M0.5,0 L0.5,24 M3.5,0 L3.5,24"
+                                  Stroke="{StaticResource BorderBrushSoft}" StrokeThickness="1" />
+                        </Grid>
                     </Grid>
 
                     <!-- 左に帯（横スクロールの入れ物。ページに幅を残すところまで）、残りにページ（SPEC 6章。2026-10-27） -->

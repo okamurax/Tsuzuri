@@ -70,15 +70,15 @@ namespace Tsuzuri
         private void CalendarHandle_MouseEnter(object sender, MouseEventArgs e)
         {
             CalendarHandleStrip.Background = (Brush)FindResource("HoverFill");
-            CalendarHandleTab.Background = (Brush)FindResource("HoverFill");
-            CalendarHandleGrip.Background = (Brush)FindResource("AccentBrush");
+            CalendarHandleTab.Fill = (Brush)FindResource("HoverFill");
+            CalendarHandleGrip.Stroke = (Brush)FindResource("AccentBrush");
         }
 
         private void CalendarHandle_MouseLeave(object sender, MouseEventArgs e)
         {
             CalendarHandleStrip.Background = (Brush)FindResource("SidebarBackground");
-            CalendarHandleTab.Background = (Brush)FindResource("SidebarBackground");
-            CalendarHandleGrip.Background = (Brush)FindResource("BorderBrushSoft");
+            CalendarHandleTab.Fill = (Brush)FindResource("SidebarBackground");
+            CalendarHandleGrip.Stroke = (Brush)FindResource("BorderBrushSoft");
         }
 
         /// <summary>帯の説明を、出しているかに合わせる（帯はいつも左端）。</summary>

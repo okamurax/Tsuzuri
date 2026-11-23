@@ -150,6 +150,9 @@
     <Compile Include="MainWindow.Calendar.cs">
       <DependentUpon>MainWindow.xaml</DependentUpon>
     </Compile>
+    <Compile Include="MainWindow.Drawing.cs">
+      <DependentUpon>MainWindow.xaml</DependentUpon>
+    </Compile>
     <Compile Include="MainWindow.Links.cs">
       <DependentUpon>MainWindow.xaml</DependentUpon>
     </Compile>

@@ -13,6 +13,16 @@
 set -euo pipefail
 
 root="$(cd "$(dirname "$0")/.." && pwd)"
+
+# 本体の Tsuzuri.csproj は古い形で、コンパイルするファイルを1つずつ並べている。並べ忘れると Mac では通って Windows で通らない（2026-11-23）ので、先に確かめる
+missing=0
+while read -r file; do
+    if ! grep -qF "Include=\"${file//\//\\}\"" "$root/Tsuzuri/Tsuzuri.csproj"; then
+        echo "Tsuzuri.csproj に並んでいないファイル: Tsuzuri/$file" >&2
+        missing=1
+    fi
+done < <(cd "$root/Tsuzuri" && find . -name '*.cs' -not -path './obj/*' -not -path './bin/*' | sed 's#^\./##')
+[ "$missing" = 0 ] || { echo "Tsuzuri.csproj の <Compile Include> に足してください" >&2; exit 1; }
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
 

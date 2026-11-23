@@ -95,10 +95,12 @@ namespace Tsuzuri.Views
             panel.Children.Add(_editUntil);
 
             // 通知の時刻（2026-11-21）。予定のある日のこの時刻にメール（送るのは同期先のカレンダー）
-            var notifyLabel = Label("通知の時刻（空なら通知しない。例 10:00・9:30。予定のある日のこの時刻にメール）");
+            // 24時間制で読む。欄では IME を使わない（2026-11-23。日本語の入力のままだと「午前10時30分」「午後10時30分」などの候補が出て紛らわしい）
+            var notifyLabel = Label("通知の時刻（24時間制。空なら通知しない。例 9:30・22:00。予定のある日のこの時刻に通知）");
             notifyLabel.Margin = new Thickness(0, 12, 0, 4);
             notifyLabel.TextWrapping = TextWrapping.Wrap;
             panel.Children.Add(notifyLabel);
+            InputMethod.SetIsInputMethodEnabled(_editNotify, false);
             _editNotify.Width = 80;
             _editNotify.HorizontalAlignment = HorizontalAlignment.Left;
             panel.Children.Add(_editNotify);
@@ -473,7 +475,7 @@ namespace Tsuzuri.Views
                 TimeSpan time;
                 if (!ScheduleFile.TryReadNotify(notifyText, out time))
                 {
-                    _status("通知の時刻を読めませんでした（例 10:00・9:30・1030）: " + notifyText);
+                    _status("通知の時刻を読めませんでした（24時間制。例 9:30・22:00・1030）: " + notifyText);
                     return false;
                 }
                 notify = time;

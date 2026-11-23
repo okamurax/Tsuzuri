@@ -141,6 +141,7 @@ namespace Tsuzuri
         {
             _settings = settings;
             InitializeComponent();
+            PlaceCalendarHandle();   // カレンダーの出し入れの帯の説明（SPEC 22章）
             RegisterWindow(session);
             DirtyText.Foreground = Theme.DirtyMark;
 
@@ -205,6 +206,24 @@ namespace Tsuzuri
                 if (view == null) return;
                 e.Handled = true;
                 view.FocusSearchBox();
+            };
+
+            // Alt+C でカレンダーを出し入れする（SPEC 22章。2026-11-23 からはタブのボタンでなく本文の左端の帯なので、アクセスキーの代わりにここで受ける）。
+            // AI の欄の端末にキーボードがあるときは、端末のキーとして向こうに渡す。
+            PreviewKeyDown += (sender, e) =>
+            {
+                if (e.Key != Key.System || e.SystemKey != Key.C || Keyboard.Modifiers != ModifierKeys.Alt) return;
+
+                var source = e.OriginalSource as Visual;
+                if (AiPane.IsKeyboardFocusWithin || (source != null && AiPane.IsAncestorOf(source))) return;
+                if (e.IsRepeat)
+                {
+                    e.Handled = true;   // 押し続けても、開け閉めをくり返さない
+                    return;
+                }
+
+                e.Handled = true;
+                ToggleCalendar();
             };
 
             // Ctrl+PageUp で前の画面、Ctrl+PageDown で次の画面（タブの並び。端で反対の端へ回る。2026-11-01）。

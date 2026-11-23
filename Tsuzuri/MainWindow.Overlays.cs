@@ -57,7 +57,7 @@ namespace Tsuzuri
                 _filer.Navigate(last);
 
             // カレンダーは閉じない（2026-11-21。利用者の考え）。ランチャーを上に重ね、ランチャーを閉じればカレンダーに戻る。
-            // ランチャーは外を押す・Esc でも閉じるが、カレンダーはタブ（Alt+C）でだけ閉じるので
+            // ランチャーは外を押す・Esc でも閉じるが、カレンダーは外を押しても Esc でも閉じないので
 
             _launcher = new LauncherView(_settings, OpenFromLauncher, Status, folder =>
             {
@@ -92,7 +92,7 @@ namespace Tsuzuri
         /// </summary>
         private void CloseLauncherOnOutsideClick(object sender, MouseButtonEventArgs e)
         {
-            // カレンダーは外を押しても閉じない。「カレンダー」のタブ（Alt+C）でだけ出し入れする（2026-11-21。利用者の希望。SPEC 22章）
+            // カレンダーは外を押しても閉じない。本文の左端の出し入れの帯・Alt+C で出し入れする（2026-11-21。利用者の希望。SPEC 22章）
 
             if (_launcher == null) return;
             if (IsInside(e.OriginalSource as DependencyObject, LauncherButton, LauncherHost)) return;

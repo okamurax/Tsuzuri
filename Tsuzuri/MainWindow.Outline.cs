@@ -364,6 +364,7 @@ namespace Tsuzuri
 
                 item.IsExpanded = !_collapsedPaths.Contains(path);
                 item.MouseLeftButtonUp += OutlineItem_Click;
+                item.PreviewMouseLeftButtonDown += OutlineItem_DoubleClick;
                 _outlineOrder.Add(item);
 
                 openItems.Add(item);
@@ -568,6 +569,35 @@ namespace Tsuzuri
             if (node == null || Active == null) return;
 
             GoToOutlineNode(node);
+        }
+
+        /// <summary>
+        /// カレンダーを出している間に見出しをダブルクリックしたら、カレンダーを閉じて本文のその見出しへ（2026-11-23。利用者の希望）。
+        /// 1回のクリックはカレンダーの下の本文を動かすだけ（カレンダーへ見出しをドラッグするときに閉じないように）。
+        /// 2回目の押し（ClickCount 2）で受ける。MouseDoubleClick では、子のある見出しの開閉（TreeViewItem が2回目の押しで切り替える）を止められないため。
+        /// 押しは親の項目から順に来るので、押した見出しの項目のときだけ受ける。
+        /// </summary>
+        private void OutlineItem_DoubleClick(object sender, MouseButtonEventArgs e)
+        {
+            if (_calendar == null || e.ClickCount != 2) return;
+            if (IsExpanderClick(e.OriginalSource as DependencyObject)) return;
+
+            var item = sender as TreeViewItem;
+            if (item == null || NearestTreeViewItem(e.OriginalSource as DependencyObject) != item) return;
+
+            e.Handled = true;
+            var node = item.Tag as OutlineNode;
+            if (node == null || Active == null || !CloseCalendar()) return;
+
+            GoToOutlineNode(node);
+            Active.TextArea.Focus();
+        }
+
+        private static TreeViewItem NearestTreeViewItem(DependencyObject source)
+        {
+            while (source != null && !(source is TreeViewItem))
+                source = source is Visual ? VisualTreeHelper.GetParent(source) : LogicalTreeHelper.GetParent(source);
+            return source as TreeViewItem;
         }
 
         /// <summary>

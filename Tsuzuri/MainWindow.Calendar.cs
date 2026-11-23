@@ -9,6 +9,7 @@ using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
+using System.Windows.Media;
 using System.Windows.Threading;
 using Tsuzuri.Markdown;
 using Tsuzuri.Sync;
@@ -18,13 +19,12 @@ namespace Tsuzuri
 {
     // MainWindow の一部: カレンダー（SPEC 22章。2026-11-20）。
     // 予定を週の行で下へずっと並べ、カレンダーの画面で直接打つ。保存先は .md（ScheduleFile）で、裏に置くだけ（利用者の考え）。
-    // ランチャーと同じく、本文の場所いっぱいに重ねて出し、画面のタブの並びの一番右（ランチャーの右）のタブで出し入れする。
+    // ランチャーと同じく、本文の場所いっぱいに重ねて出し、本文の左端の細い帯か Alt+C で出し入れする（2026-11-23。前は画面のタブの並びのボタン）。
     // ランチャーとは同時に出さない（片方を出すと、もう片方を閉じる）。
     // アウトラインの見出しをカレンダーの日へドラッグすると、その見出しと結んだ予定になる（2026-11-20）。結ぶのは見出しの文字で、名前が変わっても追わない。
     public partial class MainWindow
     {
         private CalendarView _calendar;
-        private Button _calendarButton;
 
         /// <summary>
         /// 予定の保存先。app.json の scheduleFile。無ければ app.json の隣の schedule.md。
@@ -56,26 +56,36 @@ namespace Tsuzuri
             if (window._calendar == null || window._launcher != null) window.ToggleCalendar();
         }
 
-        /// <summary>「カレンダー」のタブ。見た目はランチャーのタブと同じ（App.xaml の LauncherTabButton）。Alt+C でも。</summary>
-        private Button CalendarButton
+        /// <summary>
+        /// カレンダーの出し入れの細い帯（2026-11-23。利用者の考え。前は画面のタブの並びのボタン）。アウトラインと本文の境（本文の左端）にいつも置き、押すたびに開け閉めする。
+        /// 上下の真ん中だけ幅を広げた持ち手を付ける（掴みやすいように）。Alt+C でも出し入れする。
+        /// </summary>
+        private void CalendarHandle_Click(object sender, MouseButtonEventArgs e)
         {
-            get
-            {
-                if (_calendarButton != null) return _calendarButton;
-                _calendarButton = new Button
-                {
-                    Content = new TextBlock { Text = "", FontFamily = IconFont, FontSize = 14, VerticalAlignment = VerticalAlignment.Center },
-                    Style = (Style)FindResource("LauncherTabButton"),
-                    Width = 34,
-                    Height = 26,
-                    Margin = new Thickness(0, 0, 4, 0),
-                    VerticalAlignment = VerticalAlignment.Center,
-                    ToolTip = "カレンダー（Alt+C）。予定を週の行で下へずっと並べ、ここで直接打つ。もう一度押すと閉じる（ほかを押しても閉じない）",
-                };
-                _calendarButton.Click += delegate { ToggleCalendar(); };
-                AccessKeyManager.Register("C", _calendarButton);
-                return _calendarButton;
-            }
+            e.Handled = true;
+            if (e.ClickCount > 1) return;   // つい2度押しても、開いてすぐ閉じない
+            ToggleCalendar();
+        }
+
+        private void CalendarHandle_MouseEnter(object sender, MouseEventArgs e)
+        {
+            CalendarHandleStrip.Background = (Brush)FindResource("HoverFill");
+            CalendarHandleTab.Background = (Brush)FindResource("HoverFill");
+            CalendarHandleGrip.Background = (Brush)FindResource("AccentBrush");
+        }
+
+        private void CalendarHandle_MouseLeave(object sender, MouseEventArgs e)
+        {
+            CalendarHandleStrip.Background = (Brush)FindResource("SidebarBackground");
+            CalendarHandleTab.Background = (Brush)FindResource("SidebarBackground");
+            CalendarHandleGrip.Background = (Brush)FindResource("BorderBrushSoft");
+        }
+
+        /// <summary>帯の説明を、出しているかに合わせる（帯はいつも左端）。</summary>
+        private void PlaceCalendarHandle()
+        {
+            var open = _calendar != null;
+            CalendarHandle.ToolTip = open ? "カレンダーを閉じる（Alt+C）" : "カレンダーを出す（Alt+C）。予定を週の行で下へずっと並べ、ここで直接打つ";
         }
 
         private void ToggleCalendar()
@@ -104,7 +114,7 @@ namespace Tsuzuri
             if (_googleSending) _calendar.SetSendingToGoogle(true);
             CalendarHost.Child = _calendar;
             CalendarHost.Visibility = Visibility.Visible;
-            CalendarButton.Tag = "Open";
+            PlaceCalendarHandle();
 
             // 覆われた本文に打ち込まないよう、キー入力をカレンダーへ移す（ランチャーと同じ）
             Dispatcher.BeginInvoke(new Action(delegate
@@ -405,7 +415,7 @@ namespace Tsuzuri
             _calendar = null;
             CalendarHost.Child = null;
             CalendarHost.Visibility = Visibility.Collapsed;
-            CalendarButton.Tag = null;
+            PlaceCalendarHandle();
             if (hadFocus && Active != null) Active.TextArea.Focus();
             return true;
         }

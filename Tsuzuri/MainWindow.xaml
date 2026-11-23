@@ -160,13 +160,36 @@
                     ClipToBounds="True"
                     Background="{StaticResource PageBackground}">
                 <Grid>
+                    <!-- 左端にカレンダーの出し入れの細い帯（2026-11-23。前は画面のタブの並びのボタン。押すたびに開け閉めする。MainWindow.Calendar.cs）。
+                         帯は列 0（6px）。上下の真ん中だけ幅を広げた持ち手（14px）を、本文の上へ少し張り出して重ねる（掴みやすいように）。
+                         帯の入れ物は Background を持たないので、持ち手の外の透けた所は押しても下の本文に届く -->
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="6" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+                    <Grid x:Name="CalendarHandle" Grid.Column="0" Grid.ColumnSpan="2" Width="14"
+                          HorizontalAlignment="Left" Panel.ZIndex="2" Cursor="Hand"
+                          MouseLeftButtonDown="CalendarHandle_Click"
+                          MouseEnter="CalendarHandle_MouseEnter" MouseLeave="CalendarHandle_MouseLeave">
+                        <Border x:Name="CalendarHandleStrip" Width="6" HorizontalAlignment="Left"
+                                Background="{StaticResource SidebarBackground}" />
+                        <Border x:Name="CalendarHandleTab" Width="14" Height="56" HorizontalAlignment="Left" VerticalAlignment="Center"
+                                CornerRadius="0,6,6,0" BorderThickness="0,1,1,1" BorderBrush="{StaticResource BorderBrushSoft}"
+                                Background="{StaticResource SidebarBackground}">
+                            <Border x:Name="CalendarHandleGrip" Width="3" Height="24" CornerRadius="1.5"
+                                    HorizontalAlignment="Center" VerticalAlignment="Center"
+                                    Background="{StaticResource BorderBrushSoft}" />
+                        </Border>
+                    </Grid>
+
                     <!-- 左に帯（横スクロールの入れ物。ページに幅を残すところまで）、残りにページ（SPEC 6章。2026-10-27） -->
-                    <DockPanel x:Name="StackPanelHost" LastChildFill="True"
+                    <DockPanel x:Name="StackPanelHost" Grid.Column="1" LastChildFill="True"
                                SizeChanged="StackPanelHost_SizeChanged" />
 
                     <!-- カレンダー（SPEC 22章。2026-11-20。MainWindow.Calendar.cs・Views/CalendarView.cs）。ランチャーと同じく本文の場所いっぱいに重ねる。
                          カレンダーを出したままランチャーを出すと、ランチャーが上に重なり（LauncherHost は StackHost より上）、閉じるとカレンダーに戻る（2026-11-21） -->
-                    <Border x:Name="CalendarHost" Visibility="Collapsed"
+                    <!-- 左に 8px あけるのは、出し入れの帯の持ち手（本文の上へ 8px 張り出す）が日曜の左端（予定の帯を引っぱる所）に重ならないため -->
+                    <Border x:Name="CalendarHost" Grid.Column="1" Margin="8,0,0,0" Visibility="Collapsed"
                             Focusable="False"
                             Background="{StaticResource SidebarBackground}" />
                 </Grid>

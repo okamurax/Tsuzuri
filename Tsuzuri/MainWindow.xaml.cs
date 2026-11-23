@@ -186,6 +186,7 @@ namespace Tsuzuri
 
                 var source = e.OriginalSource as Visual;
                 if (AiPane.IsKeyboardFocusWithin || (source != null && AiPane.IsAncestorOf(source))) return;
+                if (DrawingHost.IsKeyboardFocusWithin) return;   // 図エディタの Ctrl+S（図を保存する）に任せる（2026-11-23）
 
                 e.Handled = true;
                 Save_Click(this, null);
@@ -198,6 +199,7 @@ namespace Tsuzuri
 
                 var source = e.OriginalSource as Visual;
                 if (AiPane.IsKeyboardFocusWithin || (source != null && AiPane.IsAncestorOf(source))) return;
+                if (_drawing != null) return;   // 図エディタで覆っている間は、見えない本文の検索欄へ移さない（2026-11-23）
 
                 var view = Active;
                 if (view == null) return;
@@ -461,6 +463,18 @@ namespace Tsuzuri
 
         private void OnClosing(object sender, CancelEventArgs e)
         {
+            // 図エディタを出していれば、先に閉じる（変えていれば保存するかを尋ねる。キャンセル・保存できなければ、画面も閉じない。2026-11-23）
+            if (_drawing != null)
+            {
+                if (!IsOnScreen) BringForward(FrontWindow(), true);
+                if (!_drawing.View.TryClose())
+                {
+                    if (_closingAll) CancelClosingAll();
+                    e.Cancel = true;
+                    return;
+                }
+            }
+
             // カレンダーの欄で打ちかけの予定は、閉じる前に保存する（保存できない日付なら、閉じない。SPEC 22章）
             if (_calendar != null && !_calendar.CommitEdit())
             {

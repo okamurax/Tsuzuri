@@ -232,6 +232,31 @@ namespace DrawingEditor
             get { return _shapes; }
         }
 
+        /// <summary>選んでいる図形（選んだ順）。</summary>
+        public IList<Shape> SelectedShapes
+        {
+            get { return _selection.ToList(); }
+        }
+
+        /// <summary>
+        /// 図をまるごと置き換える（2026-11-23。ほかで（AI など）書き換わった図を読み込むとき）。元に戻すの1段にする。
+        /// 選んでいた図形は、同じ id の図形があれば選んだままにする。線のつながりは相手の位置に合わせる。
+        /// </summary>
+        public void ReplaceAll(List<Shape> shapes, Rect board, double unit)
+        {
+            EndTextEdit();
+            var selectedIds = new HashSet<string>(_selection.Select(shape => shape.Id).Where(id => !string.IsNullOrEmpty(id)));
+            PushUndo();
+            _shapes.Clear();
+            _shapes.AddRange(shapes);
+            _board = Geometry.ClampBoard(board);
+            if (unit > 0 && Geometry.IsFinite(unit)) _unit = unit;
+            UpdateConnections();
+            Raise(BoardChanged);
+            SetSelection(_shapes.Where(shape => !string.IsNullOrEmpty(shape.Id) && selectedIds.Contains(shape.Id)).ToList());
+            Changed();
+        }
+
         public Tool CurrentTool
         {
             get { return _tool; }

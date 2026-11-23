@@ -128,8 +128,9 @@ namespace Tsuzuri
             LauncherHost.Visibility = Visibility.Collapsed;
             PaintLauncherButton();
 
-            // ランチャーにフォーカスがあったなら、下（カレンダーを出していればカレンダー、無ければエディタ）へ戻す（外を押して閉じたときは、押した先に任せる）。
-            if (hadFocus && _calendar != null) _calendar.Focus();
+            // ランチャーにフォーカスがあったなら、下（図エディタ・カレンダーを出していればそれ、無ければエディタ）へ戻す（外を押して閉じたときは、押した先に任せる）。
+            if (hadFocus && _drawing != null) _drawing.View.FocusCanvas();
+            else if (hadFocus && _calendar != null) _calendar.Focus();
             else if (hadFocus && Active != null) Active.TextArea.Focus();
         }
 

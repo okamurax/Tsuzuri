@@ -16,7 +16,7 @@ namespace DrawingEditor
     /// <summary>
     /// エディタ本体（Tsuzuri）から図エディタを使う入口（SPEC 8.4.3。2026-10-18）。
     ///
-    /// 図エディタは本体の上に開く WPF のウィンドウで、閉じるまで本体は操作できない（モーダル。表エディタと同じ）。
+    /// 図エディタそのものは本体の画面の中に重ねて出す部品（DrawingEditorView。2026-11-23。前は閉じるまで本体を触れない別の窓）。
     /// 図は文書の添付フォルダに、同じ名前の .json（描き直すため）と .png（本文に表示する・Word に載せる）で置く。置くのは本体の役目。
     /// </summary>
     public static class DrawingEditorHost
@@ -86,62 +86,6 @@ namespace DrawingEditor
             }
 
             return "\"kind\": \"" + DrawingFile.Marker + "\" がありません。";
-        }
-
-        /// <summary>
-        /// 図を描く・描き直す。閉じるまで戻らない。保存して閉じたら図を、保存せずに閉じたら null を返す。
-        /// 新しい版で描いた図は、知らせて開かずに null を返す（2026-10-27）。
-        /// </summary>
-        /// <param name="owner">本体のウィンドウ。図エディタはその真ん中に出る。無ければ画面の真ん中。</param>
-        /// <param name="json">描き直す図（.json の中身）。新しく描くなら null。</param>
-        public static DrawingResult Edit(Window owner, string json)
-        {
-            var file = (json == null ? null : DrawingFile.Read(json)) ?? new DrawingFile();
-
-            // 新しい版の図エディタで描いた図（版が新しい・この版の知らない図形がある）は開かない（2026-10-27）。
-            // この版で保存すると、知らない図形がファイルから消えてしまうため。読むだけで開く作りより簡単で、図を壊さない。
-            if (file.Version > DrawingFile.SupportedVersion || file.Dropped > 0)
-            {
-                var message = "この図は、新しい版の図エディタで描かれています"
-                    + (file.Dropped > 0 ? "（この版では描けない図形が " + file.Dropped + " 個あります）" : string.Empty) + "。"
-                    + Environment.NewLine + "この版で保存すると図の一部が消えてしまうため、開きません。新しい版のエディタで開いてください。"
-                    + Environment.NewLine + "図のファイルは変えていません。";
-                if (owner != null) MessageBox.Show(owner, message, "図エディタ", MessageBoxButton.OK, MessageBoxImage.Warning);
-                else MessageBox.Show(message, "図エディタ", MessageBoxButton.OK, MessageBoxImage.Warning);
-                return null;
-            }
-
-            var window = new DrawingEditorWindow(file);
-
-            if (owner != null)
-            {
-                window.Owner = owner;
-
-                // 本体の画面と同じ位置・大きさで開く（2026-11-07）。最大化していれば最大化する（同じモニターに出るよう、位置は元の大きさのものを使う）。
-                var bounds = owner.WindowState == WindowState.Normal
-                    ? new Rect(owner.Left, owner.Top, owner.ActualWidth, owner.ActualHeight)
-                    : owner.RestoreBounds;
-                if (!bounds.IsEmpty && bounds.Width > 0 && bounds.Height > 0)
-                {
-                    window.WindowStartupLocation = WindowStartupLocation.Manual;
-                    window.Left = bounds.Left;
-                    window.Top = bounds.Top;
-                    window.Width = Math.Max(bounds.Width, window.MinWidth);
-                    window.Height = Math.Max(bounds.Height, window.MinHeight);
-                    if (owner.WindowState == WindowState.Maximized) window.WindowState = WindowState.Maximized;
-                }
-                else
-                {
-                    window.WindowStartupLocation = WindowStartupLocation.CenterOwner;
-                }
-            }
-            else
-            {
-                window.WindowStartupLocation = WindowStartupLocation.CenterScreen;
-            }
-
-            window.ShowDialog();
-            return window.Result;
         }
     }
 }

@@ -348,61 +348,33 @@ namespace Tsuzuri
         // ---------------------------------------------------------------
 
         /// <summary>
-        /// ツールバーの「図を追加」。図エディタで描き、保存したら、カーソルの位置に図のリンクを入れる。
-        /// 図を書けなければ、控えを残して知らせ、図エディタで開き直すか尋ねる（2026-10-27。WriteDrawing）。
+        /// ツールバーの「図を追加」。図エディタを出し（MainWindow.Drawing.cs）、保存したら、カーソルの位置に図のリンクを入れる。
         /// </summary>
         private void InsertDrawing_Click(object sender, RoutedEventArgs e)
         {
             var view = Active;
-            if (!CanInsertInto(view) || !HasAttachmentFolder(view, "図を足せません")) return;
+            if (!CanInsertInto(view) || !HasAttachmentFolder(view, "図を足せません") || DrawingBusy()) return;
 
-            string json = null;   // 開き直すときは、書けなかった図から
-            while (true)
+            string folder, stem;
+            try
             {
-                DrawingEditor.DrawingResult result;
-                try
-                {
-                    result = DrawingEditor.DrawingEditorHost.Edit(this, json);
-                }
-                catch (Exception ex)
-                {
-                    MessageBox.Show(this, "図エディタでエラーが起きました。" + Environment.NewLine + Environment.NewLine + ex,
-                        "図エディタ", MessageBoxButton.OK, MessageBoxImage.Warning);
-                    return;
-                }
-
-                if (result == null) return;   // 保存せずに閉じた
-
-                string folder = null, stem;
-                try
-                {
-                    // フォルダは開いたときに必ずある（SPEC 4章）。名前は画像の貼り付けと同じく日時から。
-                    folder = Attachments.FolderOf(view.FilePath);
-                    stem = "図 " + DateTime.Now.ToString("yyyy-MM-dd HHmmss");
-                    for (var n = 2; File.Exists(Path.Combine(folder, stem + ".png")) || File.Exists(Path.Combine(folder, stem + ".json")); n++)
-                        stem = "図 " + DateTime.Now.ToString("yyyy-MM-dd HHmmss") + " (" + n + ")";
-                }
-                catch (Exception)
-                {
-                    stem = "図 " + DateTime.Now.ToString("yyyy-MM-dd HHmmss");   // 書くところで失敗として扱う（控えは一時フォルダへ）
-                }
-
-                // isNew: 万一同じ名前が先にできていても上書きしない。
-                bool reopen;
-                if (WriteDrawing(folder, stem, result, true, out reopen))
-                {
-                    view.InsertAtCaret("![" + EscapeLabel(stem) + "](" + ToLinkTarget(stem + ".png") + ")");
-                    Status("図を入れました: " + Path.GetFileName(folder) + "/" + stem + ".png");
-                    return;
-                }
-
-                if (!reopen) return;
-                json = result.Json;
+                // フォルダは開いたときに必ずある（SPEC 4章）。名前は画像の貼り付けと同じく日時から。
+                folder = Attachments.FolderOf(view.FilePath);
+                stem = "図 " + DateTime.Now.ToString("yyyy-MM-dd HHmmss");
+                for (var n = 2; File.Exists(Path.Combine(folder, stem + ".png")) || File.Exists(Path.Combine(folder, stem + ".json")); n++)
+                    stem = "図 " + DateTime.Now.ToString("yyyy-MM-dd HHmmss") + " (" + n + ")";
             }
+            catch (Exception ex)
+            {
+                Status("図を足せません（添付フォルダを見られませんでした）: " + ex.Message);
+                return;
+            }
+
+            OpenDrawingEditor(folder, stem, null, true, view);
         }
 
         /// <summary>
-        /// 本文の画像を押したとき、それが図（同じ名前の .json が図エディタの図）なら、図エディタで描き直す。
+        /// 本文の画像を押したとき、それが図（同じ名前の .json が図エディタの図）なら、図エディタで描き直す（MainWindow.Drawing.cs）。
         /// 図でなければ false（いつもどおり Windows の既定のアプリで開く）。
         /// </summary>
         private bool TryEditDrawing(string imagePath)
@@ -424,57 +396,7 @@ namespace Tsuzuri
 
             if (!DrawingEditor.DrawingEditorHost.IsDrawing(json)) return false;
 
-            var folder = Path.GetDirectoryName(imagePath);
-            var stem = Path.GetFileNameWithoutExtension(imagePath);
-            var openedAt = LastWriteOf(jsonPath);
-
-            while (true)
-            {
-                DrawingEditor.DrawingResult result;
-                try
-                {
-                    result = DrawingEditor.DrawingEditorHost.Edit(this, json);
-                }
-                catch (Exception ex)
-                {
-                    MessageBox.Show(this, "図エディタでエラーが起きました。図は変えていません。" + Environment.NewLine + Environment.NewLine + ex,
-                        "図エディタ", MessageBoxButton.OK, MessageBoxImage.Warning);
-                    return true;
-                }
-
-                if (result == null) return true;   // 保存せずに閉じた
-
-                // 開いている間に、外（AI の欄の Claude など）でこの図が書き換わっていたら、上書きするか尋ねる（2026-11-02）。
-                // 図エディタを開いている間も、Claude が書いた図は描き直す。黙って上書きすると、Claude の直しが消える。
-                if (LastWriteOf(jsonPath) != openedAt)
-                {
-                    var answer = MessageBox.Show(this,
-                        "図エディタで開いている間に、この図のファイルがほかで（AI など）書き換わりました。" + Environment.NewLine + Environment.NewLine +
-                        "はい: 図エディタで描いた図で上書きする（ほかでの書き換えは消える）" + Environment.NewLine +
-                        "いいえ: 図エディタで描いた分を捨て、ほかで書き換わった図を残す" + Environment.NewLine +
-                        "キャンセル: 図エディタに戻る" + Environment.NewLine + Environment.NewLine + jsonPath,
-                        "図エディタ", MessageBoxButton.YesNoCancel, MessageBoxImage.Warning, MessageBoxResult.Cancel);
-
-                    if (answer == MessageBoxResult.No) return true;
-                    if (answer == MessageBoxResult.Cancel)
-                    {
-                        json = result.Json;
-                        continue;
-                    }
-                }
-
-                // 図を書けなければ、控えを残して知らせ、図エディタで開き直すか尋ねる（2026-10-27。WriteDrawing）。
-                bool reopen;
-                if (WriteDrawing(folder, stem, result, false, out reopen)) break;
-
-                if (!reopen) return true;
-                json = result.Json;
-            }
-
-            // 同じ図を見せているページすべてで、画像を読み直す（読んだ画像は更新時刻で見分けて覚えている）。
-            foreach (var view in _stack) view.RefreshImages();
-
-            Status("図を保存しました: " + Path.GetFileName(imagePath));
+            OpenDrawingEditor(Path.GetDirectoryName(imagePath), Path.GetFileNameWithoutExtension(imagePath), json, false, null);
             return true;
         }
 
@@ -499,13 +421,11 @@ namespace Tsuzuri
         /// ・先に両方の一時ファイル（.saving）を書き、両方書けてから置き換える。一時ファイルで失敗したら、どちらも元のまま
         /// ・書けなければ、描いた図をなくさないよう控え（stem.recovered-日時.json と .png）を残し、どこに残したかと、どのファイルで失敗したかを知らせる。
         ///   控えは添付フォルダに、そこへ書けなければ一時フォルダ（%TEMP%）に置く。控えの .png を本文にリンクして押せば、図エディタで開ける
-        /// ・続けて「図エディタで開き直して、保存し直すか」を尋ねる（reopen）。開き直すと、書けなかった図から描き直せる
+        /// ・図エディタは開いたままにする（2026-11-23。前は閉じてから「開き直すか」を尋ねていた）。直してから、もう一度保存できる
         /// </summary>
         /// <param name="isNew">新しい図。同じ名前が先にできていても上書きしない。</param>
-        private bool WriteDrawing(string folder, string stem, DrawingEditor.DrawingResult result, bool isNew, out bool reopen)
+        private bool WriteDrawing(string folder, string stem, DrawingEditor.DrawingResult result, bool isNew)
         {
-            reopen = false;
-
             var error = folder == null
                 ? "添付フォルダが分かりませんでした。"
                 : WriteDrawingFiles(Path.Combine(folder, stem + ".json"), Path.Combine(folder, stem + ".png"), result, isNew);
@@ -520,16 +440,10 @@ namespace Tsuzuri
                 message.Append("描いた図は、控えに残しました:").Append(Environment.NewLine).Append(recovered).Append(Environment.NewLine);
                 message.Append("（同じ名前の .png を本文にリンクして押すと、図エディタで開けます）").Append(Environment.NewLine).Append(Environment.NewLine);
             }
-            else
-            {
-                message.Append("控えも残せませんでした。図エディタで開き直さないと、描いた図は失われます。").Append(Environment.NewLine).Append(Environment.NewLine);
-            }
-            message.Append("図エディタで開き直して、保存し直しますか？");
+            message.Append("図エディタは開いたままです。直してから、もう一度保存してください。");
 
-            var answer = MessageBox.Show(this, message.ToString(), "図エディタ", MessageBoxButton.YesNo, MessageBoxImage.Warning, MessageBoxResult.Yes);
-            reopen = answer == MessageBoxResult.Yes;
-
-            if (!reopen && recovered != null) Status("図を保存できませんでした。控え: " + recovered);
+            MessageBox.Show(this, message.ToString(), "図エディタ", MessageBoxButton.OK, MessageBoxImage.Warning);
+            if (recovered != null) Status("図を保存できませんでした。控え: " + recovered);
             return false;
         }
 

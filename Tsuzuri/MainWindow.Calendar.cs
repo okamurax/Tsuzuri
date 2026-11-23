@@ -77,6 +77,14 @@ namespace Tsuzuri
 
         private void ToggleCalendar()
         {
+            // 図エディタを出している間は出さない（2026-11-23。利用者の判断。どちらも同じように覆うのでかぶる）
+            if (_calendar == null && _drawing != null)
+            {
+                Status("図エディタを出している間は、カレンダーを出せません。図を保存するか終了してから出してください");
+                _drawing.View.FocusCanvas();
+                return;
+            }
+
             if (_calendar != null)
             {
                 // ランチャーの下に隠れていれば、ランチャーを閉じてカレンダーを見せる（閉じるのは見えているときに押したとき）

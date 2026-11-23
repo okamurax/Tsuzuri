@@ -2,11 +2,10 @@ using System;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Globalization;
-using System.Runtime.InteropServices;
+using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
-using System.Windows.Interop;
 using System.Windows.Media;
 
 namespace DrawingEditor
@@ -14,8 +13,12 @@ namespace DrawingEditor
     /// <summary>
     /// 図エディタの画面（SPEC 8.4.3）。一番上の段に 保存・終了 と道具（選ぶ・直線・四角・丸・文字・寸法）と削除、
     /// 真ん中に描く面（DrawingCanvas）、右に選んだ図形の寸法の欄（mm）とボード（書き出す範囲）の大きさの欄。見た目は表エディタ・本体と同じ紺。
+    ///
+    /// 本体の画面の中に重ねて出す部品（2026-11-23。前は本体と同じ位置・大きさの別の窓で、閉じるまで本体を触れなかった）。
+    /// 本体のアウトラインと本文を覆い、右の AI の欄は見えたまま使える。保存は本体に頼み（Saving）、書けたら閉じる（Finished）。
+    /// 開いている間に図のファイルがほかで（AI の欄の Claude など）書き換わったら、本体が Reload で読み込ませる（元に戻すの1段になる）。
     /// </summary>
-    internal sealed class DrawingEditorWindow : Window
+    public sealed class DrawingEditorView : UserControl
     {
         private static readonly Brush Chrome = Make(0x19, 0x23, 0x39);
         private static readonly Brush Sidebar = Make(0x16, 0x1E, 0x32);
@@ -48,19 +51,45 @@ namespace DrawingEditor
         private readonly List<Action> _choiceUpdates = new List<Action>();
 
         private readonly string _opened;
-        private bool _saved;
-        private DrawingResult _result;
+        private bool _finished;
 
-        public DrawingEditorWindow(DrawingFile file)
+        /// <summary>
+        /// 保存するとき（「保存」・Ctrl+S・閉じるときに「はい」）。本体が図を書き、書けたら true（図エディタを閉じる）。
+        /// 書けなければ false（本体が知らせる。図エディタは開いたままで、描いた図をなくさない）。
+        /// </summary>
+        public Func<DrawingResult, bool> Saving;
+
+        /// <summary>閉じた（保存した・保存せずに閉じた）。本体はこのあと図エディタを外す。保存したかは WasSaved。</summary>
+        public event EventHandler Finished;
+
+        /// <summary>保存して閉じたか。</summary>
+        public bool WasSaved { get; private set; }
+
+        /// <summary>
+        /// 図エディタを作る。新しい版の図エディタで描いた図（版が新しい・この版の知らない図形がある）は開かず、null を返して refusal にわけを書く（2026-10-27）。
+        /// この版で保存すると、知らない図形がファイルから消えてしまうため。
+        /// </summary>
+        /// <param name="json">描き直す図（.json の中身）。新しく描くなら null。</param>
+        public static DrawingEditorView Create(string json, out string refusal)
         {
-            Title = "図エディタ";
-            WindowStyle = WindowStyle.None;   // タイトルバーを出さない（本体・表エディタと同じ）
-            ResizeMode = ResizeMode.CanResize;
-            Width = 1100;
-            Height = 720;
-            MinWidth = 640;
-            MinHeight = 400;
-            ShowInTaskbar = false;
+            var file = (json == null ? null : DrawingFile.Read(json)) ?? new DrawingFile();
+            refusal = Refusal(file);
+            return refusal == null ? new DrawingEditorView(file) : null;
+        }
+
+        /// <summary>この版で開けない図なら、そのわけ。開けるなら null。</summary>
+        private static string Refusal(DrawingFile file)
+        {
+            if (file.Version <= DrawingFile.SupportedVersion && file.Dropped == 0) return null;
+            return "この図は、新しい版の図エディタで描かれています"
+                + (file.Dropped > 0 ? "（この版では描けない図形が " + file.Dropped + " 個あります）" : string.Empty) + "。"
+                + Environment.NewLine + "この版で保存すると図の一部が消えてしまうため、開きません。新しい版のエディタで開いてください。"
+                + Environment.NewLine + "図のファイルは変えていません。";
+        }
+
+        private DrawingEditorView(DrawingFile file)
+        {
+            Focusable = false;
             UseLayoutRounding = true;
             SnapsToDevicePixels = true;
             Background = Chrome;
@@ -88,10 +117,12 @@ namespace DrawingEditor
             _opened = Serialize();
 
             PreviewKeyDown += OnPreviewKeyDown;
-            Closing += OnClosing;
-            SourceInitialized += delegate { UseDarkTitleBar(); };
+            var loaded = false;
             Loaded += delegate
             {
+                // 画面のタブを切り替えて戻ったときにも来る。合わせ直すのは初めの1回だけ（拡大・選んだ図形をそのままにする）
+                if (loaded) return;
+                loaded = true;
                 _canvas.FitToContent();
                 _delete.IsEnabled = _canvas.HasSelection;
                 UpdateTools();
@@ -101,10 +132,118 @@ namespace DrawingEditor
             };
         }
 
-        /// <summary>保存して閉じたときの図。保存していなければ null。</summary>
-        public DrawingResult Result
+        // =====================================================================
+        // 本体から使うもの（2026-11-23）
+        // =====================================================================
+
+        /// <summary>描く面へキーを移す（本体が図エディタを出したとき・前に戻したとき）。</summary>
+        public void FocusCanvas()
         {
-            get { return _saved ? _result : null; }
+            _canvas.Focus();
+        }
+
+        /// <summary>開いたときから変えたか（打ちかけの欄の値・文字も入れてから比べる）。</summary>
+        public bool IsModified
+        {
+            get
+            {
+                CommitFields();
+                _canvas.CommitText();
+                return Serialize() != _opened;
+            }
+        }
+
+        /// <summary>今の図の .json の中身（打ちかけの欄の値・文字も入れてから）。AI に渡す前に、本体がファイルに書くため。</summary>
+        public string CurrentJson()
+        {
+            CommitFields();
+            _canvas.CommitText();
+            return Serialize();
+        }
+
+        /// <summary>今の図の画像。作れなければ（大きすぎる等）投げる。</summary>
+        public byte[] RenderCurrentPng()
+        {
+            return Renderer.RenderPng(new List<Shape>(_canvas.Shapes), _canvas.Board, _canvas.Unit, VisualTreeHelper.GetDpi(this).DpiScaleX);
+        }
+
+        /// <summary>選んでいる図形の id（並びの順）。</summary>
+        public IList<string> SelectedIds
+        {
+            get { return _canvas.SelectedShapes.Select(shape => shape.Id).Where(id => !string.IsNullOrEmpty(id)).ToList(); }
+        }
+
+        /// <summary>図形の数。</summary>
+        public int ShapeCount
+        {
+            get { return _canvas.Shapes.Count; }
+        }
+
+        /// <summary>
+        /// ほかで（AI など）書き換わった図を読み込む。元に戻すの1段になる（Ctrl+Z で読み込む前の図に戻る）。
+        /// 読めない・この版で開けない図なら false にして error にわけを書き、今の図はそのまま。
+        /// </summary>
+        public bool Reload(string json, out string error)
+        {
+            var file = DrawingFile.Read(json);
+            if (file == null)
+            {
+                error = "図エディタの図として読めません";
+                return false;
+            }
+            error = Refusal(file);
+            if (error != null) return false;
+
+            CommitFields();
+            _canvas.CommitText();
+            _canvas.ReplaceAll(file.Shapes, file.Board, file.Unit);
+            UpdateBoard();
+            BuildFields();
+            _delete.IsEnabled = _canvas.HasSelection;
+            return true;
+        }
+
+        /// <summary>
+        /// 閉じる（「終了」と同じ。本体の画面を閉じるときにも呼ぶ）。変えていれば保存するかを尋ねる。
+        /// 閉じたら true（Finished が来る）。「キャンセル」・保存できなかったときは false で、開いたまま。
+        /// </summary>
+        public bool TryClose()
+        {
+            if (_finished) return true;
+
+            CommitFields();   // 右の欄に打ちかけの値も、変えたものに数える（2026-10-27）
+            _canvas.CommitText();
+            if (Serialize() == _opened)   // 何も変えていない
+            {
+                Finish(false);
+                return true;
+            }
+
+            var answer = Ask("変更を保存しますか？", MessageBoxButton.YesNoCancel, MessageBoxImage.Question, MessageBoxResult.Cancel);
+            if (answer == MessageBoxResult.Cancel) return false;
+            if (answer == MessageBoxResult.No)
+            {
+                Finish(false);
+                return true;
+            }
+
+            return SaveAndFinish();
+        }
+
+        private void Finish(bool saved)
+        {
+            _finished = true;
+            WasSaved = saved;
+            var handler = Finished;
+            if (handler != null) handler(this, EventArgs.Empty);
+        }
+
+        private MessageBoxResult Ask(string message, MessageBoxButton buttons, MessageBoxImage image, MessageBoxResult otherwise)
+        {
+            var owner = Window.GetWindow(this);
+            return owner != null
+                ? MessageBox.Show(owner, message, "図エディタ", buttons, image, otherwise)
+                : MessageBox.Show(message, "図エディタ", buttons, image, otherwise);
         }
 
         private string Serialize()
@@ -123,12 +262,13 @@ namespace DrawingEditor
             row.Margin = new Thickness(8, 0, 8, 0);
             row.VerticalAlignment = VerticalAlignment.Center;
 
-            var save = CreateButton("保存(_S)", "Ctrl+S。図を保存して閉じる（本文の図も描き直す）");
+            // Alt の字は付けない（2026-11-23。本体の画面の中に出すので、本体の「保存(_S)」「終了(_X)」とぶつかる）
+            var save = CreateButton("保存 (Ctrl+S)", "Ctrl+S。図を保存して閉じる（本文の図も描き直す）");
             save.Click += delegate { Save(); };
             row.Children.Add(save);
 
-            var close = CreateButton("終了(_X)", "閉じる。変えていれば、保存するかを聞く");
-            close.Click += delegate { Close(); };
+            var close = CreateButton("終了", "閉じる。変えていれば、保存するかを聞く（保存しなければ、AI が書き換えた分も開く前の図に戻す）");
+            close.Click += delegate { TryClose(); };
             row.Children.Add(close);
 
             row.Children.Add(Gap());
@@ -170,28 +310,6 @@ namespace DrawingEditor
             bar.Background = Chrome;
             bar.Child = inner;
             DockPanel.SetDock(bar, Dock.Top);
-
-            // タイトルバーが無いので、この段の空いているところをドラッグしてウィンドウを動かす。ダブルクリックで最大化と元の大きさを切り替える。
-            bar.MouseLeftButtonDown += (sender, e) =>
-            {
-                if (e.ClickCount == 2)
-                {
-                    WindowState = WindowState == WindowState.Maximized ? WindowState.Normal : WindowState.Maximized;
-                    return;
-                }
-
-                if (WindowState != WindowState.Normal) return;
-
-                try
-                {
-                    DragMove();
-                }
-                catch (InvalidOperationException)
-                {
-                    // ボタンを離したあとに届いたとき。動かさないだけ。
-                }
-            };
-
             return bar;
         }
 
@@ -657,30 +775,35 @@ namespace DrawingEditor
         {
             CommitFields();   // 右の欄に打ちかけの値も入れてから（2026-10-27）
             _canvas.CommitText();
-            if (!MakeResult()) return;
+            SaveAndFinish();
+        }
 
-            _saved = true;
-            Close();
+        /// <summary>保存するもの（JSON と画像）を作り、本体に書いてもらう。書けたら閉じて true。</summary>
+        private bool SaveAndFinish()
+        {
+            var result = MakeResult();
+            if (result == null) return false;
+            if (Saving != null && !Saving(result)) return false;   // 書けなかった・書く前にほかでの書き換えを読み込んだ。開いたまま
+            Finish(true);
+            return true;
         }
 
         /// <summary>
         /// 保存するもの（JSON と画像）を作る。図形が無ければ知らせて作らない。
-        /// 作れなければ（画像が大きすぎる・メモリが足りない等）知らせて false。エディタは開いたままにして、描いた図をなくさない（2026-10-27。
-        /// 前は例外がそのまま ShowDialog の外まで抜け、エディタが閉じて図が消えた）。
+        /// 作れなければ（画像が大きすぎる・メモリが足りない等）知らせて null。エディタは開いたままにして、描いた図をなくさない（2026-10-27）。
         /// </summary>
-        private bool MakeResult()
+        private DrawingResult MakeResult()
         {
             if (_canvas.Shapes.Count == 0)
             {
-                MessageBox.Show(this, "図形がありません。何か描いてから保存してください。", "図エディタ",
-                    MessageBoxButton.OK, MessageBoxImage.Information);
-                return false;
+                Ask("図形がありません。何か描いてから保存してください。", MessageBoxButton.OK, MessageBoxImage.Information, MessageBoxResult.OK);
+                return null;
             }
 
             var shapes = new List<Shape>(_canvas.Shapes);
             try
             {
-                _result = new DrawingResult
+                return new DrawingResult
                 {
                     Json = new DrawingFile { Shapes = shapes, Board = _canvas.Board, Unit = _canvas.Unit }.Write(),
                     Png = Renderer.RenderPng(shapes, _canvas.Board, _canvas.Unit, VisualTreeHelper.GetDpi(this).DpiScaleX),
@@ -688,68 +811,10 @@ namespace DrawingEditor
             }
             catch (Exception ex)
             {
-                _result = null;
-                MessageBox.Show(this, "図の画像を作れませんでした。保存していません（図はそのまま残っています）。" + Environment.NewLine
+                Ask("図の画像を作れませんでした。保存していません（図はそのまま残っています）。" + Environment.NewLine
                     + "ボードを小さくするか、大きな画像を減らしてから、もう一度保存してください。" + Environment.NewLine + Environment.NewLine + ex.Message,
-                    "図エディタ", MessageBoxButton.OK, MessageBoxImage.Warning);
-                return false;
-            }
-
-            return true;
-        }
-
-        private void OnClosing(object sender, CancelEventArgs e)
-        {
-            if (_saved) return;
-
-            CommitFields();   // 右の欄に打ちかけの値も、変えたものに数える（2026-10-27）
-            _canvas.CommitText();
-            if (Serialize() == _opened) return;   // 何も変えていない
-
-            var answer = MessageBox.Show(this, "変更を保存しますか？", "図エディタ",
-                MessageBoxButton.YesNoCancel, MessageBoxImage.Question, MessageBoxResult.Cancel);
-
-            if (answer == MessageBoxResult.Cancel)
-            {
-                e.Cancel = true;
-                return;
-            }
-
-            if (answer == MessageBoxResult.Yes)
-            {
-                if (!MakeResult())
-                {
-                    e.Cancel = true;
-                    return;
-                }
-
-                _saved = true;
-            }
-        }
-
-        [DllImport("dwmapi.dll")]
-        private static extern int DwmSetWindowAttribute(IntPtr window, int attribute, ref int value, int size);
-
-        /// <summary>上端の縁も紺にする（本体・表エディタと同じ。Windows 11 で効く）。</summary>
-        private void UseDarkTitleBar()
-        {
-            try
-            {
-                var window = new WindowInteropHelper(this).Handle;
-                if (window == IntPtr.Zero) return;
-
-                var on = 1;
-                if (DwmSetWindowAttribute(window, 20, ref on, sizeof(int)) != 0)
-                    DwmSetWindowAttribute(window, 19, ref on, sizeof(int));
-
-                var caption = 0x00392319;   // ツールバーの紺 #192339（0x00BBGGRR）
-                DwmSetWindowAttribute(window, 35, ref caption, sizeof(int));
-                var captionText = 0x00E4DFDD;
-                DwmSetWindowAttribute(window, 36, ref captionText, sizeof(int));
-            }
-            catch (Exception)
-            {
-                // 古い Windows では用意されていない。見た目だけの話なので黙って諦める。
+                    MessageBoxButton.OK, MessageBoxImage.Warning, MessageBoxResult.OK);
+                return null;
             }
         }
 

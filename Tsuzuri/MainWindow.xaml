@@ -164,38 +164,45 @@
                     <DockPanel x:Name="StackPanelHost" LastChildFill="True"
                                SizeChanged="StackPanelHost_SizeChanged" />
 
-                    <!-- ランチャーとファイラー (SPEC 4章・9章)。2つで1つの画面。左がランチャー、右がファイラー。
-                         本文の場所いっぱいに重ねて出す（2026-11-20。前は上半分で、下半分の本文へファイラーからドラッグできるようにしていたが、使わなかった）。
-                         エディタはそのままで、閉じれば全部また見える（MainWindow.Overlays.cs。
-                         前は最前面の独立したウィンドウ、その前は本文の右側に滑らせて重ねていた）。
-                         出している間はフォーカスをここへ移す（覆われた本文に打ち込まないため）ので、Focusable にする -->
-                    <Border x:Name="LauncherHost" Visibility="Collapsed" Panel.ZIndex="1"
-                            Focusable="True" FocusVisualStyle="{x:Null}"
-                            Background="{StaticResource SidebarBackground}">
-                        <Grid>
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*" MinWidth="240" />
-                                <ColumnDefinition Width="4" />
-                                <ColumnDefinition x:Name="FilerColumn" Width="300" MinWidth="180" />
-                            </Grid.ColumnDefinitions>
-
-                            <Border x:Name="LauncherSlot" Grid.Column="0" />
-
-                            <GridSplitter Grid.Column="1" Width="4"
-                                          HorizontalAlignment="Stretch" VerticalAlignment="Stretch"
-                                          DragCompleted="Layout_DragCompleted" />
-
-                            <Border x:Name="FilerHost" Grid.Column="2" />
-                        </Grid>
-                    </Border>
-
                     <!-- カレンダー（SPEC 22章。2026-11-20。MainWindow.Calendar.cs・Views/CalendarView.cs）。ランチャーと同じく本文の場所いっぱいに重ねる。
-                         カレンダーを出したままランチャーを出すと、ランチャーが上に重なり（LauncherHost の ZIndex）、閉じるとカレンダーに戻る（2026-11-21） -->
+                         カレンダーを出したままランチャーを出すと、ランチャーが上に重なり（LauncherHost は StackHost より上）、閉じるとカレンダーに戻る（2026-11-21） -->
                     <Border x:Name="CalendarHost" Visibility="Collapsed"
                             Focusable="False"
                             Background="{StaticResource SidebarBackground}" />
                 </Grid>
             </Border>
+
+            <!-- ランチャーとファイラー (SPEC 4章・9章)。2つで1つの画面。左がランチャー、右がファイラー。
+                 本文の場所いっぱいに重ねて出す（2026-11-20。前は上半分で、下半分の本文へファイラーからドラッグできるようにしていたが、使わなかった）。
+                 エディタはそのままで、閉じれば全部また見える（MainWindow.Overlays.cs。
+                 前は最前面の独立したウィンドウ、その前は本文の右側に滑らせて重ねていた）。
+                 出している間はフォーカスをここへ移す（覆われた本文に打ち込まないため）ので、Focusable にする。
+                 本文の場所（StackHost）と同じ列に、StackHost の外に置く（2026-11-23）。図エディタ（DrawingHost）を出したままでも、その上に重ねて出せるように -->
+            <Border x:Name="LauncherHost" Grid.Column="2" Visibility="Collapsed" Panel.ZIndex="3"
+                    Focusable="True" FocusVisualStyle="{x:Null}"
+                    Background="{StaticResource SidebarBackground}">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" MinWidth="240" />
+                        <ColumnDefinition Width="4" />
+                        <ColumnDefinition x:Name="FilerColumn" Width="300" MinWidth="180" />
+                    </Grid.ColumnDefinitions>
+
+                    <Border x:Name="LauncherSlot" Grid.Column="0" />
+
+                    <GridSplitter Grid.Column="1" Width="4"
+                                  HorizontalAlignment="Stretch" VerticalAlignment="Stretch"
+                                  DragCompleted="Layout_DragCompleted" />
+
+                    <Border x:Name="FilerHost" Grid.Column="2" />
+                </Grid>
+            </Border>
+
+            <!-- 図エディタ（SPEC 8.4.3。2026-11-23。MainWindow.Drawing.cs）。アウトラインと本文をまとめて覆い、右の AI の欄は見えたまま使える。
+                 ランチャーはこの上に重ねて出せる（LauncherHost の ZIndex のほうが大きい） -->
+            <Border x:Name="DrawingHost" Grid.Column="0" Grid.ColumnSpan="3" Visibility="Collapsed" Panel.ZIndex="2"
+                    Focusable="False"
+                    Background="{StaticResource SidebarBackground}" />
 
             <!-- AI の欄 (SPEC 19章)。「AI」で出し入れする。中は会話のタブごとの端末（Views/TerminalView。WebView2 の xterm.js と ConPTY）で、PowerShell の中で Claude Code が動く -->
             <GridSplitter x:Name="AiSplitter" Grid.Column="3" Width="4" Visibility="Collapsed"

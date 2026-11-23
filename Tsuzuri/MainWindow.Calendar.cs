@@ -274,6 +274,16 @@ namespace Tsuzuri
             }
             var today = DateTime.Today;
 
+            // 押し間違えで送らないように、送る前に尋ねる（2026-11-24 利用者の希望）。ログインの前・送る前
+            if (MessageBox.Show(this,
+                    "今日以降（前に送った日がそれより前なら、その日以降）に掛かる予定を、Google の「Tsuzuri」カレンダーへ送ります。" + Environment.NewLine +
+                    "そのカレンダーの同じ範囲の予定は、送った予定に入れ替わります。送りますか？",
+                    "Google へ送る", MessageBoxButton.OKCancel, MessageBoxImage.Question, MessageBoxResult.Cancel) != MessageBoxResult.OK)
+            {
+                Status("Google へは送りませんでした");
+                return;
+            }
+
             _googleSending = true;
             PaintGoogleSending();
             try

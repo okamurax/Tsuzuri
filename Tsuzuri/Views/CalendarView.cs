@@ -509,12 +509,13 @@ namespace Tsuzuri.Views
                 row.Children.Add(cell);
                 _cells[date] = cell;
 
-                // 月の初めの日は「12月1日」と出す（下へ続けて並べるので、どこから次の月かを分かるように）
+                // 月の初めの日は「12月1日」と太字で出す（下へ続けて並べるので、どこから次の月かを分かるように）。
+                // 週の初めの日曜も「11月8日」と出す（太字にはしない。どの行も左端で何月かが分かるように。2026-11-24 利用者の希望）
                 var first = date.Day == 1;
                 var isToday = date == today;
                 var number = new TextBlock
                 {
-                    Text = first ? date.ToString("M月d日", CultureInfo.InvariantCulture) : date.Day.ToString(CultureInfo.InvariantCulture),
+                    Text = first || date.DayOfWeek == DayOfWeek.Sunday ? date.ToString("M月d日", CultureInfo.InvariantCulture) : date.Day.ToString(CultureInfo.InvariantCulture),
                     Margin = isToday ? new Thickness(6, 0, 6, 0) : new Thickness(6, 3, 6, 0),
                     FontWeight = isToday || first ? FontWeights.Bold : FontWeights.Normal,
                     Foreground = isToday ? Brushes.White

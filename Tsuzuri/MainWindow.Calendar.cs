@@ -273,8 +273,18 @@ namespace Tsuzuri
                     MessageBox.Show(this, "送る予定がありません（今日以降（前に送った日がそれより前なら、その日以降）に掛かる予定が無い）。" + Environment.NewLine +
                                     "Google の「Tsuzuri」カレンダーにある同じ範囲の予定 " + count + " 件を、全部消してよいですか？",
                                     "Google へ送る", MessageBoxButton.OKCancel, MessageBoxImage.Question, MessageBoxResult.Cancel) == MessageBoxResult.OK));
+                // ブラウザでのログインを待つ間は、URL を貼る窓を出す（ブラウザが Mac 側で開くと 127.0.0.1 へ戻れないため）
+                var client = new GoogleCalendarClient(google, progress);
+                Window paste = null;
+                client.LoginWaiting = () => Dispatcher.BeginInvoke(new Action(() => paste = ShowGooglePaste(client)));
+                client.LoginDone = () => Dispatcher.BeginInvoke(new Action(() =>
+                {
+                    if (paste == null) return;
+                    paste.Tag = "done";
+                    paste.Close();
+                }));
                 // 送る範囲の初めの日（今日か、前に送った日）は Google の口が決める
-                var result = await Task.Run(() => new GoogleCalendarClient(google, progress).Replace(from => ScheduleExport.Build(items, from), today, confirmEmpty));
+                var result = await Task.Run(() => client.Replace(from => ScheduleExport.Build(items, from), today, confirmEmpty));
 
                 if (result.Cancelled) Status("Google へは送りませんでした");
                 else
@@ -303,6 +313,52 @@ namespace Tsuzuri
         {
             foreach (var window in Application.Current.Windows.OfType<MainWindow>())
                 if (window._calendar != null) window._calendar.SetSendingToGoogle(_googleSending);
+        }
+
+        /// <summary>
+        /// ブラウザでログインしている間の小さな窓。ブラウザが「127.0.0.1 に接続できません」になったら、そのタブのアドレス欄の URL を貼って続ける
+        /// （Parallels の設定で、Windows から開いたリンクが Mac のブラウザで開くと、Windows の Tsuzuri へ戻れないため。2026-11-23）。閉じるとログインをやめる。
+        /// </summary>
+        private Window ShowGooglePaste(GoogleCalendarClient client)
+        {
+            var box = new TextBox { Margin = new Thickness(0, 8, 0, 8), MinWidth = 420 };
+            var ok = new Button { Content = "続ける", IsDefault = true, MinWidth = 80, Margin = new Thickness(0, 0, 8, 0) };
+            var cancel = new Button { Content = "やめる", IsCancel = true, MinWidth = 80 };
+            var buttons = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right };
+            buttons.Children.Add(ok);
+            buttons.Children.Add(cancel);
+            var panel = new StackPanel { Margin = new Thickness(16) };
+            panel.Children.Add(new TextBlock
+            {
+                TextWrapping = TextWrapping.Wrap,
+                MaxWidth = 460,
+                Text = "ブラウザで Google にログインしてください。" + Environment.NewLine + Environment.NewLine +
+                       "ログインのあと、ブラウザに「127.0.0.1 に接続できません」と出たら、そのタブのアドレス欄の URL（http://127.0.0.1:…/?state=…&code=…）を全部コピーして、ここに貼って「続ける」を押してください。" +
+                       "「ログインしました」と出たら、何もしなくてかまいません。",
+            });
+            panel.Children.Add(box);
+            panel.Children.Add(buttons);
+            var window = new Window
+            {
+                Title = "Google にログイン",
+                Content = panel,
+                Owner = this,
+                SizeToContent = SizeToContent.WidthAndHeight,
+                ResizeMode = ResizeMode.NoResize,
+                WindowStartupLocation = WindowStartupLocation.CenterOwner,
+                ShowInTaskbar = false,
+            };
+            ok.Click += delegate
+            {
+                if (string.IsNullOrWhiteSpace(box.Text)) return;
+                client.SubmitRedirectUrl(box.Text);
+                box.Clear();
+            };
+            cancel.Click += delegate { window.Close(); };
+            window.Closed += delegate { if (window.Tag as string != "done") client.CancelLogin(); };
+            window.Show();
+            box.Focus();
+            return window;
         }
 
         /// <summary>google.json が無い・埋めていない。ひな形を作ってメモ帳で開き、作り方を知らせる（WordPress の wordpress.json と同じやり方）。</summary>

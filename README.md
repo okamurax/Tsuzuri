@@ -188,7 +188,7 @@ Tsuzuri には埋め込んでいません（公開しているリポジトリに
 }
 ```
 
-初めて送るときはブラウザで Google にログインします。ログインの更新用の鍵は、exe の隣の `google-token.dat` に Windows の DPAPI で暗号にして置きます（この Windows の利用者だけが読める。読めなければログインし直すだけ）。
+初めて送るときはブラウザで Google にログインします。ログインのあとブラウザに「127.0.0.1 に接続できません」と出たら（ブラウザが Mac 側で開いたときなど）、そのタブのアドレス欄の URL を、Tsuzuri が出す窓に貼って続けます。ログインの更新用の鍵は、exe の隣の `google-token.dat` に Windows の DPAPI で暗号にして置きます（この Windows の利用者だけが読める。読めなければログインし直すだけ）。
 作ったカレンダーの ID と最後に送った日は `google-calendar.json` に置きます。これを消すと、次はカレンダーを新しく作ります（前の「Tsuzuri」カレンダーは Google で消してください）。
 **`google.json`・`google-token.dat`・`google-calendar.json` は人に渡したりリポジトリに入れたりしないでください**（`.gitignore` で除いてあります）。
 

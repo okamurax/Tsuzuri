@@ -144,6 +144,12 @@ namespace Tsuzuri.Sync
         private readonly GoogleSettings _settings;
         private readonly Action<string> _progress;
         private string _accessToken;
+        private readonly System.Collections.Concurrent.ConcurrentQueue<string> _pasted = new System.Collections.Concurrent.ConcurrentQueue<string>();
+        private volatile bool _cancelLogin;
+
+        /// <summary>ブラウザでのログインを待ち始めた・終えた（裏のスレッドから呼ぶ）。呼び出し側が、URL を貼る欄を出し入れする。</summary>
+        public Action LoginWaiting;
+        public Action LoginDone;
 
         static GoogleCalendarClient()
         {
@@ -460,7 +466,16 @@ namespace Tsuzuri.Sync
                 _progress("ブラウザで Google にログインしてください（" + LoginWaitMinutes + "分まで待ちます）…");
                 Process.Start(new ProcessStartInfo(url) { UseShellExecute = true });
 
-                var code = WaitForCode(listener, stateText);
+                string code;
+                if (LoginWaiting != null) LoginWaiting();
+                try
+                {
+                    code = WaitForCode(listener, stateText);
+                }
+                finally
+                {
+                    if (LoginDone != null) LoginDone();
+                }
                 _progress("Google にログインしています…");
                 var data = Json(PostForm("https://oauth2.googleapis.com/token", new Dictionary<string, string>
                 {
@@ -486,18 +501,45 @@ namespace Tsuzuri.Sync
             }
         }
 
-        /// <summary>ブラウザが 127.0.0.1 へ戻ってくるのを待ち、code を受け取る。ほかの要求（favicon など）には 404 を返して待ち続ける。</summary>
-        private static string WaitForCode(TcpListener listener, string expectedState)
+        /// <summary>
+        /// ブラウザが 127.0.0.1 へ戻ってくるのを待ち、code を受け取る。ほかの要求（favicon など）には 404 を返して待ち続ける。
+        /// ブラウザが別の機械で開いた（Parallels の設定で Mac のブラウザに回された等）と 127.0.0.1 へは戻れないので、
+        /// そのタブのアドレス欄の URL を利用者が貼れば（SubmitRedirectUrl）、そこから code を読む（2026-11-23）。CancelLogin でやめる。
+        /// </summary>
+        private string WaitForCode(TcpListener listener, string expectedState)
         {
             var deadline = DateTime.UtcNow.AddMinutes(LoginWaitMinutes);
+            var accept = listener.AcceptTcpClientAsync();
             while (true)
             {
-                var accept = listener.AcceptTcpClientAsync();
-                var left = deadline - DateTime.UtcNow;
-                if (left <= TimeSpan.Zero || !accept.Wait(left))
+                if (_cancelLogin) throw new GoogleException("Google へのログインをやめました。");
+                if (DateTime.UtcNow > deadline)
                     throw new GoogleException("Google へのログインを " + LoginWaitMinutes + " 分待ちましたが、終わりませんでした。もう一度「Google へ送る」を押してください。");
 
-                using (var client = accept.Result)
+                string pasted;
+                if (_pasted.TryDequeue(out pasted))
+                {
+                    var query = ParseQuery((pasted ?? string.Empty).Trim());
+                    string code;
+                    if (TakeCode(query, expectedState, out code)) return code;
+                    _progress("貼った URL にログインの結果がありません。ブラウザのアドレス欄の「http://127.0.0.1:…/?state=…&code=…」を全部貼ってください");
+                    continue;
+                }
+
+                if (!accept.Wait(300)) continue;
+                TcpClient client;
+                try
+                {
+                    client = accept.Result;
+                }
+                catch (AggregateException)
+                {
+                    accept = listener.AcceptTcpClientAsync();
+                    continue;
+                }
+                accept = listener.AcceptTcpClientAsync();
+
+                using (client)
                 using (var stream = client.GetStream())
                 {
                     // ブラウザは何も送らない予備の接続を開くことがある。読めない接続は捨てて次を待つ
@@ -512,30 +554,51 @@ namespace Tsuzuri.Sync
                         continue;
                     }
                     var pieces = (line ?? string.Empty).Split(' ');
-                    var target = pieces.Length >= 2 ? pieces[1] : string.Empty;
-                    var query = ParseQuery(target);
-                    string code, error, state;
-                    query.TryGetValue("code", out code);
-                    query.TryGetValue("error", out error);
-                    query.TryGetValue("state", out state);
-                    var ok = error == null && state == expectedState;
+                    var query = ParseQuery(pieces.Length >= 2 ? pieces[1] : string.Empty);
+                    var answered = query.ContainsKey("code") || query.ContainsKey("error");
+                    var ok = answered && !query.ContainsKey("error") && query.ContainsKey("state") && query["state"] == expectedState;
                     try
                     {
-                        if (code == null && error == null) Reply(stream, "404 Not Found", string.Empty);
+                        if (!answered) Reply(stream, "404 Not Found", string.Empty);
                         else Reply(stream, "200 OK", ok
                             ? "Tsuzuri: Google にログインしました。このタブは閉じてかまいません。"
-                            : "Tsuzuri: Google にログインできませんでした（" + (error ?? "返事が合いません") + "）。このタブを閉じて、Tsuzuri でもう一度押してください。");
+                            : "Tsuzuri: Google にログインできませんでした。このタブを閉じて、Tsuzuri でもう一度押してください。");
                     }
                     catch (IOException)
                     {
                         // ブラウザが先に閉じた。返事は受け取れているので続ける
                     }
-                    if (code == null && error == null) continue;
-                    if (error != null) throw new GoogleException(error == "access_denied" ? "Google へのログインをやめました。" : "Google にログインできませんでした: " + error);
-                    if (!ok) throw new GoogleException("Google からの返事が合いませんでした（別のログインの返事かもしれません）。もう一度押してください。");
+                    if (!answered) continue;
+                    string code;
+                    TakeCode(query, expectedState, out code);
                     return code;
                 }
             }
+        }
+
+        /// <summary>返事（クエリ）から code を取る。断られた・state が合わなければ投げる。code も error も無ければ false。</summary>
+        private static bool TakeCode(Dictionary<string, string> query, string expectedState, out string code)
+        {
+            string error, state;
+            query.TryGetValue("code", out code);
+            query.TryGetValue("error", out error);
+            query.TryGetValue("state", out state);
+            if (code == null && error == null) return false;
+            if (error != null) throw new GoogleException(error == "access_denied" ? "Google へのログインをやめました。" : "Google にログインできませんでした: " + error);
+            if (state != expectedState) throw new GoogleException("Google からの返事が合いませんでした（前のログインの返事かもしれません）。もう一度押してください。");
+            return true;
+        }
+
+        /// <summary>ブラウザのアドレス欄の URL（127.0.0.1 へ戻れなかったとき）。裏のスレッドの WaitForCode が読む。</summary>
+        public void SubmitRedirectUrl(string url)
+        {
+            _pasted.Enqueue(url ?? string.Empty);
+        }
+
+        /// <summary>ブラウザでのログインを待つのをやめる。</summary>
+        public void CancelLogin()
+        {
+            _cancelLogin = true;
         }
 
         private static string ReadLine(NetworkStream stream)

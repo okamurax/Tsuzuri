@@ -28,6 +28,11 @@ ssh/
 # 設定（exe の隣。開いたファイルのパスなどを含む）
 app.json
 
+# Google カレンダーへ送る（OAuth クライアントの ID と秘密・ログインの鍵。exe の隣。SPEC 22章）
+google.json
+google-token.dat
+google-calendar.json
+
 # AI の欄の端末で使う ConPTY（Microsoft の conpty.dll・OpenConsole.exe。MIT）は同梱する
 !Tsuzuri/ConPty/**/*.dll
 !Tsuzuri/ConPty/**/*.exe

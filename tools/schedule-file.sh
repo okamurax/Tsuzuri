@@ -13,9 +13,10 @@ dotnet="$HOME/.dotnet/dotnet"
 # Dropbox の上でビルドすると obj/ を取り合うので、作業用のフォルダにコピーしてからビルドする（parse-fuzz.sh と同じ）
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
-mkdir -p "$work/tools/schedule-file" "$work/Tsuzuri/Markdown"
+mkdir -p "$work/tools/schedule-file" "$work/Tsuzuri/Markdown" "$work/Tsuzuri/Sync"
 cp "$root/tools/schedule-file/"*.cs "$root/tools/schedule-file/ScheduleFileCheck.csproj" "$work/tools/schedule-file/"
-cp "$root/Tsuzuri/Markdown/ScheduleFile.cs" "$root/Tsuzuri/Markdown/ScheduleRepeat.cs" "$root/Tsuzuri/Markdown/ScheduleBook.cs" "$work/Tsuzuri/Markdown/"
+cp "$root/Tsuzuri/Markdown/ScheduleFile.cs" "$root/Tsuzuri/Markdown/ScheduleRepeat.cs" "$root/Tsuzuri/Markdown/ScheduleBook.cs" "$root/Tsuzuri/Markdown/ScheduleExport.cs" "$work/Tsuzuri/Markdown/"
+cp "$root/Tsuzuri/Sync/GoogleCalendarFormat.cs" "$work/Tsuzuri/Sync/"
 
 export DOTNET_CLI_TELEMETRY_OPTOUT=1 DOTNET_NOLOGO=1
 "$dotnet" build "$work/tools/schedule-file/ScheduleFileCheck.csproj" -c Release -nologo -v q -clp:ErrorsOnly >/dev/null

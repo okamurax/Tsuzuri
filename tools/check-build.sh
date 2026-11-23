@@ -87,6 +87,7 @@ cat > "$work/main/Main.csproj" <<'EOF'
     <Reference Include="Microsoft.VisualBasic" />
     <Reference Include="System.Runtime.Serialization" />
     <Reference Include="System.Web.Extensions" />
+    <Reference Include="System.Security" />
     <Reference Include="System.Drawing" />
     <Reference Include="System.Windows.Forms" />
     <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.4258.31" />

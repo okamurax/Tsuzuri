@@ -11,5 +11,7 @@
     <Compile Include="../../Tsuzuri/Markdown/ScheduleFile.cs" />
     <Compile Include="../../Tsuzuri/Markdown/ScheduleRepeat.cs" />
     <Compile Include="../../Tsuzuri/Markdown/ScheduleBook.cs" />
+    <Compile Include="../../Tsuzuri/Markdown/ScheduleExport.cs" />
+    <Compile Include="../../Tsuzuri/Sync/GoogleCalendarFormat.cs" />
   </ItemGroup>
 </Project>

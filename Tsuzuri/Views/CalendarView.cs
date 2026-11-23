@@ -108,6 +108,7 @@ namespace Tsuzuri.Views
 
         // 上の段の「外で変わりました」（押すと、変わった予定のある週へ）
         private readonly Button _notice;
+        private readonly Button _sendGoogle;
         private readonly DispatcherTimer _noticeTimer;
         private DateTime? _noticeDate;
         private readonly ScrollViewer _scroll = new ScrollViewer();
@@ -166,8 +167,10 @@ namespace Tsuzuri.Views
         /// <param name="openLink">その見出しへ飛ぶ（カレンダーは閉じる）。</param>
         /// <param name="weekHeights">高さを広げた週。ここで書き換え、そのたびに weekHeightsChanged を呼ぶ。</param>
         /// <param name="rowHeight">全部の週の高さ（0 なら元の高さ）。上の段の＋－で変えるたびに rowHeightChanged を呼ぶ（元の高さなら 0）。</param>
+        /// <param name="sendToGoogle">上の段の「Google へ送る」を押した（2026-11-23。送るのは MainWindow）。</param>
         public CalendarView(string path, Action<string> status, Func<string, HashSet<string>> headingsOf, Action<ScheduleItem> openLink,
-                            Dictionary<DateTime, double> weekHeights, Action weekHeightsChanged, double rowHeight, Action<double> rowHeightChanged)
+                            Dictionary<DateTime, double> weekHeights, Action weekHeightsChanged, double rowHeight, Action<double> rowHeightChanged,
+                            Action sendToGoogle)
         {
             _path = path;
             _status = status;
@@ -204,6 +207,13 @@ namespace Tsuzuri.Views
             todayButton.Click += delegate { ScrollToToday(); };
             DockPanel.SetDock(todayButton, Dock.Right);
             bar.Children.Add(todayButton);
+
+            // Google へ送る（2026-11-23。SPEC 22章。押したときだけ送る。利用者の考え）
+            _sendGoogle = ToolButton("Google へ送る", "今日以降（前に送った日がそれより前なら、その日以降）に掛かる予定を、Google の「Tsuzuri」カレンダーへ送る（そのカレンダーの同じ範囲の予定は入れ替わる）");
+            _sendGoogle.Margin = new Thickness(0, 0, 12, 0);
+            _sendGoogle.Click += delegate { if (sendToGoogle != null) sendToGoogle(); };
+            DockPanel.SetDock(_sendGoogle, Dock.Right);
+            bar.Children.Add(_sendGoogle);
 
             // 全部の週の高さを戻す（2026-11-21）。＋－で変えた高さも、引っぱって広げた週も。どちらも元のままなら押せない
             _resetHeights = IconButton("\uE72C", "全部の週を元の高さに戻す（＋－で変えた高さも、引っぱって広げた週も）");
@@ -943,6 +953,13 @@ namespace Tsuzuri.Views
         // ---------------------------------------------------------------
         // 部品
         // ---------------------------------------------------------------
+
+        /// <summary>Google へ送っている間は「Google へ送る」を押せなくする。</summary>
+        public void SetSendingToGoogle(bool sending)
+        {
+            _sendGoogle.IsEnabled = !sending;
+            _sendGoogle.Content = sending ? "送っています…" : "Google へ送る";
+        }
 
         private static Button ToolButton(string text, string tip)
         {

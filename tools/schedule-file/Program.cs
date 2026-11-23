@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using Tsuzuri.Markdown;
+using Tsuzuri.Sync;
 
 // カレンダーの予定の保存先（ScheduleFile）の確かめ。tools/schedule-file.sh から動かす。
 internal static class Program
@@ -31,6 +32,95 @@ internal static class Program
             }
         }
         return true;
+    }
+
+    // Google へ送る形（ScheduleExport・GoogleCalendarFormat。2026-11-23）
+    private static void ExportChecks()
+    {
+        var today = D(2026, 11, 23);
+        Func<ScheduleItem, string> sched = item => ScheduleFile.Serialize(new List<ScheduleItem> { item });
+        Func<string, List<ExportEvent>> build = text => ScheduleExport.Build(ScheduleFile.Parse(text), today);
+
+        // 繰り返さない予定: 終わりの日が今日以降だけ。終日は終わりを翌日に
+        var plain = ScheduleExport.Build(new List<ScheduleItem>
+        {
+            new ScheduleItem { Start = D(2026, 11, 20), End = D(2026, 11, 22), Title = "過ぎた" },
+            new ScheduleItem { Start = D(2026, 11, 22), End = D(2026, 11, 23), Title = "今日まで" },
+            new ScheduleItem { Start = D(2026, 11, 30), End = D(2026, 11, 30), Title = "先" },
+        }, today);
+        Check(plain.Count == 2 && plain[0].Title == "今日まで" && plain[0].AllDay && plain[0].Start == D(2026, 11, 22) && plain[0].End == D(2026, 11, 24)
+              && plain[1].End == D(2026, 12, 1), "送る形: 繰り返さない予定 " + string.Join(",", plain.Select(e => e.Title + e.Start.ToString("MMdd") + "-" + e.End.ToString("MMdd"))));
+
+        // 通知のある予定は時刻付き（1日は30分、何日かは最後の日の翌日 0:00 まで）
+        var timed = ScheduleExport.Build(new List<ScheduleItem>
+        {
+            new ScheduleItem { Start = D(2026, 11, 24), End = D(2026, 11, 24), Title = "a", Notify = new TimeSpan(10, 30, 0) },
+            new ScheduleItem { Start = D(2026, 11, 24), End = D(2026, 11, 26), Title = "b", Notify = new TimeSpan(9, 0, 0) },
+        }, today);
+        Check(!timed[0].AllDay && timed[0].Remind && timed[0].Start == D(2026, 11, 24).AddHours(10.5) && timed[0].End == D(2026, 11, 24).AddHours(11)
+              && timed[1].Start == D(2026, 11, 24).AddHours(9) && timed[1].End == D(2026, 11, 27), "送る形: 通知のある予定は時刻付き");
+
+        // 夜遅い通知でも、その日の終わり（翌日 0:00）を越えない（越えると Google では翌日に掛かり、今日以降の範囲がずれる）
+        var late = ScheduleExport.Build(new List<ScheduleItem> { new ScheduleItem { Start = D(2026, 11, 24), End = D(2026, 11, 24), Title = "夜", Notify = new TimeSpan(23, 45, 0) } }, today);
+        Check(late[0].End == D(2026, 11, 25), "送る形: 23:45 の通知は 0:00 まで " + late[0].End);
+
+        // 繰り返し: 1件で送り、消した回・動かした回の元の日は外し、動かした回は別の1件に（動かした先が今日以降のときだけ）
+        var weekly = new ScheduleItem { Start = D(2026, 11, 3), End = D(2026, 11, 3), Title = "毎週", Repeat = "FREQ=WEEKLY;BYDAY=TU" };
+        weekly.Skips.Add(D(2026, 12, 1));
+        weekly.Moves[D(2026, 12, 8)] = D(2026, 12, 9);
+        weekly.Moves[D(2026, 11, 10)] = D(2026, 11, 11);   // 過ぎた所へ動かした回は送らない（元の日は外す）
+        var series = ScheduleExport.Build(new List<ScheduleItem> { weekly }, today);
+        Check(series.Count == 2 && series[0].Rule != null && series[0].Start == D(2026, 11, 3)
+              && string.Join(",", series[0].Excluded.Select(d => d.ToString("MMdd"))) == "1110,1201,1208"
+              && series[1].Rule == null && series[1].Start == D(2026, 12, 9), "送る形: 繰り返しと動かした回 " + series.Count);
+
+        // 終わりの日が過ぎた繰り返しは送らない。今日に掛かる回があれば送る。読めない決まりは1回目だけ
+        var ended = new ScheduleItem { Start = D(2026, 10, 1), End = D(2026, 10, 1), Title = "済", Repeat = "FREQ=DAILY;UNTIL=20261122" };
+        var reaching = new ScheduleItem { Start = D(2026, 10, 1), End = D(2026, 10, 3), Title = "掛かる", Repeat = "FREQ=WEEKLY;UNTIL=20261121" };   // 11/19〜11/21 の回まで
+        var reachingToday = new ScheduleItem { Start = D(2026, 10, 3), End = D(2026, 10, 5), Title = "今日に掛かる", Repeat = "FREQ=WEEKLY;UNTIL=20261121" };   // 11/21〜11/23
+        var odd = new ScheduleItem { Start = D(2026, 11, 25), End = D(2026, 11, 25), Title = "読めない", Repeat = "FREQ=WEEKLY;COUNT=3" };
+        var mix = ScheduleExport.Build(new List<ScheduleItem> { ended, reaching, reachingToday, odd }, today);
+        Check(string.Join(",", mix.Select(e => e.Title + (e.Rule != null ? "R" : ""))) == "今日に掛かるR,読めない", "送る形: 終わった・掛かる・読めない " + string.Join(",", mix.Select(e => e.Title)));
+
+        // 結んだ見出しは、ファイル名と見出しだけ（フォルダは出さない）
+        var linked = ScheduleExport.Build(new List<ScheduleItem>
+        {
+            new ScheduleItem { Start = D(2026, 11, 24), End = D(2026, 11, 24), Title = "x", Memo = "メモ", LinkFile = @"C:\docs\plan.md", LinkPage = "p1", LinkHeading = "議題" },
+        }, today);
+        Check(linked[0].Description == "メモ\n\nTsuzuri の見出し: 議題（plan.md）", "送る形: 説明 " + linked[0].Description);
+
+        // Google の JSON
+        Func<DateTime, DateTime> jst = local => local.AddHours(-9);
+        var allDayJson = GoogleCalendarFormat.EventJson(series[0], "Asia/Tokyo", jst, "t1");
+        Check(allDayJson.Contains("\"start\":{\"date\":\"2026-11-03\"}") && allDayJson.Contains("\"end\":{\"date\":\"2026-11-04\"}")
+              && allDayJson.Contains("\"RRULE:FREQ=WEEKLY;BYDAY=TU\"") && allDayJson.Contains("\"EXDATE;VALUE=DATE:20261110,20261201,20261208\"")
+              && allDayJson.Contains("\"overrides\":[]") && allDayJson.Contains("\"tsuzuriSend\":\"t1\""), "Google の形: 終日の繰り返し " + allDayJson);
+        var timedRule = new ExportEvent
+        {
+            Title = "a\"b\n", Start = D(2026, 11, 24).AddHours(10), End = D(2026, 11, 24).AddHours(10.5), Remind = true,
+            Rule = ScheduleRepeat.Parse("FREQ=MONTHLY;BYMONTHDAY=-1;UNTIL=20261231"),
+        };
+        timedRule.Excluded.Add(D(2026, 11, 30).AddHours(10));
+        var timedJson = GoogleCalendarFormat.EventJson(timedRule, "Asia/Tokyo", jst, "t1");
+        Check(timedJson.Contains("\"summary\":\"a\\\"b\\n\"") && timedJson.Contains("\"dateTime\":\"2026-11-24T10:00:00\",\"timeZone\":\"Asia/Tokyo\"")
+              && timedJson.Contains("\"RRULE:FREQ=MONTHLY;BYMONTHDAY=-1;UNTIL=20261231T145959Z\"") && timedJson.Contains("\"EXDATE;TZID=Asia/Tokyo:20261130T100000\"")
+              && timedJson.Contains("{\"method\":\"email\",\"minutes\":0}"), "Google の形: 時刻付きの繰り返し " + timedJson);
+
+        // バッチ
+        var body = GoogleCalendarFormat.BatchBody(new List<GoogleCalendarFormat.BatchPart>
+        {
+            new GoogleCalendarFormat.BatchPart { Method = "POST", Path = "/calendar/v3/calendars/c%40g/events", Body = "{}" },
+            new GoogleCalendarFormat.BatchPart { Method = "DELETE", Path = "/calendar/v3/calendars/c%40g/events/e1" },
+        }, "b1");
+        Check(body == "--b1\r\nContent-Type: application/http\r\nContent-ID: <item0>\r\n\r\nPOST /calendar/v3/calendars/c%40g/events HTTP/1.1\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n{}\r\n"
+                   + "--b1\r\nContent-Type: application/http\r\nContent-ID: <item1>\r\n\r\nDELETE /calendar/v3/calendars/c%40g/events/e1 HTTP/1.1\r\n\r\n--b1--\r\n", "バッチの本文");
+        var answer = "--batch_x\r\nContent-Type: application/http\r\nContent-ID: <response-item1>\r\n\r\nHTTP/1.1 204 No Content\r\nContent-Length: 0\r\n\r\n\r\n"
+                   + "--batch_x\r\nContent-Type: application/http\r\nContent-ID: <response-item0>\r\n\r\nHTTP/1.1 200 OK\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n{\n \"id\": \"abc\"\n}\r\n"
+                   + "--batch_x--\r\n";
+        var parsed = GoogleCalendarFormat.ParseBatch("multipart/mixed; boundary=\"batch_x\"", answer);
+        Check(parsed.Count == 2 && parsed[0].Status == 200 && parsed[0].Body.Contains("\"abc\"") && parsed[1].Status == 204 && parsed[1].Body == string.Empty,
+              "バッチの返事 " + string.Join(",", parsed.Select(pair => pair.Key + ":" + pair.Value.Status)));
+        Check(GoogleCalendarFormat.ParseBatch("text/html", answer).Count == 0, "バッチの返事: boundary が無い");
     }
 
     private static int Main()
@@ -266,6 +356,8 @@ internal static class Program
 
         // 名前の改行
         Check(ScheduleFile.OneLine(" a\r\n b \n") == "a b", "名前の改行");
+
+        ExportChecks();
 
         Console.WriteLine(_ng == 0 ? "全部 OK" : "NG: " + _ng + " 件");
         return _ng == 0 ? 0 : 1;

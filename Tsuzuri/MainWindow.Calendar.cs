@@ -1,14 +1,17 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Text;
+using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Threading;
 using Tsuzuri.Markdown;
+using Tsuzuri.Sync;
 using Tsuzuri.Views;
 
 namespace Tsuzuri
@@ -97,7 +100,8 @@ namespace Tsuzuri
             var heights = ReadWeekHeights();
             _calendar = new CalendarView(ScheduleFilePath, Status, ScheduleHeadings, OpenScheduleLink,
                                          heights, delegate { WriteWeekHeights(heights); },
-                                         _settings.CalendarRowHeight ?? 0, WriteRowHeight);
+                                         _settings.CalendarRowHeight ?? 0, WriteRowHeight, SendScheduleToGoogle);
+            if (_googleSending) _calendar.SetSendingToGoogle(true);
             CalendarHost.Child = _calendar;
             CalendarHost.Visibility = Visibility.Visible;
             CalendarButton.Tag = "Open";
@@ -207,6 +211,130 @@ namespace Tsuzuri
         }
 
         /// <summary>カレンダーを閉じる。マスで打っている名前・欄で直している中身は、先に保存する（打った文字を捨てない）。閉じたら true。</summary>
+        // ---------------------------------------------------------------
+        // Google へ送る（SPEC 22章「Google へ送る」。2026-11-23）
+        // カレンダーの上の段の「Google へ送る」を押したときだけ送る（利用者の考え）。今日以降に掛かる予定を、Google の「Tsuzuri」カレンダーへ入れ替える。
+        // 送る形にするのは ScheduleExport（送り先に依らない）、送るのは GoogleCalendarClient。
+        // ---------------------------------------------------------------
+
+        /// <summary>送っている間（アプリで1つ。ほかの画面のカレンダーからも重ねて送らない）。</summary>
+        private static bool _googleSending;
+
+        private async void SendScheduleToGoogle()
+        {
+            if (_googleSending)
+            {
+                Status("Google へ送っているところです");
+                return;
+            }
+            if (_calendar != null && !_calendar.CommitEdit())
+            {
+                Status("予定の欄に直すところがあります。直して保存するか、「キャンセル」を押してから送ってください");
+                return;
+            }
+
+            GoogleSettings google;
+            try
+            {
+                google = GoogleSettings.Load();
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(this, "google.json を読めませんでした。書き方を確かめてください。" + Environment.NewLine + ex.Message, "Google へ送る",
+                                MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
+            if (google == null || !google.IsUsable)
+            {
+                ShowGoogleSetup(google == null);
+                return;
+            }
+
+            // 予定はファイルから読む（カレンダーは直すたびに保存している）
+            List<ScheduleItem> items;
+            try
+            {
+                var path = ScheduleFilePath;
+                items = ScheduleFile.Parse(File.Exists(path) ? File.ReadAllText(path, Encoding.UTF8) : string.Empty);
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(this, "予定のファイルを読めませんでした。" + Environment.NewLine + ex.Message, "Google へ送る", MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
+            var today = DateTime.Today;
+
+            _googleSending = true;
+            PaintGoogleSending();
+            try
+            {
+                Action<string> progress = message => Dispatcher.BeginInvoke(new Action(() => Status(message)));
+                Func<int, bool> confirmEmpty = count => (bool)Dispatcher.Invoke(new Func<bool>(() =>
+                    MessageBox.Show(this, "送る予定がありません（今日以降（前に送った日がそれより前なら、その日以降）に掛かる予定が無い）。" + Environment.NewLine +
+                                    "Google の「Tsuzuri」カレンダーにある同じ範囲の予定 " + count + " 件を、全部消してよいですか？",
+                                    "Google へ送る", MessageBoxButton.OKCancel, MessageBoxImage.Question, MessageBoxResult.Cancel) == MessageBoxResult.OK));
+                // 送る範囲の初めの日（今日か、前に送った日）は Google の口が決める
+                var result = await Task.Run(() => new GoogleCalendarClient(google, progress).Replace(from => ScheduleExport.Build(items, from), today, confirmEmpty));
+
+                if (result.Cancelled) Status("Google へは送りませんでした");
+                else
+                    Status("Google へ送りました: " + result.Sent + " 件" + (result.CreatedCalendar ? "（「Tsuzuri」カレンダーを作りました）" : "（前の " + result.Removed + " 件と入れ替え）")
+                           + (result.NotRemoved > 0 ? "。前の予定 " + result.NotRemoved + " 件を消せませんでした（次に送るときにまた消します）" : string.Empty));
+            }
+            catch (GoogleException ex)
+            {
+                Status("Google へ送れませんでした");
+                MessageBox.Show(this, ex.Message, "Google へ送る", MessageBoxButton.OK, MessageBoxImage.Warning);
+            }
+            catch (Exception ex)
+            {
+                Status("Google へ送れませんでした");
+                MessageBox.Show(this, "Google へ送れませんでした。" + Environment.NewLine + ex.Message, "Google へ送る", MessageBoxButton.OK, MessageBoxImage.Warning);
+            }
+            finally
+            {
+                _googleSending = false;
+                PaintGoogleSending();
+            }
+        }
+
+        /// <summary>どの画面のカレンダーの「Google へ送る」も、送っている間は押せなくする（送っているのはアプリで1つ）。</summary>
+        private static void PaintGoogleSending()
+        {
+            foreach (var window in Application.Current.Windows.OfType<MainWindow>())
+                if (window._calendar != null) window._calendar.SetSendingToGoogle(_googleSending);
+        }
+
+        /// <summary>google.json が無い・埋めていない。ひな形を作ってメモ帳で開き、作り方を知らせる（WordPress の wordpress.json と同じやり方）。</summary>
+        private void ShowGoogleSetup(bool missing)
+        {
+            try
+            {
+                GoogleSettings.WriteTemplate();
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(this, "google.json を作れませんでした。" + Environment.NewLine + ex.Message, "Google へ送る", MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
+
+            MessageBox.Show(this,
+                (missing ? "Google へ送る設定がまだありません。ひな形の google.json を作りました。" : "google.json の clientId・clientSecret が埋まっていません（ひな形のまま等）。") +
+                Environment.NewLine + Environment.NewLine +
+                "Google Cloud のプロジェクトで Google Calendar API を有効にし、OAuth クライアント（種類は「デスクトップ アプリ」）を作って、" +
+                "その ID と秘密を google.json に書いてください。手順は README の「Google カレンダーへ送る」にあります。" + Environment.NewLine +
+                "google.json はメモ帳で開きます。",
+                "Google へ送る", MessageBoxButton.OK, MessageBoxImage.Information);
+            try
+            {
+                Process.Start("notepad.exe", "\"" + GoogleSettings.StorePath + "\"");
+            }
+            catch (Exception)
+            {
+                Status("google.json: " + GoogleSettings.StorePath);
+            }
+        }
+
         private bool CloseCalendar()
         {
             if (_calendar == null) return true;

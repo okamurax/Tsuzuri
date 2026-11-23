@@ -43,7 +43,7 @@ namespace Tsuzuri.Markdown
     /// 読めるのは、Tsuzuri の欄で作れる形だけ:
     ///   FREQ=DAILY[;INTERVAL=n]
     ///   FREQ=WEEKLY[;INTERVAL=n];BYDAY=MO,TU…[;WKST=SU]        平日は BYDAY=MO,TU,WE,TH,FR
-    ///   FREQ=MONTHLY[;INTERVAL=n][;BYMONTHDAY=d]                日付（無ければ始まりの日の日付）。その日が無い月は飛ばす（Google と同じ）
+    ///   FREQ=MONTHLY[;INTERVAL=n][;BYMONTHDAY=d]                日付（無ければ始まりの日の日付）。その日が無い月は飛ばす（Google と同じ）。-1 は末日（2026-11-23）
     ///   FREQ=MONTHLY[;INTERVAL=n];BYDAY=2TU / -1FR              第n曜日・最終曜日
     ///   FREQ=YEARLY[;INTERVAL=n]                                始まりの日の月日（2/29 は、うるう年だけ）
     ///   どれにも [;UNTIL=yyyyMMdd] を付けられる（その日を含む）。COUNT などほかの項目があれば読めない（null。始まりの日だけを出す）。
@@ -57,7 +57,7 @@ namespace Tsuzuri.Markdown
         /// <summary>毎週の曜日。</summary>
         public List<DayOfWeek> WeekDays = new List<DayOfWeek>();
 
-        /// <summary>毎月の日付（1〜31）。0 なら始まりの日の日付。</summary>
+        /// <summary>毎月の日付（1〜31）。0 なら始まりの日の日付。-1 は末日（その月の最後の日。BYMONTHDAY=-1）。</summary>
         public int MonthDay;
 
         /// <summary>毎月の第n曜日（1〜5。-1 は最終）と、その曜日。</summary>
@@ -153,7 +153,7 @@ namespace Tsuzuri.Markdown
                         if (byMonthDay != null)
                         {
                             int day;
-                            if (!int.TryParse(byMonthDay, NumberStyles.None, CultureInfo.InvariantCulture, out day) || day < 1 || day > 31) return null;
+                            if (!int.TryParse(byMonthDay, NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture, out day) || !(day == -1 || (day >= 1 && day <= 31))) return null;
                             repeat.MonthDay = day;
                         }
                     }
@@ -183,7 +183,7 @@ namespace Tsuzuri.Markdown
             if (Kind == RepeatKind.Weekly && WeekDays.Count > 0)
                 parts.Add("BYDAY=" + string.Join(",", WeekDays.OrderBy(day => day).Select(day => DayCodes[(int)day])));
             if (Kind == RepeatKind.Weekly && Interval > 1) parts.Add("WKST=SU");   // 何週ごとかを日曜始まりの週で数える（Tsuzuri の週と同じ）
-            if (Kind == RepeatKind.MonthlyDay && MonthDay > 0) parts.Add("BYMONTHDAY=" + MonthDay.ToString(CultureInfo.InvariantCulture));
+            if (Kind == RepeatKind.MonthlyDay && MonthDay != 0) parts.Add("BYMONTHDAY=" + MonthDay.ToString(CultureInfo.InvariantCulture));
             if (Kind == RepeatKind.MonthlyNth) parts.Add("BYDAY=" + Nth.ToString(CultureInfo.InvariantCulture) + DayCodes[(int)NthDay]);
             if (Until.HasValue) parts.Add("UNTIL=" + Until.Value.ToString("yyyyMMdd", CultureInfo.InvariantCulture));
             return string.Join(";", parts);
@@ -216,7 +216,7 @@ namespace Tsuzuri.Markdown
                     }
                     break;
                 case RepeatKind.MonthlyDay:
-                    text = (Interval > 1 ? Interval + "か月ごと " : "毎月 ") + (MonthDay > 0 ? MonthDay : start.Day) + "日";
+                    text = (Interval > 1 ? Interval + "か月ごと " : "毎月 ") + (MonthDay < 0 ? "末日" : (MonthDay > 0 ? MonthDay : start.Day) + "日");
                     break;
                 case RepeatKind.MonthlyNth:
                     text = (Interval > 1 ? Interval + "か月ごと " : "毎月 ") + (Nth < 0 ? "最終" : "第" + Nth) + DayNames[(int)NthDay] + "曜";
@@ -255,13 +255,27 @@ namespace Tsuzuri.Markdown
                 case RepeatKind.MonthlyNth:
                 {
                     var months = (date.Year - start.Year) * 12 + date.Month - start.Month;
-                    if (months % Interval != 0) return false;
-                    if (Kind == RepeatKind.MonthlyDay) return date.Day == (MonthDay > 0 ? MonthDay : start.Day);
-                    if (date.DayOfWeek != NthDay) return false;
-                    return Nth < 0 ? date.AddDays(7).Month != date.Month : (date.Day - 1) / 7 + 1 == Nth;
+                    return months % Interval == 0 && OnRuleDay(start, date);
                 }
                 default:
-                    return (date.Year - start.Year) % Interval == 0 && date.Month == start.Month && date.Day == start.Day;
+                    return (date.Year - start.Year) % Interval == 0 && OnRuleDay(start, date);
+            }
+        }
+
+        /// <summary>毎月・毎年で、その日が決まりの日付・曜日か（間隔・始まりの日・終わりの日は見ない）。毎日・毎週は true。</summary>
+        public bool OnRuleDay(DateTime start, DateTime date)
+        {
+            switch (Kind)
+            {
+                case RepeatKind.MonthlyDay:
+                    return MonthDay < 0 ? date.Day == DateTime.DaysInMonth(date.Year, date.Month) : date.Day == (MonthDay > 0 ? MonthDay : start.Day);
+                case RepeatKind.MonthlyNth:
+                    if (date.DayOfWeek != NthDay) return false;
+                    return Nth < 0 ? date.Day + 7 > DateTime.DaysInMonth(date.Year, date.Month) : (date.Day - 1) / 7 + 1 == Nth;
+                case RepeatKind.Yearly:
+                    return date.Month == start.Month && date.Day == start.Day;
+                default:
+                    return true;
             }
         }
 

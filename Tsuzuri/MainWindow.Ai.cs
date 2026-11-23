@@ -292,7 +292,7 @@ namespace Tsuzuri
   - 形: 予定1つが見出し1つ。`## 2026-11-21 10:00 打合せ`、何日かは `## 2026-11-21〜2026-11-25 出張`（終わりの日を含む）。見出しの下の行から次の `## ` の手前までがメモ（画面ではメモを書かない。長い中身は文書の見出しと結ぶのが利用者のやり方なので、メモは足さない）。
     アウトラインの見出しから登録した予定は、見出しのすぐ下に `<!-- link: 文書のファイル | ページ | 見出し -->` の行がある（文書のその見出しと結んでいる。中身はその節にある）。
     繰り返しの予定は、見出しのすぐ下に `<!-- repeat: RRULE -->` の行がある（Google カレンダーと同じ RRULE。見出しの日が1回目、見出しの日の幅が1回の長さ）。
-    Tsuzuri が読める RRULE は FREQ=DAILY / WEEKLY;BYDAY=MO,TU… / MONTHLY;BYMONTHDAY=25 / MONTHLY;BYDAY=2TU（-1FR は最終金曜）/ YEARLY と、INTERVAL=n・UNTIL=yyyyMMdd（その日を含む）だけ。
+    Tsuzuri が読める RRULE は FREQ=DAILY / WEEKLY;BYDAY=MO,TU… / MONTHLY;BYMONTHDAY=25（-1 は末日。-2 などほかの負の数は読めない）/ MONTHLY;BYDAY=2TU（-1FR は最終金曜）/ YEARLY と、INTERVAL=n・UNTIL=yyyyMMdd（その日を含む）だけ。
     COUNT などほかの項目を書くと、カレンダーは1回目しか出さない。
     通知のある予定は、見出しのすぐ下に `<!-- notify: 10:00 -->` の行がある（鳴るのは予定のある日のその時刻。繰り返しなら毎回、何日かなら始まりの日）。
     Tsuzuri が動いている間は、その時刻に Windows の通知を出す（カレンダーを閉じていても出す。Tsuzuri を閉じていた間の分は出さない）。

@@ -252,9 +252,8 @@ namespace Tsuzuri.Markdown
             var oldStart = item.Start;
             item.Start = item.Start.AddDays(days);
             item.End = item.End.AddDays(days);
-            if (rule.Until.HasValue) rule.Until = rule.Until.Value.AddDays(days);
             // 始まりの日は決まりに合わなくても1回目になる。つかんだのがそういう回なら、毎月の日付・第n曜日はそのまま（その日から決め直さない）
-            var natural = oldRule.Kind == RepeatKind.MonthlyDay ? original.Day == (oldRule.MonthDay > 0 ? oldRule.MonthDay : oldStart.Day)
+            var natural = oldRule.Kind == RepeatKind.MonthlyDay ? (oldRule.MonthDay < 0 ? IsMonthEnd(original) : original.Day == (oldRule.MonthDay > 0 ? oldRule.MonthDay : oldStart.Day))
                         : oldRule.Kind == RepeatKind.MonthlyNth ? original != oldStart || NthOf(original, oldRule.Nth < 0) == oldRule.Nth && original.DayOfWeek == oldRule.NthDay
                         : true;
             switch (natural ? rule.Kind : RepeatKind.Daily)
@@ -264,7 +263,8 @@ namespace Tsuzuri.Markdown
                     break;
                 case RepeatKind.MonthlyDay:
                     // 日付を書いていなくても書く（始まりの日を days 日ずらすと、月の長さの違いで to と別の日付になることがあるため。1/20 の回を 2/20→3/5 へ）
-                    rule.MonthDay = to.Day;
+                    // 末日の決まりで、動かした先も月の末日なら末日のまま（1/31 の回を 2/28 へ動かしても、毎月 末日）
+                    rule.MonthDay = oldRule.MonthDay < 0 && IsMonthEnd(to) ? -1 : to.Day;
                     break;
                 case RepeatKind.MonthlyNth:
                     // 第5は月によって無いので、最終にする（第3火曜の回を8日後へ動かすと、その月の最終水曜）
@@ -272,25 +272,135 @@ namespace Tsuzuri.Markdown
                     rule.Nth = NthOf(to, rule.Nth < 0);
                     break;
             }
-            item.Repeat = rule.ToString();
 
             if (rule.Kind == RepeatKind.Daily || rule.Kind == RepeatKind.Weekly)
             {
+                // 毎日・毎週は、どの回もちょうど days 日ずれる（確かめる）ので、終わりの日・消した回・動かした回も days 日ずらす
+                if (rule.Until.HasValue) rule.Until = rule.Until.Value.AddDays(days);
+                item.Repeat = rule.ToString();
                 for (var date = item.Start; date <= item.Start.AddDays(730); date = date.AddDays(1))
                     if (rule.Matches(item.Start, date) != oldRule.Matches(oldStart, date.AddDays(-days))) return false;
-            }
-            else if (!rule.Matches(item.Start, to)) return false;
 
-            item.Skips = item.Skips.Select(date => date.AddDays(days)).ToList();
-            var moves = new SortedDictionary<DateTime, DateTime>();
-            foreach (var pair in item.Moves)
-            {
-                var key = pair.Key.AddDays(days);
-                if (key != pair.Value) moves[key] = pair.Value;
+                item.Skips = item.Skips.Select(date => date.AddDays(days)).ToList();
+                var shifted = new SortedDictionary<DateTime, DateTime>();
+                foreach (var pair in item.Moves)
+                {
+                    var key = pair.Key.AddDays(days);
+                    if (key != pair.Value) shifted[key] = pair.Value;
+                }
+                item.Moves = shifted;
+                ScheduleRepeat.Prune(item);
+                return true;
             }
-            item.Moves = moves;
-            ScheduleRepeat.Prune(item);
-            return true;
+            else
+            {
+                // 毎月・毎年は、月の長さで日数が回ごとに違うので、日数でなく、つかんだ回と同じ月数（毎年は年数）だけ先の月（年）の決まりの日へ移す（2026-11-23）。
+                // 1回目・終わりの日・消した回・動かした回も同じ（日数でずらすと、末日の回が月末に乗らず、消した回が戻る・終わりの日で最後の回が欠けていた）。
+                // 回はひと月（ひと年）に1つなので、移した先が重なることはない。その月に回が無ければ捨てる（毎月30日の2月）
+                var yearly = rule.Kind == RepeatKind.Yearly;
+                Func<DateTime, int> period = date => yearly ? date.Year : date.Year * 12 + date.Month;
+                var shift = period(to) - period(original);
+                var oldOpen = ScheduleRepeat.Parse(oldRule.ToString());
+                oldOpen.Until = null;
+
+                // 1回目: 決まりの日だったなら、移した月の決まりの日（無い月なら、同じようにはずらせない）。
+                // 決まりの日でない1回目（Claude が書いた形など）と毎年は、日数でずらしたまま（毎年の決まりの日は1回目から決まる）
+                if (!yearly && oldRule.OnRuleDay(oldStart, oldStart))
+                {
+                    var length = item.End - item.Start;
+                    var first = RuleDayIn(rule, item.Start, period(oldStart) + shift, false, true);
+                    if (!first.HasValue) return false;
+                    item.Start = first.Value;
+                    item.End = first.Value + length;
+                }
+                var newStart = item.Start;
+                var newOpen = ScheduleRepeat.Parse(rule.ToString());
+                newOpen.Until = null;
+
+                Func<DateTime, DateTime?> carry = date =>
+                {
+                    if (date == oldStart) return newStart;
+                    if (date < oldStart || !oldOpen.OnRuleDay(oldStart, date) || !oldOpen.Matches(oldStart, date)) return null;
+                    return RuleDayIn(newOpen, newStart, period(date) + shift, yearly, false);
+                };
+
+                if (oldRule.Until.HasValue)
+                {
+                    // 終わりの日は、その日までの最後の回が移った先。その月（年）に回が無ければ、その月（年）の終わり（回が1つも無ければ日数でずらす）
+                    DateTime? lastOld = null;
+                    for (var p = period(oldRule.Until.Value); p > period(oldStart) && !lastOld.HasValue; p--)
+                    {
+                        var day = RuleDayIn(oldOpen, oldStart, p, yearly, false);
+                        if (day.HasValue && day.Value <= oldRule.Until.Value) lastOld = day;
+                    }
+                    if (!lastOld.HasValue && oldStart <= oldRule.Until.Value)
+                    {
+                        var day = RuleDayIn(oldOpen, oldStart, period(oldStart), yearly, false);
+                        lastOld = day.HasValue && day.Value > oldStart && day.Value <= oldRule.Until.Value ? day : oldStart;
+                    }
+                    if (!lastOld.HasValue) rule.Until = oldRule.Until.Value.AddDays(days);
+                    else
+                    {
+                        var target = period(lastOld.Value) + shift;
+                        rule.Until = carry(lastOld.Value) ?? PeriodEnd(target, yearly);
+                        if (!rule.Until.HasValue) return false;
+                    }
+                }
+                item.Repeat = rule.ToString();
+                if (!rule.Matches(item.Start, to) || carry(original) != to) return false;
+
+                // 念のため: 移した先が重なったら（2つの回が1つになる）、同じようにはずらせない
+                var keys = new[] { oldStart, original }.Concat(item.Skips).Concat(item.Moves.Keys).Distinct().ToList();
+                var carried = keys.Select(carry).Where(date => date.HasValue).Select(date => date.Value).ToList();
+                if (carried.Count != carried.Distinct().Count()) return false;
+
+                item.Skips = item.Skips.Select(carry).Where(date => date.HasValue).Select(date => date.Value).Distinct().ToList();
+                var moves = new SortedDictionary<DateTime, DateTime>();
+                foreach (var pair in item.Moves)
+                {
+                    var key = carry(pair.Key);
+                    if (key.HasValue && key.Value != pair.Value) moves[key.Value] = pair.Value;
+                }
+                item.Moves = moves;
+                ScheduleRepeat.Prune(item);
+                return true;
+            }
+        }
+
+        /// <summary>
+        /// その月（yearly ならその年。period は 年*12+月 か 年）の、決まりの回の日（間隔も見る。無ければ null）。終わりの日は見ない。
+        /// 1回目そのものは、決まりの日のときだけ数える。anyDay なら、間隔と start より前かを見ない（ずらした1回目を決めるとき）。
+        /// </summary>
+        private static DateTime? RuleDayIn(ScheduleRepeat rule, DateTime start, int period, bool yearly, bool anyDay)
+        {
+            if (yearly)
+            {
+                if (period < 1 || period > 9999 || (start.Month == 2 && start.Day == 29 && !DateTime.IsLeapYear(period))) return null;
+                var date = new DateTime(period, start.Month, start.Day);
+                return anyDay || rule.Matches(start, date) ? date : (DateTime?)null;
+            }
+            var year = (period - 1) / 12;
+            if (year < 1 || year > 9999) return null;
+            var month = (period - 1) % 12 + 1;
+            for (var day = 1; day <= DateTime.DaysInMonth(year, month); day++)
+            {
+                var date = new DateTime(year, month, day);
+                if (rule.OnRuleDay(start, date) && (anyDay || rule.Matches(start, date))) return date;
+            }
+            return null;
+        }
+
+        /// <summary>その月（年）の終わりの日。範囲の外なら null。</summary>
+        private static DateTime? PeriodEnd(int period, bool yearly)
+        {
+            var year = yearly ? period : (period - 1) / 12;
+            if (year < 1 || year > 9999) return null;
+            return yearly ? new DateTime(year, 12, 31) : new DateTime(year, (period - 1) % 12 + 1, 1).AddMonths(1).AddDays(-1);
+        }
+
+        private static bool IsMonthEnd(DateTime date)
+        {
+            return date.Day == DateTime.DaysInMonth(date.Year, date.Month);   // AddDays(1) は 9999-12-31 で投げる
         }
 
         /// <summary>その日が月の第何曜日か（1〜4、第5・last で最終の週なら -1）。</summary>

@@ -104,7 +104,7 @@ internal static class Program
                     if (Chance(35)) rule.WeekDays.Add(day);
                 break;
             case RepeatKind.MonthlyDay:
-                rule.MonthDay = Chance(50) ? 0 : 1 + _random.Next(31);
+                rule.MonthDay = Chance(40) ? 0 : Chance(20) ? -1 : 1 + _random.Next(31);
                 break;
             case RepeatKind.MonthlyNth:
                 rule.Nth = Chance(25) ? -1 : 1 + _random.Next(5);
@@ -292,7 +292,7 @@ internal static class Program
                     DateTime? hit = null;
                     if (rule.Kind == RepeatKind.MonthlyDay)
                     {
-                        var day = rule.MonthDay > 0 ? rule.MonthDay : start.Day;
+                        var day = rule.MonthDay < 0 ? inMonth.Count : rule.MonthDay > 0 ? rule.MonthDay : start.Day;
                         if (day <= inMonth.Count) hit = inMonth[day - 1];
                     }
                     else
@@ -489,6 +489,28 @@ internal static class Program
                         var news = ScheduleRepeat.Occurrences(item, from.AddDays(-40), to.AddDays(40)).ToList();
                         if (split) news.AddRange(ScheduleRepeat.Occurrences(tail, from.AddDays(-40), to.AddDays(40)));
                         var kind = ScheduleRepeat.Parse(oldItem.Repeat).Kind;
+                        // 毎月: ずらしたあとも、ひと月に回は1つ（1回目がその月の決まりの日とずれて、同じ月にもう1回出ていた。2026-11-23）。
+                        // ずらす前の1回目（これ以降で分けたなら、つかんだ回）が決まりの日だったときだけ（そうでない予定は、もとからひと月に2回出ることがある）
+                        var shiftedFrom = split ? original.Value : oldItem.Start;
+                        if ((kind == RepeatKind.MonthlyDay || kind == RepeatKind.MonthlyNth) && ScheduleRepeat.Parse(oldItem.Repeat).OnRuleDay(oldItem.Start, shiftedFrom)
+                            && ScheduleRepeat.Occurrences(tail, from.AddDays(-40), to.AddDays(40)).GroupBy(o => o.Original.Value.Year * 12 + o.Original.Value.Month).Any(g => g.Count() > 1))
+                                    Ng(round, "これ以降・全部で、毎月の回がひと月に2つ出る", what + "\n→ " + Show(item) + (split ? "\n+ " + Show(tail) : ""));
+                        // 毎月: 元の回（消した・動かした回を除く）は、つかんだ回と同じ月数だけ先の月に出る（その月に決まりの日があれば）。回が1つ消えていた（2026-11-23）
+                        if ((kind == RepeatKind.MonthlyDay || kind == RepeatKind.MonthlyNth) && ScheduleRepeat.Parse(oldItem.Repeat).OnRuleDay(oldItem.Start, shiftedFrom))
+                        {
+                            var monthShift = (target.Year * 12 + target.Month) - (original.Value.Year * 12 + original.Value.Month);
+                            var tailRule = ScheduleRepeat.Parse(tail.Repeat);
+                            var tailOccs = ScheduleRepeat.Occurrences(tail, from.AddDays(-40), to.AddDays(80));
+                            foreach (var o in olds)
+                            {
+                                if (!o.Original.HasValue || o.Original.Value < shiftedFrom || oldItem.Moves.ContainsKey(o.Original.Value)) continue;
+                                var m = new DateTime(o.Original.Value.Year, o.Original.Value.Month, 1).AddMonths(monthShift);
+                                if (m.AddMonths(1) > to.AddDays(40)) continue;
+                                var hasDay = Enumerable.Range(0, DateTime.DaysInMonth(m.Year, m.Month)).Any(i => tailRule.Matches(tail.Start, m.AddDays(i)));
+                                if (hasDay && !tailOccs.Any(n => n.Original.HasValue && n.Original.Value.Year == m.Year && n.Original.Value.Month == m.Month))
+                                    Ng(round, "これ以降・全部で、毎月の回が1つ消える（" + D(o.Start) + " → " + m.ToString("yyyy-MM") + "）", what + "\n→ " + Show(item) + (split ? "\n+ " + Show(tail) : ""));
+                            }
+                        }
                         foreach (var o in olds)
                         {
                             var earlier = split && o.Original < original.Value;

@@ -193,6 +193,7 @@ namespace Tsuzuri.Views
             _editRepeat.Items.Add(new ComboBoxItem { Content = "平日（月〜金）", Tag = "weekdays" });
             _editRepeat.Items.Add(new ComboBoxItem { Content = "毎週（曜日を選ぶ）", Tag = "weekly" });
             _editRepeat.Items.Add(new ComboBoxItem { Content = "毎月 " + start.Day + "日", Tag = "monthday" });
+            if (start.AddDays(1).Month != start.Month) _editRepeat.Items.Add(new ComboBoxItem { Content = "毎月 末日", Tag = "monthend" });   // 1回目が月の最後の日のときだけ（2026-11-23）
             if (nth <= 4) _editRepeat.Items.Add(new ComboBoxItem { Content = "毎月 第" + nth + dayName + "曜", Tag = "monthnth" });
             if (start.AddDays(7).Month != start.Month) _editRepeat.Items.Add(new ComboBoxItem { Content = "毎月 最終" + dayName + "曜", Tag = "monthlast" });
             _editRepeat.Items.Add(new ComboBoxItem { Content = "毎年 " + start.Month + "月" + start.Day + "日", Tag = "yearly" });
@@ -301,7 +302,8 @@ namespace Tsuzuri.Views
                         tag = weekdays ? "weekdays" : "weekly";
                         break;
                     case RepeatKind.MonthlyDay:
-                        tag = rule.MonthDay == 0 || rule.MonthDay == start.Day ? "monthday" : "keep";
+                        if (rule.MonthDay < 0) tag = start.AddDays(1).Month != start.Month ? "monthend" : "keep";
+                        else tag = rule.MonthDay == 0 || rule.MonthDay == start.Day ? "monthday" : "keep";
                         break;
                     case RepeatKind.MonthlyNth:
                         if (rule.NthDay != start.DayOfWeek) tag = "keep";
@@ -396,6 +398,10 @@ namespace Tsuzuri.Views
                 case "monthday":
                     rule.Kind = RepeatKind.MonthlyDay;
                     rule.MonthDay = start.Day;
+                    break;
+                case "monthend":
+                    rule.Kind = RepeatKind.MonthlyDay;
+                    rule.MonthDay = -1;
                     break;
                 case "monthnth":
                     rule.Kind = RepeatKind.MonthlyNth;

@@ -96,6 +96,10 @@ internal static class Program
         Check(show(occ("FREQ=DAILY;INTERVAL=3", D(2026, 11, 1), D(2026, 11, 1), D(2026, 11, 10))) == "11-01,11-04,11-07,11-10", "3日ごと");
         Check(show(occ("FREQ=MONTHLY;BYMONTHDAY=31", D(2026, 1, 31), D(2026, 1, 1), D(2026, 7, 31))) == "01-31,03-31,05-31,07-31", "毎月31日（無い月は飛ばす）");
         Check(show(occ("FREQ=MONTHLY", D(2026, 1, 15), D(2026, 1, 1), D(2026, 3, 31))) == "01-15,02-15,03-15", "毎月（日付は始まりの日）");
+        Check(show(occ("FREQ=MONTHLY;BYMONTHDAY=-1", D(2026, 1, 31), D(2026, 1, 1), D(2026, 5, 31))) == "01-31,02-28,03-31,04-30,05-31", "毎月末日");
+        Check(show(occ("FREQ=MONTHLY;INTERVAL=2;BYMONTHDAY=-1", D(2027, 12, 31), D(2027, 12, 1), D(2028, 4, 30))) == "12-31,02-29,04-30", "2か月ごと末日（うるう年）");
+        Check(ScheduleRepeat.Parse("FREQ=MONTHLY;BYMONTHDAY=-1").ToString() == "FREQ=MONTHLY;BYMONTHDAY=-1" && ScheduleRepeat.Parse("FREQ=MONTHLY;BYMONTHDAY=-1").Describe(D(2026, 1, 31)) == "毎月 末日", "末日の読み書き・説明");
+        Check(ScheduleRepeat.Parse("FREQ=MONTHLY;BYMONTHDAY=-2") == null && ScheduleRepeat.Parse("FREQ=MONTHLY;BYMONTHDAY=0") == null, "末日のほかの負の日付・0 は読めない");
         Check(show(occ("FREQ=MONTHLY;BYDAY=2TU", D(2026, 11, 10), D(2026, 11, 1), D(2027, 1, 31))) == "11-10,12-08,01-12", "毎月第2火曜");
         Check(show(occ("FREQ=MONTHLY;BYDAY=-1FR", D(2026, 11, 27), D(2026, 11, 1), D(2027, 1, 31))) == "11-27,12-25,01-29", "毎月最終金曜");
         Check(show(occ("FREQ=MONTHLY;INTERVAL=2;BYMONTHDAY=5", D(2026, 1, 5), D(2026, 1, 1), D(2026, 6, 30))) == "01-05,03-05,05-05", "2か月ごと");
@@ -197,6 +201,68 @@ internal static class Program
         twoWeeks.Replace(ScheduleFile.Serialize(new List<ScheduleItem> { new ScheduleItem { Start = D(2026, 11, 23), End = D(2026, 11, 23), Title = "隔週", Repeat = "FREQ=WEEKLY;INTERVAL=2;BYDAY=MO,SA;WKST=SU" } }));
         twoWeeks.Drag(twoWeeks.Items[0], D(2026, 11, 28), D(2026, 11, 28), ScheduleGesture.Move, 1, ScheduleMoveScope.All);
         Check(twoWeeks.LastNote != null && twoWeeks.Items[0].Start == D(2026, 11, 23) && twoWeeks.Items[0].Moves.Count == 1, "2週ごとの土曜を日曜へ全部は、この回だけにする");
+        Func<ScheduleBook> monthEnds = () =>
+        {
+            var book = new ScheduleBook();
+            book.Replace(ScheduleFile.Serialize(new List<ScheduleItem> { new ScheduleItem { Start = D(2026, 11, 30), End = D(2026, 11, 30), Title = "末日", Repeat = "FREQ=MONTHLY;BYMONTHDAY=-1" } }));
+            return book;
+        };
+        var endToEnd = monthEnds();
+        endToEnd.Drag(endToEnd.Items[0], D(2026, 12, 31), D(2026, 12, 31), ScheduleGesture.Move, 31, ScheduleMoveScope.All);
+        Check(endToEnd.Items[0].Repeat == "FREQ=MONTHLY;BYMONTHDAY=-1" && days(endToEnd.Items[0], D(2026, 11, 1), D(2027, 2, 28)) == "12-31,01-31,02-28",
+              "全部（末日を次の末日へ）: 末日のまま " + endToEnd.Serialize());
+        var endToDay = monthEnds();
+        endToDay.Drag(endToDay.Items[0], D(2026, 12, 31), D(2026, 12, 31), ScheduleGesture.Move, -1, ScheduleMoveScope.All);
+        Check(endToDay.Items[0].Repeat == "FREQ=MONTHLY;BYMONTHDAY=30" && days(endToDay.Items[0], D(2026, 11, 1), D(2027, 1, 31)) == "11-30,12-30,01-30",
+              "全部（末日を30日へ）: 毎月30日 " + endToDay.Serialize());
+        // 末日の消した回・動かした回・終わりの日は「何回目か」で移す（日数でずらすと月末に乗らず、消した回が戻っていた）
+        Func<string, string, ScheduleBook> monthEndWith = (repeat, extra) =>
+        {
+            var item = new ScheduleItem { Start = D(2026, 11, 30), End = D(2026, 11, 30), Title = "末日", Repeat = repeat };
+            var book = new ScheduleBook();
+            book.Replace(ScheduleFile.Serialize(new List<ScheduleItem> { item }).Replace("<!-- repeat: " + repeat + " -->", "<!-- repeat: " + repeat + " -->\n" + extra));
+            return book;
+        };
+        var skipA = monthEndWith("FREQ=MONTHLY;BYMONTHDAY=-1", "<!-- skip: 2027-03-31 -->");
+        skipA.Drag(skipA.Items[0], D(2027, 1, 31), D(2027, 1, 31), ScheduleGesture.Move, 28, ScheduleMoveScope.All);
+        Check(days(skipA.Items[0], D(2026, 11, 1), D(2027, 5, 31)) == "12-31,01-31,02-28,03-31,05-31", "全部（末日・消した回。ひと月ずらしたので 3/31 の消した回は 4/30 へ）: " + days(skipA.Items[0], D(2026, 11, 1), D(2027, 5, 31)) + " " + skipA.Serialize());
+        var untilB = monthEndWith("FREQ=MONTHLY;BYMONTHDAY=-1;UNTIL=20270331", "");
+        untilB.Drag(untilB.Items[0], D(2027, 1, 31), D(2027, 1, 31), ScheduleGesture.Move, 28, ScheduleMoveScope.All);
+        Check(days(untilB.Items[0], D(2026, 11, 1), D(2027, 6, 30)) == "12-31,01-31,02-28,03-31,04-30", "全部（末日・終わりの日）: " + days(untilB.Items[0], D(2026, 11, 1), D(2027, 6, 30)) + " " + untilB.Serialize());
+        var skipC = monthEndWith("FREQ=MONTHLY;BYMONTHDAY=-1", "<!-- skip: 2026-11-30 2027-04-30 -->");
+        skipC.Drag(skipC.Items[0], D(2026, 12, 31), D(2026, 12, 31), ScheduleGesture.Move, -1, ScheduleMoveScope.All);
+        Check(days(skipC.Items[0], D(2026, 11, 1), D(2027, 5, 31)) == "12-30,01-30,03-30,05-30", "全部（末日を30日へ・消した回）: " + days(skipC.Items[0], D(2026, 11, 1), D(2027, 5, 31)) + " " + skipC.Serialize());
+        var moveD = monthEndWith("FREQ=MONTHLY;BYMONTHDAY=-1", "<!-- move: 2026-11-30>2026-11-26 -->");
+        moveD.Drag(moveD.Items[0], D(2026, 12, 31), D(2026, 12, 31), ScheduleGesture.Move, -1, ScheduleMoveScope.All);
+        Check(days(moveD.Items[0], D(2026, 11, 1), D(2027, 1, 31)) == "11-26,12-30,01-30", "全部（1回目を動かしてあった）: " + days(moveD.Items[0], D(2026, 11, 1), D(2027, 1, 31)) + " " + moveD.Serialize());
+
+        // 1回目の移し先が2回目と重ならない（1/31 始まりの末日で 2/28 の回を 3/31 へ。1/31+31日は 3/3 なので、日数で決めると3月に2つ重なっていた）
+        Func<string, DateTime, ScheduleBook> oneRepeat = (repeat, start) =>
+        {
+            var book = new ScheduleBook();
+            book.Replace(ScheduleFile.Serialize(new List<ScheduleItem> { new ScheduleItem { Start = start, End = start, Title = "x", Repeat = repeat } }));
+            return book;
+        };
+        var x1 = oneRepeat("FREQ=MONTHLY;BYMONTHDAY=-1", D(2027, 1, 31));
+        x1.Drag(x1.Items[0], D(2027, 2, 28), D(2027, 2, 28), ScheduleGesture.Move, 31, ScheduleMoveScope.All);
+        Check(days(x1.Items[0], D(2027, 1, 1), D(2027, 4, 30)) == "02-28,03-31,04-30", "全部（1/31 始まりの末日、2/28 を 3/31 へ）: " + days(x1.Items[0], D(2027, 1, 1), D(2027, 4, 30)) + " " + x1.Serialize());
+        var x2 = monthEndWith("FREQ=MONTHLY;BYMONTHDAY=-1", "<!-- skip: 2026-11-30 -->");
+        x2.Items[0].Start = x2.Items[0].End = D(2027, 1, 31);
+        x2.Items[0].Skips = new List<DateTime> { D(2027, 1, 31) };
+        x2.Drag(x2.Items[0], D(2027, 2, 28), D(2027, 2, 28), ScheduleGesture.Move, 31, ScheduleMoveScope.All);
+        Check(days(x2.Items[0], D(2027, 1, 1), D(2027, 4, 30)) == "03-31,04-30", "全部（消した1回目は消したまま、つかんだ回は出る）: " + days(x2.Items[0], D(2027, 1, 1), D(2027, 4, 30)) + " " + x2.Serialize());
+        // 20年より前に始まった予定・20年より先の終わりの日（前は回を20年分だけ並べていた）
+        var y1 = oneRepeat("FREQ=YEARLY", D(2000, 5, 1));
+        y1.Drag(y1.Items[0], D(2026, 5, 1), D(2026, 5, 1), ScheduleGesture.Move, 1, ScheduleMoveScope.All);
+        Check(y1.LastNote == null && y1.Items[0].Start == D(2000, 5, 2) && days(y1.Items[0], D(2026, 1, 1), D(2026, 12, 31)) == "05-02", "全部（2000年からの毎年）: " + y1.LastNote + " " + y1.Serialize());
+        var y2 = oneRepeat("FREQ=MONTHLY;BYMONTHDAY=10;UNTIL=20600101", D(2026, 11, 10));
+        y2.Drag(y2.Items[0], D(2026, 12, 10), D(2026, 12, 10), ScheduleGesture.Move, 1, ScheduleMoveScope.All);
+        Check(y2.Items[0].Repeat == "FREQ=MONTHLY;BYMONTHDAY=11;UNTIL=20591211", "全部（遠い終わりの日）: " + y2.Items[0].Repeat);
+
+        var dayTwenty = new ScheduleBook();
+        dayTwenty.Replace(ScheduleFile.Serialize(new List<ScheduleItem> { new ScheduleItem { Start = D(2026, 1, 20), End = D(2026, 1, 20), Title = "20日", Repeat = "FREQ=MONTHLY" } }));
+        dayTwenty.Drag(dayTwenty.Items[0], D(2026, 2, 20), D(2026, 2, 20), ScheduleGesture.Move, 13, ScheduleMoveScope.All);
+        Check(days(dayTwenty.Items[0], D(2026, 1, 1), D(2026, 4, 30)) == "02-05,03-05,04-05", "全部（2/20 の回を 3/5 へ）: 1回目も 2/5 に。余分な回を出さない " + dayTwenty.Serialize());
 
         // 名前の改行
         Check(ScheduleFile.OneLine(" a\r\n b \n") == "a b", "名前の改行");

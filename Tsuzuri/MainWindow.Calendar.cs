@@ -322,7 +322,8 @@ namespace Tsuzuri
                 (missing ? "Google へ送る設定がまだありません。ひな形の google.json を作りました。" : "google.json の clientId・clientSecret が埋まっていません（ひな形のまま等）。") +
                 Environment.NewLine + Environment.NewLine +
                 "Google Cloud のプロジェクトで Google Calendar API を有効にし、OAuth クライアント（種類は「デスクトップ アプリ」）を作って、" +
-                "その ID と秘密を google.json に書いてください。手順は README の「Google カレンダーへ送る」にあります。" + Environment.NewLine +
+                "その ID と秘密を google.json に書いてください（作ったときの「JSON をダウンロード」のファイルを google.json という名前で置き換えてもよい）。" +
+                "手順は README の「Google カレンダーへ送る」にあります。" + Environment.NewLine +
                 "google.json はメモ帳で開きます。",
                 "Google へ送る", MessageBoxButton.OK, MessageBoxImage.Information);
             try

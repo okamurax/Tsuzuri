@@ -31,6 +31,13 @@ namespace Tsuzuri.Sync
         [DataMember(Name = "clientSecret")]
         public string ClientSecret { get; set; }
 
+        /// <summary>
+        /// Google Cloud の「JSON をダウンロード」の形（{"installed": {"client_id": …, "client_secret": …}}）。
+        /// ダウンロードしたファイルをそのまま google.json にしても読めるように（ID と秘密を手で写すと間違えやすい。2026-11-23）。
+        /// </summary>
+        [DataMember(Name = "installed", EmitDefaultValue = false)]
+        public DownloadedClient Installed { get; set; }
+
         public static string StorePath
         {
             get { return Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "google.json"); }
@@ -51,7 +58,15 @@ namespace Tsuzuri.Sync
             if (!File.Exists(StorePath)) return null;
             var serializer = new DataContractJsonSerializer(typeof(GoogleSettings));
             using (var stream = new MemoryStream(File.ReadAllBytes(StorePath)))
-                return (GoogleSettings)serializer.ReadObject(stream);
+            {
+                var settings = (GoogleSettings)serializer.ReadObject(stream);
+                if (settings != null && string.IsNullOrWhiteSpace(settings.ClientId) && settings.Installed != null)
+                {
+                    settings.ClientId = settings.Installed.ClientId;
+                    settings.ClientSecret = settings.Installed.ClientSecret;
+                }
+                return settings;
+            }
         }
 
         /// <summary>ひな形を書く（無いときだけ）。利用者がメモ帳で埋める。</summary>
@@ -66,6 +81,16 @@ namespace Tsuzuri.Sync
             File.WriteAllText(StorePath, template, new UTF8Encoding(false));
             return true;
         }
+    }
+
+    [DataContract]
+    public sealed class DownloadedClient
+    {
+        [DataMember(Name = "client_id")]
+        public string ClientId { get; set; }
+
+        [DataMember(Name = "client_secret")]
+        public string ClientSecret { get; set; }
     }
 
     public class GoogleException : Exception

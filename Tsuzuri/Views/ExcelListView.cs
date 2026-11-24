@@ -96,11 +96,11 @@ namespace Tsuzuri.Views
             ShowNote("読んでいます…");
         }
 
-        /// <summary>「戻す」の説明（戻すものが無ければ null で、押せなくする）。</summary>
-        public void SetUndo(string tip)
+        /// <summary>「戻す」を押せるかと、その説明。</summary>
+        public void SetUndo(bool enabled, string tip)
         {
-            _undo.IsEnabled = tip != null;
-            _undo.ToolTip = tip ?? "Claude が書いた分を戻す（まだ書いていない）";
+            _undo.IsEnabled = enabled;
+            _undo.ToolTip = tip;
         }
 
         /// <summary>一覧を出し直す。null なら読めなかった（problem にわけ）。</summary>

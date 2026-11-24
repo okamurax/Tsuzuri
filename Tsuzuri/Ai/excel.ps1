@@ -49,21 +49,27 @@ if ($Write) {
     $request = 'excel-read' + $tab + (B64 $Book) + $tab + (B64 $Sheet) + $tab + (B64 $Range)
 }
 
+$unsure = ' (it may or may not have written: read the range to check before writing again)'
 $client = New-Object System.IO.Pipes.NamedPipeClientStream('.', $pipe, [System.IO.Pipes.PipeDirection]::InOut)
+$sent = $false
 try {
     $client.Connect(15000)
     $writer = New-Object System.IO.StreamWriter($client, (New-Object System.Text.UTF8Encoding($false)))
     $writer.WriteLine($request)
     $writer.Flush()
+    $sent = $true
     $reader = New-Object System.IO.StreamReader($client, [System.Text.Encoding]::UTF8)
     $answer = $reader.ReadLine()
 } catch {
+    # once the request is sent, a failure is the same as no answer: the editor may have written
+    if ($sent) { Fail ('no answer from the editor: ' + $_.Exception.Message + $(if ($Write) { $unsure } else { '' })) }
     Fail ('could not reach the editor: ' + $_.Exception.Message)
 } finally {
     $client.Dispose()
 }
 
-if (-not $answer) { Fail 'no answer from the editor' }
+# with -Write the request was sent: the cells may or may not have been written
+if (-not $answer) { Fail ('no answer from the editor' + $(if ($Write) { $unsure } else { '' })) }
 $parts = $answer.Split([char]9, 2)
 $message = if ($parts.Count -gt 1) { $parts[1] } else { '' }
 if ($parts[0] -eq 'ok') { [Console]::Out.WriteLine($message); exit 0 }

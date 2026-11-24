@@ -20,7 +20,7 @@ namespace Tsuzuri
     // MainWindow の一部: カレンダー（SPEC 22章。2026-11-20）。
     // 予定を週の行で下へずっと並べ、カレンダーの画面で直接打つ。保存先は .md（ScheduleFile）で、裏に置くだけ（利用者の考え）。
     // ランチャーと同じく、本文の場所いっぱいに重ねて出し、本文の左下のつまみ（ランチャーのつまみと縦に並ぶ。MainWindow.SideTabs.cs）か Alt+C で出し入れする（2026-11-23。前は画面のタブの並びのボタン）。
-    // ランチャーとは同時に出さない（片方を出すと、もう片方を閉じる）。
+    // ランチャーとは別々に開け閉めし、両方出せば後から出したほうが手前に重なる（2026-11-24。MainWindow.SideTabs.cs の StackOverlays）。
     // アウトラインの見出しをカレンダーの日へドラッグすると、その見出しと結んだ予定になる（2026-11-20）。結ぶのは見出しの文字で、名前が変わっても追わない。
     public partial class MainWindow
     {
@@ -45,7 +45,7 @@ namespace Tsuzuri
 
         /// <summary>
         /// 予定の通知（Windows の通知）を押したとき（2026-11-22）。前に出ている画面を前に出し、カレンダーを開く。
-        /// 開いていればそのまま（ランチャーの下に隠れていれば、ランチャーを閉じて見せる）。
+        /// 開いていればそのまま（ランチャーの奥に隠れていれば、カレンダーをランチャーの手前へ出す。ランチャーは閉じない）。
         /// </summary>
         internal static void ShowCalendarFromNotice()
         {
@@ -53,7 +53,13 @@ namespace Tsuzuri
             if (window == null) return;
             if (window.WindowState == WindowState.Minimized) window.WindowState = WindowState.Normal;
             window.Activate();
-            if (window._calendar == null || window._launcher != null) window.ToggleCalendar();
+            if (window._calendar == null) window.ToggleCalendar();
+            else if (!window.CalendarOnTop)
+            {
+                window._calendarAboveLauncher = true;
+                window.StackOverlays();
+                window._calendar.Focus();
+            }
         }
 
         private void ToggleCalendar()
@@ -62,19 +68,17 @@ namespace Tsuzuri
             if (_calendar == null && _drawing != null)
             {
                 Status("図エディタを出している間は、カレンダーを出せません。図を保存するか終了してから出してください");
-                _drawing.View.FocusCanvas();
+                if (_launcher == null) _drawing.View.FocusCanvas();   // 図エディタの上にランチャーを出していれば、キーボードはランチャーのまま
                 return;
             }
 
+            // ランチャーとは別々に開け閉めする（2026-11-24。利用者の考え）。出していれば、ランチャーの奥に隠れていても閉じる
             if (_calendar != null)
             {
-                // ランチャーの下に隠れていれば、ランチャーを閉じてカレンダーを見せる（閉じるのは見えているときに押したとき）
-                if (_launcher != null) CloseLauncher();
-                else CloseCalendar();
+                CloseCalendar();
                 return;
             }
 
-            CloseLauncher();
             var heights = ReadWeekHeights();
             _calendar = new CalendarView(ScheduleFilePath, Status, ScheduleHeadings, OpenScheduleLink,
                                          heights, delegate { WriteWeekHeights(heights); },
@@ -82,6 +86,8 @@ namespace Tsuzuri
             if (_googleSending) _calendar.SetSendingToGoogle(true);
             CalendarHost.Child = _calendar;
             CalendarHost.Visibility = Visibility.Visible;
+            _calendarAboveLauncher = _launcher != null;   // 後から出したほうを上に（ランチャーを出していれば、その上に重ねる）
+            StackOverlays();
             PaintSideTabs();
 
             // 覆われた本文に打ち込まないよう、キー入力をカレンダーへ移す（ランチャーと同じ）
@@ -128,23 +134,24 @@ namespace Tsuzuri
 
         /// <summary>
         /// AI に渡す今の状態に、カレンダーを足す（2026-11-21。利用者と日付の話をするため）。開いていなければ何も書かない。
-        /// 見えている週・選んでいる日・選んでいる予定。保存先や結んだ文書が AI に渡さない場所なら、その中身は書かない。
+        /// 出している週・選んでいる日・選んでいる予定。ランチャーの奥に隠れていれば、そう書く。保存先や結んだ文書が AI に渡さない場所なら、その中身は書かない。
         /// </summary>
         private void AppendCalendarContext(StringBuilder text)
         {
             var calendar = _calendar;
             if (calendar == null) return;
+            var hidden = CalendarOnTop ? string.Empty : "。今はランチャーの奥に隠れていて、利用者には見えていない";
 
             if (AiGuard.IsGuarded(calendar.FilePath))
             {
-                text.Append("カレンダー: 開いている（予定の保存先は、利用者が AI に渡さないと決めた場所にある。中身を尋ねたり探したりしない）\n");
+                text.Append("カレンダー: 開いている（予定の保存先は、利用者が AI に渡さないと決めた場所にある。中身を尋ねたり探したりしない").Append(hidden).Append("）\n");
                 return;
             }
 
             DateTime first, last;
             calendar.VisibleRange(out first, out last);
-            text.Append("カレンダー: 開いている（予定の保存先: ").Append(calendar.FilePath).Append("）\n");
-            text.Append("  見えている週: ").Append(Day(first)).Append("〜").Append(Day(last)).Append('\n');
+            text.Append("カレンダー: 開いている（予定の保存先: ").Append(calendar.FilePath).Append(hidden).Append("）\n");
+            text.Append("  カレンダーで出している週: ").Append(Day(first)).Append("〜").Append(Day(last)).Append('\n');
 
             var from = calendar.SelectedFrom;
             var to = calendar.SelectedTo;
@@ -386,6 +393,13 @@ namespace Tsuzuri
             if (!_calendar.CommitEdit())
             {
                 Status("予定の欄に直すところがあります。直して保存するか、「キャンセル」を押してください");
+                if (!CalendarOnTop)
+                {
+                    // ランチャーの奥に隠れていれば、直す欄が見えるよう手前へ出す
+                    _calendarAboveLauncher = true;
+                    StackOverlays();
+                    _calendar.Focus();
+                }
                 return false;
             }
 
@@ -393,8 +407,12 @@ namespace Tsuzuri
             _calendar = null;
             CalendarHost.Child = null;
             CalendarHost.Visibility = Visibility.Collapsed;
+            _calendarAboveLauncher = false;
+            StackOverlays();
             PaintSideTabs();
-            if (hadFocus && Active != null) Active.TextArea.Focus();
+            // カレンダーにフォーカスがあったなら、下（ランチャーを出していればそれ、無ければエディタ）へ戻す
+            if (hadFocus && _launcher != null) Keyboard.Focus(LauncherHost);
+            else if (hadFocus && Active != null) Active.TextArea.Focus();
             return true;
         }
 
@@ -437,7 +455,7 @@ namespace Tsuzuri
             return headings;
         }
 
-        /// <summary>結んだ見出しへ飛ぶ。カレンダーを閉じ、文書を出して（ほかの画面で開いていればその画面を前に出し、閉じていれば開く）、見出しへ移る。</summary>
+        /// <summary>結んだ見出しへ飛ぶ。カレンダー（とランチャー）を閉じ、文書を出して（ほかの画面で開いていればその画面を前に出し、閉じていれば開く）、見出しへ移る。</summary>
         private void OpenScheduleLink(ScheduleItem item)
         {
             if (!File.Exists(item.LinkFile))
@@ -446,6 +464,7 @@ namespace Tsuzuri
                 return;
             }
             if (!CloseCalendar()) return;
+            CloseLauncher();   // 奥にランチャーを出していれば、それも閉じて開いた先を見せる（ランチャーから開くとき・アウトラインのダブルクリックと同じ）
 
             var mark = new HeadingBookmark { File = item.LinkFile, Page = item.LinkPage ?? string.Empty, Text = item.LinkHeading };
             OpenFileThen(item.LinkFile, (window, document) =>
@@ -458,7 +477,7 @@ namespace Tsuzuri
         /// <summary>アウトラインの見出しをつかんで動かしている（MainWindow.OutlineDrag.cs）。カレンダーの日の上なら、その日を塗って true。</summary>
         private bool ShowCalendarDrop()
         {
-            return _calendar != null && _calendar.ShowDrop(Mouse.GetPosition(_calendar));
+            return CalendarOnTop && _calendar.ShowDrop(Mouse.GetPosition(_calendar));   // ランチャーの奥に隠れていれば受けない
         }
 
         /// <summary>
@@ -468,7 +487,7 @@ namespace Tsuzuri
         private bool DropOnCalendar(string heading, bool released)
         {
             if (_calendar == null) return false;
-            if (!released || !_calendar.ShowDrop(Mouse.GetPosition(_calendar)))
+            if (!CalendarOnTop || !released || !_calendar.ShowDrop(Mouse.GetPosition(_calendar)))
             {
                 _calendar.ClearDrop();
                 return false;

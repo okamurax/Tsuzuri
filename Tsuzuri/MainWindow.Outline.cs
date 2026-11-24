@@ -572,8 +572,8 @@ namespace Tsuzuri
 
             // カレンダー・ランチャーを出している間は、下の本文を動かすだけで、キーボードは上の画面に戻す（覆われて見えない本文に打ち込まないため。2026-11-24。
             // ランチャーが外を押しても閉じなくなったので）
-            if (_launcher != null) Keyboard.Focus(LauncherHost);
-            else if (_calendar != null) _calendar.Focus();
+            if (CalendarOnTop) _calendar.Focus();
+            else if (_launcher != null) Keyboard.Focus(LauncherHost);
         }
 
         /// <summary>
@@ -593,8 +593,8 @@ namespace Tsuzuri
             e.Handled = true;
             var node = item.Tag as OutlineNode;
             if (node == null || Active == null) return;
+            if (!CloseCalendar()) return;   // 打ちかけの予定があれば、何も閉じない
             CloseLauncher();   // ランチャーもカレンダーと同じく、閉じてその見出しへ（2026-11-24）
-            if (!CloseCalendar()) return;
 
             GoToOutlineNode(node);
             Active.TextArea.Focus();

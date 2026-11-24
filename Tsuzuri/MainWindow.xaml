@@ -165,7 +165,8 @@
                                SizeChanged="StackPanelHost_SizeChanged" />
 
                     <!-- カレンダー（SPEC 22章。2026-11-20。MainWindow.Calendar.cs・Views/CalendarView.cs）。ランチャーと同じく本文の場所いっぱいに重ねる。
-                         カレンダーを出したままランチャーを出すと、ランチャーが上に重なり（LauncherHost は StackHost より上）、閉じるとカレンダーに戻る（2026-11-21） -->
+                         カレンダーとランチャーは別々に開け閉めし、後から出したほうが上に重なる（2026-11-24。ふだんは LauncherHost が StackHost より上。
+                         カレンダーを後から出したときは、StackHost の ZIndex を上げてランチャーの上へ出す。MainWindow.SideTabs.cs の StackOverlays） -->
                     <Border x:Name="CalendarHost" Visibility="Collapsed"
                             Focusable="False"
                             Background="{StaticResource SidebarBackground}" />
@@ -214,8 +215,8 @@
 
             <!-- 本文の左下のつまみ（2026-11-24。利用者の考え。MainWindow.SideTabs.cs）。カレンダーとランチャーのアイコンを縦に2つ並べた、浮いた小さな板。
                  Mattermost の左のチームの切り替えに寄せる（角の丸い板・角の丸いアイコンのボタン・載せると地・出しているものは青い地と左の縁の棒）。
-                 本文・カレンダー・ランチャー・図エディタの上に重ねる（ZIndex 4）。押すたびに開け閉めする。板の外の透けた所は押しても下に届く -->
-            <Border x:Name="SideTabs" Grid.Column="2" Panel.ZIndex="4" HorizontalAlignment="Left" VerticalAlignment="Bottom" Margin="8,0,0,12"
+                 本文・カレンダー・ランチャー・図エディタの上に重ねる（ZIndex 5。カレンダーをランチャーの上に出すときの StackHost は 4）。押すたびに開け閉めする。板の外の透けた所は押しても下に届く -->
+            <Border x:Name="SideTabs" Grid.Column="2" Panel.ZIndex="5" HorizontalAlignment="Left" VerticalAlignment="Bottom" Margin="8,0,0,12"
                     Padding="4" CornerRadius="10" Background="{StaticResource SidebarBackground}"
                     BorderBrush="{StaticResource FrameBorder}" BorderThickness="1">
                 <Border.Effect>

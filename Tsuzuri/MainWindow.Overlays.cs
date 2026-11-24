@@ -56,7 +56,7 @@ namespace Tsuzuri
                 && !string.Equals(last, _filer.Folder, StringComparison.OrdinalIgnoreCase))
                 _filer.Navigate(last);
 
-            // カレンダーは閉じない（2026-11-21。利用者の考え）。ランチャーを上に重ね、ランチャーを閉じればカレンダーに戻る。
+            // カレンダーは閉じない（2026-11-21。利用者の考え）。後から出したほうを上に重ねるので、ランチャーを上に重ね、ランチャーを閉じればカレンダーに戻る。
 
             _launcher = new LauncherView(_settings, OpenFromLauncher, Status, folder =>
             {
@@ -65,6 +65,8 @@ namespace Tsuzuri
             });
             LauncherSlot.Child = _launcher;
             LauncherHost.Visibility = Visibility.Visible;
+            _calendarAboveLauncher = false;
+            StackOverlays();
             PaintSideTabs();
             PaintFilerUseFolder();
 
@@ -91,6 +93,8 @@ namespace Tsuzuri
             _launcher = null;
             LauncherSlot.Child = null;
             LauncherHost.Visibility = Visibility.Collapsed;
+            _calendarAboveLauncher = false;
+            StackOverlays();
             PaintSideTabs();
 
             // ランチャーにフォーカスがあったなら、下（図エディタ・カレンダーを出していればそれ、無ければエディタ）へ戻す。
@@ -152,8 +156,8 @@ namespace Tsuzuri
                 // 新しい画面（タブ）で開く（2026-11-03。前はこの画面の連鎖を捨てて開き直していた）。開いたものを見せるため、ランチャーは閉じる。
                 // この画面が何も開いていなければ、この画面で開く（空のタブを残さない。「新規作成」と同じ）。
                 // この画面・ほかの画面ですでに開いていれば、その画面のルートページを出す（リンクで別の文書を開くときと同じ。OpenLinkedFile）。
+                if (!CloseCalendar()) return;   // 開いた文書を見せる（カレンダーの下に開くと見えない。見出しへ飛ぶときと同じ）。打ちかけの予定があれば、何も閉じず開かない
                 CloseLauncher();
-                CloseCalendar();   // 開いた文書を見せる（カレンダーの下に開くと見えない。見出しへ飛ぶときと同じ）
                 if (!HasDocument) OpenRoot(path);
                 else OpenLinkedFile(path, null);
                 return;
@@ -176,8 +180,8 @@ namespace Tsuzuri
             }
 
             // ランチャーと同じく、新しい画面（タブ）で開く（2026-11-03。ランチャーとファイラーは1つの画面に並んでいて、片方だけ今のタブで開くと戸惑うため）。
-            CloseLauncher();   // 開いたものを見せる
-            CloseCalendar();
+            if (!CloseCalendar()) return;   // 開いたものを見せる。奥のカレンダーに打ちかけの予定があれば、何も閉じず開かない
+            CloseLauncher();
             if (!HasDocument) OpenRoot(path);
             else OpenLinkedFile(path, null);
         }

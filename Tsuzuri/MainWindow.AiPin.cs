@@ -85,7 +85,7 @@ namespace Tsuzuri
             // フォルダ
             label("フォルダ", 0).ToolTip = "この会話で扱うプロジェクトのフォルダ。入れておくと、話しかけるたびに Claude に伝える（開いている文書の場所とは別だと伝える）";
             _aiProjectBox = new TextBox { FontSize = 12, VerticalContentAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 2, 0, 2), AllowDrop = true,
-                                          ToolTip = "空なら伝えない。エクスプローラーからフォルダを落としても入る" };
+                                          ToolTip = "空なら伝えない。ランチャーのファイラーの「このフォルダを会話のフォルダにする」で入れる（打つ・エクスプローラーから落とすのでも入る）" };
             // 暗い地に合わせる（白い既定の欄にしない。置換の欄と同じく、地は透かして下の線だけ）
             _aiProjectBox.Background = Brushes.Transparent;
             _aiProjectBox.BorderBrush = TryFindResource("BorderBrushSoft") as Brush ?? Brushes.Gray;
@@ -122,7 +122,6 @@ namespace Tsuzuri
                 _aiProjectBox.Text = folder;
                 StoreAiTabs();
             };
-            button("…", "フォルダを選ぶ", 0).Click += delegate { PickAiProject(); };
 
             // カーソル
             label("カーソル", 1).ToolTip = "この会話に固定したカーソルの位置。固定していれば、エディタの今のカーソルの代わりに、ここを話題として Claude に渡す";
@@ -191,7 +190,7 @@ namespace Tsuzuri
                 else if (!DirectoryExists(path)) problem = "このフォルダは見つからない（Claude には「見つからない」と添えて伝える）";
             }
             _aiProjectBox.Foreground = problem != null ? Brushes.IndianRed : TryFindResource("TextPrimary") as Brush ?? SystemColors.ControlTextBrush;
-            _aiProjectBox.ToolTip = problem ?? "空なら伝えない。エクスプローラーからフォルダを落としても入る";
+            _aiProjectBox.ToolTip = problem ?? "空なら伝えない。ランチャーのファイラーの「このフォルダを会話のフォルダにする」で入れる（打つ・エクスプローラーから落とすのでも入る）";
         }
 
         private static bool DirectoryExists(string path)
@@ -212,18 +211,6 @@ namespace Tsuzuri
             var paths = data.GetData(DataFormats.FileDrop) as string[];
             if (paths == null || paths.Length != 1) return null;
             return DirectoryExists(paths[0]) ? paths[0] : null;
-        }
-
-        private void PickAiProject()
-        {
-            if (_aiTab == null) return;
-            using (var dialog = new System.Windows.Forms.FolderBrowserDialog { Description = "この会話で扱うプロジェクトのフォルダ", ShowNewFolderButton = false })
-            {
-                if (!string.IsNullOrEmpty(_aiTab.Project) && DirectoryExists(_aiTab.Project)) dialog.SelectedPath = _aiTab.Project;
-                if (dialog.ShowDialog() != System.Windows.Forms.DialogResult.OK || string.IsNullOrEmpty(dialog.SelectedPath)) return;
-                _aiProjectBox.Text = dialog.SelectedPath;
-                StoreAiTabs();
-            }
         }
 
         private static string PinLabel(AiPinState pin)

@@ -67,6 +67,7 @@ namespace Tsuzuri
             LauncherSlot.Child = _launcher;
             LauncherHost.Visibility = Visibility.Visible;
             PaintLauncherButton();
+            PaintFilerUseFolder();
 
             // 覆われたエディタにキー入力が届かないよう、フォーカスをランチャーの側へ移す（見えない本文に打ち込まないため）。Esc もここで受ける。
             // 出したばかりで、まだ見えていない（組み版の前）とフォーカスを受け取れないので、組み版のあとで移す。
@@ -132,6 +133,41 @@ namespace Tsuzuri
             if (hadFocus && _drawing != null) _drawing.View.FocusCanvas();
             else if (hadFocus && _calendar != null) _calendar.Focus();
             else if (hadFocus && Active != null) Active.TextArea.Focus();
+        }
+
+        /// <summary>
+        /// ファイラーの上の「このフォルダを会話のフォルダにする」（2026-11-24。AI の会話のフォルダはここから渡す。前は AI の欄の「…」で Windows のフォルダの選択の窓）。
+        /// ファイラーで今見ているフォルダを、AI の欄で選んでいる会話のフォルダにする。
+        /// </summary>
+        private void FilerUseFolder_Click(object sender, RoutedEventArgs e)
+        {
+            var tab = _aiTab;
+            var folder = _filer != null ? _filer.Folder : null;
+            if (tab == null)
+            {
+                Status("AI の会話がありません（AI の欄を出して会話を始めてから）");
+                return;
+            }
+            if (string.IsNullOrEmpty(folder) || !Directory.Exists(folder))
+            {
+                Status("フォルダが見つかりません");
+                return;
+            }
+            tab.Project = folder;
+            RefreshAiPinRows();
+            StoreAiTabs();
+            Status("AI の会話" + (string.IsNullOrEmpty(tab.Name) ? string.Empty : " " + tab.Name) + " のフォルダにしました: " + folder);
+        }
+
+        /// <summary>ランチャーを出すとき: どの会話に渡すかをツールチップに出す。会話が無ければ押せない。</summary>
+        private void PaintFilerUseFolder()
+        {
+            var tab = _aiTab;
+            FilerUseFolder.IsEnabled = tab != null;
+            FilerUseFolder.ToolTip = tab == null
+                ? "AI の会話が無いので渡せない（AI の欄を出して会話を始めてから）"
+                : "ファイラーで今見ているフォルダを、AI の欄で選んでいる会話" + (string.IsNullOrEmpty(tab.Name) ? string.Empty : "（" + tab.Name + "）")
+                  + "のフォルダにする。話しかけるたびに Claude に伝える";
         }
 
         /// <summary>「ランチャー」のタブを、出している間は今の画面のタブと同じ色にする（App.xaml の LauncherTabButton が Tag を見る）。</summary>

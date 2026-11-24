@@ -12,11 +12,11 @@ using Tsuzuri.Views;
 
 namespace Tsuzuri
 {
-    // MainWindow の一部: AI の会話ごとの「フォルダ」と「固定したカーソル」（2026-11-22。SPEC 19章。利用者の考え）。
+    // MainWindow の一部: AI の会話ごとの「プロジェクトフォルダ」と「固定したカーソル」（2026-11-22。SPEC 19章。利用者の考え）。
     //
     // AI の欄の下端（渡した状態の行の下）に2段置き、選んでいる会話のタブの分を出す。どちらもタブごとに持ち、次の起動でも戻す（AiTabState）。
-    // ・フォルダ: この会話で扱うプロジェクトのフォルダ。開いている文書（cmd.md など）とは別の所でソフトを作るときに入れる。
-    //   入れてあれば、話しかけるたびに今の状態の頭に1行で書く（毎回。1行だけなので軽く、会話が長くなって前の話を縮めても忘れない）
+    // ・プロジェクトフォルダ: この会話で扱うプロジェクトのフォルダ（2026-11-24 に「フォルダ」から改名。開いている文書のフォルダ・会話を始めたフォルダと取り違えないため）。開いている文書（cmd.md など）とは別の所でソフトを作るときに入れる。
+    //   話しかけるたびに今の状態の頭に1行で書く（入っていなくても「指定なし」と毎回。1行だけなので軽く、会話が長くなって前の話を縮めても忘れない）
     // ・カーソル: 「今の位置で固定」で、エディタの今のカーソル（ファイル・ページ・行）をその会話に固定する。固定していれば、その会話には
     //   エディタの今のカーソルの代わりに固定した位置を「この会話の話題」として渡し、エディタの今の位置は参考として添える（固定していることは明かす）。
     //   1つの文書のページ A と B の話を、2つの会話で同時に進めるため。行がずれたら、固定したときの行の文字で近くを探し直す
@@ -82,10 +82,10 @@ namespace Tsuzuri
                 return created;
             };
 
-            // フォルダ
-            label("フォルダ", 0).ToolTip = "この会話で扱うプロジェクトのフォルダ。入れておくと、話しかけるたびに Claude に伝える（開いている文書の場所とは別だと伝える）";
+            // プロジェクトフォルダ
+            label("プロジェクトフォルダ", 0).ToolTip = "この会話で扱うプロジェクトのフォルダ。入れておくと、話しかけるたびに Claude に伝える（開いている文書のフォルダとは別だと伝える）";
             _aiProjectBox = new TextBox { FontSize = 12, VerticalContentAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 2, 0, 2), AllowDrop = true,
-                                          ToolTip = "空なら伝えない。ランチャーのファイラーの「このフォルダを会話のフォルダにする」で入れる（打つ・エクスプローラーから落とすのでも入る）" };
+                                          ToolTip = "空なら「指定なし」と伝える。ランチャーのファイラーの「このフォルダをプロジェクトフォルダにする」で入れる（打つ・エクスプローラーから落とすのでも入る）" };
             // 暗い地に合わせる（白い既定の欄にしない。置換の欄と同じく、地は透かして下の線だけ）
             _aiProjectBox.Background = Brushes.Transparent;
             _aiProjectBox.BorderBrush = TryFindResource("BorderBrushSoft") as Brush ?? Brushes.Gray;
@@ -178,7 +178,7 @@ namespace Tsuzuri
             }
         }
 
-        /// <summary>フォルダの欄の見た目（見つからない・AI に渡さない場所なら、ツールチップと色で知らせる）。</summary>
+        /// <summary>プロジェクトフォルダの欄の見た目（見つからない・AI に渡さない場所なら、ツールチップと色で知らせる）。</summary>
         private void ShowAiProjectState()
         {
             if (_aiProjectBox == null) return;
@@ -190,7 +190,7 @@ namespace Tsuzuri
                 else if (!DirectoryExists(path)) problem = "このフォルダは見つからない（Claude には「見つからない」と添えて伝える）";
             }
             _aiProjectBox.Foreground = problem != null ? Brushes.IndianRed : TryFindResource("TextPrimary") as Brush ?? SystemColors.ControlTextBrush;
-            _aiProjectBox.ToolTip = problem ?? "空なら伝えない。ランチャーのファイラーの「このフォルダを会話のフォルダにする」で入れる（打つ・エクスプローラーから落とすのでも入る）";
+            _aiProjectBox.ToolTip = problem ?? "空なら「指定なし」と伝える。ランチャーのファイラーの「このフォルダをプロジェクトフォルダにする」で入れる（打つ・エクスプローラーから落とすのでも入る）";
         }
 
         private static bool DirectoryExists(string path)
@@ -323,26 +323,26 @@ namespace Tsuzuri
         // 今の状態に書く
         // =====================================================================
 
-        /// <summary>この会話のプロジェクトのフォルダの行（入っていれば毎回）。</summary>
+        /// <summary>この会話のプロジェクトフォルダの行（入っていなくても毎回）。</summary>
         private void AppendAiProject(StringBuilder text, AiTab tab)
         {
             if (tab == null) return;
             if (string.IsNullOrEmpty(tab.Project))
             {
                 // 無いときも書く（2026-11-22。消したあと、前のフォルダで作業を続けないように）
-                text.Append("この会話のプロジェクトのフォルダ: 指定なし（前の頼みで指定があっても、今は外されている）。\n");
+                text.Append("プロジェクトフォルダ: 指定なし（前の頼みで指定があっても、今は外されている）。\n");
                 return;
             }
 
             if (AiGuard.IsGuarded(tab.Project))
             {
-                text.Append("この会話のプロジェクトのフォルダ: 利用者が指定したが、AI に渡さない場所なので伝えない。その場所を推し量ったり探したりしない。")
+                text.Append("プロジェクトフォルダ: 利用者が指定したが、AI に渡さない場所なので伝えない。その場所を推し量ったり探したりしない。")
                     .Append("「このフォルダ」「プロジェクト」を頼まれたら、尋ねず、渡されていないので扱えないと利用者に伝える。\n");
                 return;
             }
-            text.Append("この会話のプロジェクトのフォルダ（利用者がこの会話のために指定した）: ").Append(tab.Project);
+            text.Append("プロジェクトフォルダ（利用者がこの会話のために指定した）: ").Append(tab.Project);
             if (!DirectoryExists(tab.Project)) text.Append("（今は見つからない）");
-            text.Append("。下の「ファイル」の行（話題の文書。あれば）の場所とは別。ソースを読む・書く・コマンドを動かすのは、断りが無ければこのフォルダで。")
+            text.Append("。文書のフォルダ（下の「ファイル」の行の文書があるフォルダ。あれば）・会話を始めたフォルダとは別。ソースを読む・書く・コマンドを動かすのは、断りが無ければこのフォルダで。")
                 .Append("話題の文書（メモ・手順など）を読み書きするのは、今までどおり「ファイル」の行の文書。\n");
         }
 

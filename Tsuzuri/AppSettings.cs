@@ -328,7 +328,7 @@ namespace Tsuzuri
         [DataMember(Name = "name", EmitDefaultValue = false)]
         public string Name { get; set; }
 
-        /// <summary>この会話のプロジェクトのフォルダ（AI の欄の下端の「フォルダ」。2026-11-22）。無ければ null。</summary>
+        /// <summary>この会話のプロジェクトフォルダ（AI の欄の下端の「プロジェクトフォルダ」。2026-11-22）。無ければ null。</summary>
         [DataMember(Name = "project", EmitDefaultValue = false)]
         public string Project { get; set; }
 

@@ -63,7 +63,7 @@ namespace Tsuzuri.Views
         private bool _flushQueued;
 
         /// <param name="commandLine">起動するコマンド（exe のパスと引数。AI の欄では powershell.exe）。起動するたびに尋ねる。null を返せば起動しない。</param>
-        /// <param name="folder">起動するフォルダ（AI の欄では、戻した会話のフォルダ・開いているファイルのフォルダ・利用者のフォルダなど）。起動するたびに尋ねる。</param>
+        /// <param name="folder">起動するフォルダ（AI の欄では、戻した会話を始めたフォルダ・開いているファイルのフォルダ・利用者のフォルダなど）。起動するたびに尋ねる。</param>
         public TerminalView(Func<string> commandLine, Func<string> folder)
         {
             _commandLine = commandLine;

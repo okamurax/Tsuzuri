@@ -195,10 +195,10 @@
                                   HorizontalAlignment="Stretch" VerticalAlignment="Stretch"
                                   DragCompleted="Layout_DragCompleted" />
 
-                    <!-- ファイラーの上に、AI の会話のフォルダを渡す段（2026-11-24。会話のフォルダはここから渡す。MainWindow.Overlays.cs） -->
+                    <!-- ファイラーの上に、AI の会話のプロジェクトフォルダを渡す段（2026-11-24。プロジェクトフォルダはここから渡す。MainWindow.Overlays.cs） -->
                     <DockPanel Grid.Column="2">
                         <Border DockPanel.Dock="Top" Height="32" BorderBrush="{StaticResource BorderBrushSoft}" BorderThickness="0,0,0,1">
-                            <Button x:Name="FilerUseFolder" Style="{StaticResource ToolButton}" Content="このフォルダを会話のフォルダにする"
+                            <Button x:Name="FilerUseFolder" Style="{StaticResource ToolButton}" Content="このフォルダをプロジェクトフォルダにする"
                                     Margin="8,0,8,0" Padding="8,1,8,1" FontSize="12" Focusable="False"
                                     VerticalAlignment="Center" HorizontalAlignment="Left" Click="FilerUseFolder_Click" />
                         </Border>

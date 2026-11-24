@@ -212,30 +212,38 @@
                     Focusable="False"
                     Background="{StaticResource SidebarBackground}" />
 
-            <!-- 本文の左下のつまみ（2026-11-24。利用者の考え。MainWindow.SideTabs.cs）。ルーズリーフのインデックスのように、本文の左端からカレンダーとランチャーのつまみを縦に並べて張り出す。
-                 本文・カレンダー・ランチャー・図エディタの上に重ねる（ZIndex 4）ので、どれを出していても見えて押せる。アイコンが見える大きさ（24×40px）。押すたびに開け閉めする。
-                 入れ物は Background を持たないので、つまみの外の透けた所は押しても下に届く -->
-            <StackPanel x:Name="SideTabs" Grid.Column="2" Panel.ZIndex="4" HorizontalAlignment="Left" VerticalAlignment="Bottom" Margin="0,0,0,16">
-                <!-- つまみの形: 右の上下の角を斜めにまっすぐ落とす（面取り）。左の辺は本文の左端に付くので線を引かない -->
-                <Grid x:Name="CalendarTab" Width="24" Height="40" Cursor="Hand" Background="Transparent"
-                      MouseLeftButtonDown="CalendarTab_Click" MouseEnter="SideTab_Hover" MouseLeave="SideTab_Hover">
-                    <Path x:Name="CalendarTabShape" SnapsToDevicePixels="True"
-                          Data="M0,0.5 L18.5,0.5 L23.5,5.5 L23.5,34.5 L18.5,39.5 L0,39.5"
-                          Fill="{StaticResource SidebarBackground}" Stroke="{StaticResource BorderBrushSoft}" StrokeThickness="1" />
-                    <TextBlock x:Name="CalendarTabIcon" Text="&#xE787;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" FontSize="14"
-                               HorizontalAlignment="Center" VerticalAlignment="Center" Margin="0,0,2,0"
-                               Foreground="{StaticResource TextPrimary}" IsHitTestVisible="False" />
-                </Grid>
-                <Grid x:Name="LauncherTab" Width="24" Height="40" Margin="0,4,0,0" Cursor="Hand" Background="Transparent"
-                      MouseLeftButtonDown="LauncherTab_Click" MouseEnter="SideTab_Hover" MouseLeave="SideTab_Hover">
-                    <Path x:Name="LauncherTabShape" SnapsToDevicePixels="True"
-                          Data="M0,0.5 L18.5,0.5 L23.5,5.5 L23.5,34.5 L18.5,39.5 L0,39.5"
-                          Fill="{StaticResource SidebarBackground}" Stroke="{StaticResource BorderBrushSoft}" StrokeThickness="1" />
-                    <TextBlock x:Name="LauncherTabIcon" Text="&#xE8A9;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" FontSize="14"
-                               HorizontalAlignment="Center" VerticalAlignment="Center" Margin="0,0,2,0"
-                               Foreground="{StaticResource TextPrimary}" IsHitTestVisible="False" />
-                </Grid>
-            </StackPanel>
+            <!-- 本文の左下のつまみ（2026-11-24。利用者の考え。MainWindow.SideTabs.cs）。カレンダーとランチャーのアイコンを縦に2つ並べた、浮いた小さな板。
+                 Mattermost の左のチームの切り替えに寄せる（角の丸い板・角の丸いアイコンのボタン・載せると地・出しているものは青い地と左の縁の棒）。
+                 本文・カレンダー・ランチャー・図エディタの上に重ねる（ZIndex 4）。押すたびに開け閉めする。板の外の透けた所は押しても下に届く -->
+            <Border x:Name="SideTabs" Grid.Column="2" Panel.ZIndex="4" HorizontalAlignment="Left" VerticalAlignment="Bottom" Margin="8,0,0,12"
+                    Padding="4" CornerRadius="10" Background="{StaticResource SidebarBackground}"
+                    BorderBrush="{StaticResource FrameBorder}" BorderThickness="1">
+                <Border.Effect>
+                    <DropShadowEffect BlurRadius="12" ShadowDepth="2" Direction="270" Opacity="0.35" Color="Black" />
+                </Border.Effect>
+                <StackPanel>
+                    <Grid x:Name="CalendarTab" Width="32" Height="32" Cursor="Hand" Background="Transparent"
+                          MouseLeftButtonDown="CalendarTab_Click" MouseEnter="SideTab_Hover" MouseLeave="SideTab_Hover">
+                        <Border x:Name="CalendarTabBack" CornerRadius="8" Background="Transparent" />
+                        <!-- 出しているものの印: 左の縁の短い縦の棒（Mattermost のチームの切り替えと同じ） -->
+                        <Border x:Name="CalendarTabBar" Width="3" Height="16" CornerRadius="1.5" HorizontalAlignment="Left" Margin="-5,0,0,0"
+                                Background="{StaticResource AccentBrush}" Visibility="Hidden" />
+                        <TextBlock x:Name="CalendarTabIcon" Text="&#xE787;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" FontSize="16"
+                                   HorizontalAlignment="Center" VerticalAlignment="Center"
+                                   Foreground="{StaticResource SidebarText}" IsHitTestVisible="False" />
+                    </Grid>
+                    <Grid x:Name="LauncherTab" Width="32" Height="32" Margin="0,4,0,0" Cursor="Hand" Background="Transparent"
+                          MouseLeftButtonDown="LauncherTab_Click" MouseEnter="SideTab_Hover" MouseLeave="SideTab_Hover">
+                        <Border x:Name="LauncherTabBack" CornerRadius="8" Background="Transparent" />
+                        <!-- 出しているものの印: 左の縁の短い縦の棒（Mattermost のチームの切り替えと同じ） -->
+                        <Border x:Name="LauncherTabBar" Width="3" Height="16" CornerRadius="1.5" HorizontalAlignment="Left" Margin="-5,0,0,0"
+                                Background="{StaticResource AccentBrush}" Visibility="Hidden" />
+                        <TextBlock x:Name="LauncherTabIcon" Text="&#xE8A9;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" FontSize="16"
+                                   HorizontalAlignment="Center" VerticalAlignment="Center"
+                                   Foreground="{StaticResource SidebarText}" IsHitTestVisible="False" />
+                    </Grid>
+                </StackPanel>
+            </Border>
 
             <!-- AI の欄 (SPEC 19章)。「AI」で出し入れする。中は会話のタブごとの端末（Views/TerminalView。WebView2 の xterm.js と ConPTY）で、PowerShell の中で Claude Code が動く -->
             <GridSplitter x:Name="AiSplitter" Grid.Column="3" Width="4" Visibility="Collapsed"

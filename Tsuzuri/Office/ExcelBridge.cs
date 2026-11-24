@@ -11,6 +11,7 @@ namespace Tsuzuri.Office
     /// <summary>
     /// 開いている Excel（Windows のデスクトップ版）を読み書きする（2026-11-24。利用者の考え。SPEC 19章）。
     /// 書くのは、利用者がランチャーの Excel の一覧で選んだシートだけ（呼ぶ側の MainWindow.Excel.cs が決める）。保存はしない。
+    /// 書く前の中身を控えて返し、戻せるようにする（外から書いた分は Excel の Ctrl+Z では戻らないため。書く途中で失敗したときも控えを返す）。
     ///
     /// Office のアプリとのやり取りは、この Office フォルダの中だけで行う（COM を使うのはここだけ）。
     /// いつか COM が使えなくなっても、ここを差し替えれば、AI に渡す今の状態の形はそのまま残せるように。
@@ -85,7 +86,7 @@ namespace Tsuzuri.Office
             return done ? grid : null;
         }
 
-        /// <summary>書いた範囲。</summary>
+        /// <summary>書いた範囲と、戻すための控え。</summary>
         public sealed class Written
         {
             public string Book;
@@ -93,11 +94,19 @@ namespace Tsuzuri.Office
             public string Address;
             public int Rows;
             public int Columns;
+            /// <summary>書く前の中身（Formula2 の形。1つのセルなら object、ほかは object[,]）。</summary>
+            public object Before;
+            /// <summary>書いた直後の中身（戻す前に、利用者がそのあと手で直していないかを見るため）。読めなければ null。</summary>
+            public object After;
+            /// <summary>書く途中で失敗した（途中まで書けているかもしれない）。</summary>
+            public bool Failed;
         }
 
         /// <summary>
         /// 選んだシートに書く。at は書き始めの左上のセル（B3）か、中身と同じ大きさの範囲（B3:D5）。cells は行ごと・列ごとの文字で、
         /// セルに手で打ったときと同じに入る（「=」で始まれば式。式は英語の関数名と「,」の区切り）。書けなければ problem にわけを入れて null。
+        /// 書く途中で失敗したときは、problem にわけを入れ、控え（Failed）を返す（途中まで書けているかもしれないので、戻せるように）。
+        /// 時間切れのときは null（あとで書き終えても控えは残らない）。
         /// </summary>
         public static Written Write(string book, string sheet, string at, List<string[]> cells, int timeout, out string problem)
         {
@@ -106,6 +115,111 @@ namespace Tsuzuri.Office
             var done = RunSta(() => written = WriteCore(book, sheet, at, cells, out why), timeout);
             problem = done ? why : "Excel が応答しない（セルを編集中か、ダイアログを出しているか、重い計算の途中）。書けたかどうか分からないので、Excel で確かめる";
             return done ? written : null;
+        }
+
+        /// <summary>書いた分を、書く前の中身に戻す。戻せなければわけを返す。force でなければ、書いたあとに手で直したセルがあると断る（"changed" で始まるわけ）。</summary>
+        public static string Undo(Written written, bool force, int timeout)
+        {
+            string problem = null;
+            var done = RunSta(() => problem = UndoCore(written, force), timeout);
+            return done ? problem : "Excel が応答しない（セルを編集中か、ダイアログを出しているか、重い計算の途中）";
+        }
+
+        private static string UndoCore(Written written, bool force)
+        {
+            using (var scope = new Scope())
+            {
+                var app = ActiveExcel(scope);
+                if (app == null) return "Excel が動いていない";
+                try
+                {
+                    string problem;
+                    var sheet = FindSheet(scope, app, written.Book, written.Sheet, out problem);
+                    if (sheet == null) return problem;
+                    var target = scope.Get(sheet, "Range", written.Address);
+                    if (!force && (written.After == null || !Same(Snapshot(scope, target), written.After)))
+                        return "changed\t書いたあとに、その範囲のセルが変わっている（" + written.Address + "）";
+                    SetFormula(target, written.Before);
+                    return null;
+                }
+                catch (Exception ex)
+                {
+                    return IsBusy(ex) ? Busy(ex) : "戻せなかった: " + (ex.InnerException ?? ex).Message;
+                }
+            }
+        }
+
+        /// <summary>
+        /// セルに手で打ったときと同じに入れる。Formula2 は、今の Excel で FILTER・UNIQUE などの式がそのまま広がる（Formula だと「@」が付いて1つの値になる）。
+        /// Formula2 の無い古い Excel だけ Formula に入れる。
+        /// </summary>
+        private static void SetFormula(object target, object value)
+        {
+            try
+            {
+                target.GetType().InvokeMember("Formula2", BindingFlags.SetProperty, null, target, new[] { value }, Automation);
+            }
+            catch (Exception ex) when (UnknownName(ex))
+            {
+                target.GetType().InvokeMember("Formula", BindingFlags.SetProperty, null, target, new[] { value }, Automation);
+            }
+        }
+
+        /// <summary>手で打ったときの形で読む（Formula2。無ければ Formula）。</summary>
+        private static object GetFormula(Scope scope, object target)
+        {
+            try
+            {
+                return scope.Get(target, "Formula2");
+            }
+            catch (Exception ex) when (UnknownName(ex))
+            {
+                return scope.Get(target, "Formula");
+            }
+        }
+
+        /// <summary>
+        /// 戻すための控え: 手で打ったときの形（Formula2）で、文字のセルには頭に ' を付ける。
+        /// ' を付けて入れた文字（'001 など）は Formula2 で読むと ' が落ち、そのまま入れ直すと数・日付・式に化けるため。
+        /// 1つのセルなら string、ほかは object[,]（COM から来たままの 1 始まり）。
+        /// </summary>
+        private static object Snapshot(Scope scope, object target)
+        {
+            var formulas = GetFormula(scope, target);
+            var values = scope.Get(target, "Value2");
+            var array = formulas as object[,];
+            if (array == null) return Texted(formulas, values);
+
+            var copy = (object[,])array.Clone();
+            var valueArray = values as object[,];
+            for (var r = copy.GetLowerBound(0); r <= copy.GetUpperBound(0); r++)
+                for (var c = copy.GetLowerBound(1); c <= copy.GetUpperBound(1); c++)
+                    copy[r, c] = Texted(copy[r, c], valueArray != null ? valueArray[r, c] : null);
+            return copy;
+        }
+
+        private static object Texted(object formula, object value)
+        {
+            var text = formula as string;
+            if (string.IsNullOrEmpty(text) || !(value is string)) return formula;
+            // 「=」で始まっても、値がその文字のままなら式ではなく文字（' を付けて入れた =abc）
+            if (text.StartsWith("=", StringComparison.Ordinal) && !string.Equals(text, (string)value, StringComparison.Ordinal)) return formula;
+            return "'" + text;
+        }
+
+        private static bool Same(object a, object b)
+        {
+            var x = a as object[,];
+            var y = b as object[,];
+            if (x == null || y == null)
+                return x == null && y == null && string.Equals(Convert.ToString(a, CultureInfo.InvariantCulture), Convert.ToString(b, CultureInfo.InvariantCulture), StringComparison.Ordinal);
+            if (x.GetLength(0) != y.GetLength(0) || x.GetLength(1) != y.GetLength(1)) return false;
+            for (var r = 0; r < x.GetLength(0); r++)
+                for (var c = 0; c < x.GetLength(1); c++)
+                    if (!string.Equals(Convert.ToString(x[x.GetLowerBound(0) + r, x.GetLowerBound(1) + c], CultureInfo.InvariantCulture),
+                                       Convert.ToString(y[y.GetLowerBound(0) + r, y.GetLowerBound(1) + c], CultureInfo.InvariantCulture), StringComparison.Ordinal))
+                        return false;
+            return true;
         }
 
         private static object FindSheet(Scope scope, object app, string bookName, string sheetName, out string problem)
@@ -198,32 +312,42 @@ namespace Tsuzuri.Office
                         problem = "書く場所がほかのシートを指している（B3 の形で、シートの名前を付けない）: " + at;
                         return null;
                     }
-                    var address = Address(scope, target);   // 書いたあとは COM を呼ばない（書けたのに「書けなかった」と返さないように）
+                    var address = Address(scope, target);
+                    var before = Snapshot(scope, target);   // 戻すための控え
 
                     var data = new object[rows, columns];
                     for (var r = 0; r < rows; r++)
                         for (var c = 0; c < columns; c++)
                             data[r, c] = c < cells[r].Length ? cells[r][c] : string.Empty;
                     object value = rows == 1 && columns == 1 ? data[0, 0] : (object)data;
-                    // Formula2 は、今の Excel で手で打ったときと同じ（FILTER・UNIQUE などの式がそのまま広がる）。Formula だと「@」が付いて1つの値になる。
-                    // Formula2 の無い古い Excel だけ Formula に入れる
+                    var written = new Written { Book = bookName, Sheet = sheetName, Address = address, Rows = rows, Columns = columns, Before = before };
                     try
                     {
-                        target.GetType().InvokeMember("Formula2", BindingFlags.SetProperty, null, target, new[] { value }, Automation);
+                        SetFormula(target, value);
                     }
-                    catch (Exception ex) when (UnknownName(ex))   // Formula2 が無い（DISP_E_UNKNOWNNAME）
+                    catch (Exception ex)
                     {
-                        target.GetType().InvokeMember("Formula", BindingFlags.SetProperty, null, target, new[] { value }, Automation);
+                        if (IsBusy(ex))
+                        {
+                            problem = Busy(ex);   // 呼び出しを断られた（何も書いていない）
+                            return null;
+                        }
+                        // 途中まで書けているかもしれないので、控えは返す（戻せるように）
+                        written.Failed = true;
+                        problem = "書けなかった（式の書き間違い（英語の関数名・「,」の区切り）・シートの保護・結合したセル・配列の式など）: " + (ex.InnerException ?? ex).Message
+                                  + "。途中まで書けているかもしれない";
+                        return written;
                     }
 
-                    return new Written
+                    // 書いた直後の中身（戻すときに、手で直していないかを見る）。読めなくても、書けたことは変わらない
+                    try
                     {
-                        Book = bookName,
-                        Sheet = sheetName,
-                        Address = address,
-                        Rows = rows,
-                        Columns = columns,
-                    };
+                        written.After = Snapshot(scope, target);
+                    }
+                    catch (Exception)
+                    {
+                    }
+                    return written;
                 }
                 catch (Exception ex)
                 {

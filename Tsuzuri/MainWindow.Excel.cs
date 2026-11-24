@@ -16,7 +16,8 @@ namespace Tsuzuri
     // ・話しかけるたびの今の状態に「Excel」の段を書く: 選んだブックとシートの名前だけ（中身・Excel で前に出ているもの・保存したかは渡さない。利用者の判断。
     //   手で作業しているシートが AI に扱ってほしいシートとは限らず、読むところは利用者が話しかけて指定するため）。話しかけるたびに Excel は読まない。
     // ・Claude が範囲を指定して読む（excel.ps1 → パイプの excel-read。結果はファイルに書いてパスを返す）。ブック・シートを付けなければ、選んだシート。
-    // ・Claude が書く（excel.ps1 -Write → パイプの excel-write）。書けるのは一覧で選んだシートだけ。保存は利用者がする。戻す仕組みは持たない（利用者の判断）。
+    // ・Claude が書く（excel.ps1 -Write → パイプの excel-write）。書けるのは一覧で選んだシートだけ。保存は利用者がする。
+    //   書く前の中身を控え、一覧の上の「戻す」で戻せる（外から書いた分は Excel の Ctrl+Z では戻らないため。書く途中で失敗したときも）。
     // COM を使うのは Office/ExcelBridge.cs だけ。
     public partial class MainWindow
     {
@@ -151,6 +152,10 @@ namespace Tsuzuri
                    + (grid.Truncated || grid.ColumnsTruncated ? "。多いので一部だけ（ファイルの最後の行に書いた）" : string.Empty) + "）";
         }
 
+        /// <summary>Claude が書いた分（新しいものが後ろ）。一覧の上の「戻す」で、新しいものから戻す。画面ごと。</summary>
+        private readonly List<ExcelBridge.Written> _excelWrites = new List<ExcelBridge.Written>();
+        private const int ExcelUndoLimit = 20;
+
         /// <summary>
         /// Claude が書く（パイプの「excel-write→ブック→シート→場所→中身」。どれも Base64）。書けるのは一覧で選んだシートだけ（ブック・シートを付けなければそのシート）。
         /// 中身はタブ区切りで、1行が Excel の1行。書けたら「ok→説明」、書けなければ「error→わけ」。
@@ -188,12 +193,89 @@ namespace Tsuzuri
             var written = ExcelBridge.Write(choice.Book, choice.Sheet, at, cells, 10000, out problem);
             if (written == null) return "error\t" + (problem ?? "書けなかった。");
 
+            var where = Path.GetFileName(written.Book) + " › " + written.Sheet + "!" + written.Address;
             Dispatcher.BeginInvoke(new Action(delegate
             {
-                Status("Claude が Excel に書きました: " + Path.GetFileName(written.Book) + " › " + written.Sheet + "!" + written.Address + "（保存はしていません）");
+                _excelWrites.Add(written);
+                if (_excelWrites.Count > ExcelUndoLimit) _excelWrites.RemoveAt(0);
+                PaintExcelUndo();
+                Status(written.Failed
+                    ? "Claude が Excel に書こうとして失敗しました: " + where + "（途中まで書けているかもしれません。Excel の一覧の「戻す」で書く前に戻せます）"
+                    : "Claude が Excel に書きました: " + where + "（Excel の一覧の「戻す」で戻せます。保存はしていません）");
             }));
-            return "ok\t書いた: " + Path.GetFileName(written.Book) + " › " + written.Sheet + "!" + written.Address + "（" + written.Rows + " 行 × " + written.Columns + " 列）。"
-                   + "保存はしていない（保存は利用者がする）";
+            if (written.Failed)
+                return "error\t" + problem + "（" + where + "。利用者はランチャーの Excel の一覧の「戻す」で、書く前に戻せる）";
+            return "ok\t書いた: " + where + "（" + written.Rows + " 行 × " + written.Columns + " 列）。"
+                   + "保存はしていない（保存は利用者がする）。利用者はランチャーの Excel の一覧の「戻す」で、書く前に戻せる（Excel の Ctrl+Z では戻らない）";
+        }
+
+        /// <summary>戻している途中（その間は「戻す」を押せない）。</summary>
+        private bool _excelUndoing;
+
+        private void PaintExcelUndo()
+        {
+            if (_excelList == null) return;
+            if (_excelUndoing)
+            {
+                _excelList.SetUndo(null);
+                return;
+            }
+            var last = _excelWrites.Count > 0 ? _excelWrites[_excelWrites.Count - 1] : null;
+            _excelList.SetUndo(last == null ? null
+                : "Claude が最後に書いた分を、書く前に戻す: " + Path.GetFileName(last.Book) + " › " + last.Sheet + "!" + last.Address
+                  + (_excelWrites.Count > 1 ? "（ほかに " + (_excelWrites.Count - 1) + " 回分。押すたびに新しいほうから戻す）" : string.Empty));
+        }
+
+        /// <summary>一覧の上の「戻す」: Claude が最後に書いた分を、書く前の中身に戻す。</summary>
+        private void UndoExcelWrite()
+        {
+            if (_excelWrites.Count == 0) return;
+            var last = _excelWrites[_excelWrites.Count - 1];
+            var where = Path.GetFileName(last.Book) + " › " + last.Sheet + "!" + last.Address;
+            if (MessageBox.Show(this, "Claude が書いた " + where + " を、書く前の中身に戻しますか？\n\n（値と式を戻します。表示形式（日付・% など）は戻りません）", "Excel を戻す",
+                                MessageBoxButton.OKCancel, MessageBoxImage.Question, MessageBoxResult.Cancel) != MessageBoxResult.OK)
+                return;
+            _excelUndoing = true;   // 戻している間は押せなくする（同じ記録を2回戻さない）
+            PaintExcelUndo();
+
+            Task.Run(() => ExcelBridge.Undo(last, false, 10000)).ContinueWith(task =>
+            {
+                var problem = task.IsFaulted ? "戻せなかった" : task.Result;
+                if (problem != null && problem.StartsWith("changed\t", StringComparison.Ordinal))
+                {
+                    if (MessageBox.Show(this, (last.Failed ? "書く途中で失敗したので、" : "書いたあとに、") + where + " のセルが変わっているかもしれません。\n\n"
+                                        + "それでも書く前に戻しますか？（あとで変えた分は消えます）", "Excel を戻す",
+                                        MessageBoxButton.OKCancel, MessageBoxImage.Warning, MessageBoxResult.Cancel) != MessageBoxResult.OK)
+                    {
+                        _excelUndoing = false;
+                        PaintExcelUndo();
+                        return;
+                    }
+                    Task.Run(() => ExcelBridge.Undo(last, true, 10000)).ContinueWith(again => FinishExcelUndo(last, where, again.IsFaulted ? "戻せなかった" : again.Result),
+                        TaskScheduler.FromCurrentSynchronizationContext());
+                    return;
+                }
+                FinishExcelUndo(last, where, problem);
+            }, TaskScheduler.FromCurrentSynchronizationContext());
+        }
+
+        private void FinishExcelUndo(ExcelBridge.Written last, string where, string problem)
+        {
+            _excelUndoing = false;
+            if (problem != null)
+            {
+                Status("Excel を戻せませんでした: " + problem);
+                // ブックを閉じた・シートの名前を変えたなどで戻せない記録は、残すと前の回も戻せなくなるので、捨てるかを尋ねる
+                if ((problem.StartsWith("そのブックは Excel で開いていない", StringComparison.Ordinal) || problem.StartsWith("そのシートは無い", StringComparison.Ordinal))
+                    && MessageBox.Show(this, where + " は戻せません（" + problem + "）。\n\nこの記録を捨てて、その前に書いた分を戻せるようにしますか？", "Excel を戻す",
+                                       MessageBoxButton.OKCancel, MessageBoxImage.Question, MessageBoxResult.OK) == MessageBoxResult.OK)
+                    _excelWrites.Remove(last);
+                PaintExcelUndo();
+                return;
+            }
+            _excelWrites.Remove(last);
+            PaintExcelUndo();
+            Status("Excel を書く前に戻しました: " + where + "（保存はしていません）");
         }
 
         // ---------------------------------------------------------------
@@ -213,7 +295,9 @@ namespace Tsuzuri
                 _excelList = new ExcelListView();
                 _excelList.RefreshRequested += RefreshExcelList;
                 _excelList.SheetClicked += ChooseExcelSheet;
+                _excelList.UndoRequested += UndoExcelWrite;
                 ExcelListHost.Child = _excelList;
+                PaintExcelUndo();
             }
             if (_excelListing)
             {

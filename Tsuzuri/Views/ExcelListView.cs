@@ -27,6 +27,11 @@ namespace Tsuzuri.Views
         /// <summary>「更新」を押した。</summary>
         public event Action RefreshRequested;
 
+        /// <summary>「戻す」を押した（Claude が書いた分を戻す）。</summary>
+        public event Action UndoRequested;
+
+        private readonly Button _undo;
+
         public ExcelListView()
         {
             var title = new TextBlock
@@ -56,8 +61,29 @@ namespace Tsuzuri.Views
             };
             DockPanel.SetDock(refresh, Dock.Right);
 
+            _undo = new Button
+            {
+                Content = "\uE7A7",
+                FontFamily = new FontFamily("Segoe Fluent Icons, Segoe MDL2 Assets"),
+                FontSize = 12,
+                Padding = new Thickness(6, 2, 6, 2),
+                Focusable = false,
+                VerticalAlignment = VerticalAlignment.Center,
+                IsEnabled = false,
+                ToolTip = "Claude が書いた分を戻す（まだ書いていない）",
+            };
+            if (style != null) _undo.Style = style;
+            ToolTipService.SetShowOnDisabled(_undo, true);
+            _undo.Click += delegate
+            {
+                var requested = UndoRequested;
+                if (requested != null) requested();
+            };
+            DockPanel.SetDock(_undo, Dock.Right);
+
             var head = new DockPanel { Margin = new Thickness(12, 0, 6, 0), Height = 28 };
             head.Children.Add(refresh);
+            head.Children.Add(_undo);
             head.Children.Add(title);
             DockPanel.SetDock(head, Dock.Top);
             Children.Add(head);
@@ -68,6 +94,13 @@ namespace Tsuzuri.Views
             Children.Add(_scroll);
 
             ShowNote("読んでいます…");
+        }
+
+        /// <summary>「戻す」の説明（戻すものが無ければ null で、押せなくする）。</summary>
+        public void SetUndo(string tip)
+        {
+            _undo.IsEnabled = tip != null;
+            _undo.ToolTip = tip ?? "Claude が書いた分を戻す（まだ書いていない）";
         }
 
         /// <summary>一覧を出し直す。null なら読めなかった（problem にわけ）。</summary>

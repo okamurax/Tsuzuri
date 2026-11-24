@@ -11,7 +11,8 @@
 #       writes the cells in excel-write.tsv next to this script (UTF-8, tab separated, one line = one row; removed once read) from B3,
 #       into the sheet the user chose (only that sheet can be written). -File <file> reads another file.
 #       Cells are entered as typed: "=" starts a formula (English function names, "," separators).
-#       It does not save the workbook. Excel loses its undo history (Ctrl+Z) when this writes.
+#       It does not save the workbook. Excel loses its undo history (Ctrl+Z) when this writes;
+#       the user can undo the writes with the button of the Excel list in the launcher.
 #
 # Reading: the editor reads Excel and writes the cells to a file (tab separated); this prints the path of that file.
 # Writing: this prints what was written.

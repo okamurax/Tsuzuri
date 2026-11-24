@@ -141,7 +141,7 @@ namespace Tsuzuri
         {
             _settings = settings;
             InitializeComponent();
-            PaintSideTabs();   // 本文の左端のつまみ（カレンダー・ランチャー）の色と説明
+            PaintSideTabs();   // 本文の左下のつまみ（カレンダー・ランチャー）の色と説明
             RegisterWindow(session);
             DirtyText.Foreground = Theme.DirtyMark;
 
@@ -208,7 +208,7 @@ namespace Tsuzuri
                 view.FocusSearchBox();
             };
 
-            // Alt+C でカレンダーを、Alt+L でランチャーを出し入れする（SPEC 22章・4章。どちらも本文の左端のつまみなので、アクセスキーの代わりにここで受ける。
+            // Alt+C でカレンダーを、Alt+L でランチャーを出し入れする（SPEC 22章・4章。どちらも本文の左下のつまみなので、アクセスキーの代わりにここで受ける。
             // Alt+L は 2026-11-24 から）。AI の欄の端末にキーボードがあるときは、端末のキーとして向こうに渡す。
             PreviewKeyDown += (sender, e) =>
             {
@@ -474,7 +474,7 @@ namespace Tsuzuri
 
             StatusText.Text = HasDocument
                 ? Active.FilePath
-                : "本文の左端の下のつまみ（ランチャー。Alt+L）からファイルを選ぶか、「新規作成」で作ってください。";
+                : "本文の左下の、下のつまみ（ランチャー。Alt+L）からファイルを選ぶか、「新規作成」で作ってください。";
         }
 
         private void OnClosing(object sender, CancelEventArgs e)

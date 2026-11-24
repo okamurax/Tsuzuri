@@ -115,7 +115,7 @@ namespace Tsuzuri.Views
             LastChildFill = true;
             Background = Resource("SidebarBackground");   // アウトラインと同じ地（SPEC 4章）
 
-            // 見出しの段は持たない。本文の左端のランチャーのつまみをもう一度押すか Alt+L で閉じる（SPEC 4章。
+            // 見出しの段は持たない。本文の左下のランチャーのつまみをもう一度押すか Alt+L で閉じる（SPEC 4章。
             // 前はページの上端の段の右端に「ランチャー」があった）。
 
             _canvas.HorizontalAlignment = HorizontalAlignment.Left;

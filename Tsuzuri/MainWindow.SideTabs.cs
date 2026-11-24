@@ -9,9 +9,10 @@ namespace Tsuzuri
     public partial class MainWindow
     {
         // ---------------------------------------------------------------
-        // 本文の左端のつまみ（2026-11-24。利用者の考え。SPEC 22章・4章）
+        // 本文の左下のつまみ（2026-11-24。利用者の考え。SPEC 22章・4章）
         //
-        // ルーズリーフのインデックスのように、本文の左端（アウトラインとの境）の細い帯から、カレンダーとランチャーのつまみを縦に並べて張り出す。
+        // ルーズリーフのインデックスのように、本文の左端の下のほうから、カレンダーとランチャーのつまみを縦に並べて張り出す（本文などの上に重ねる）。
+        // 初めは左端の細い帯の真ん中から 14px 幅で出したが、アイコンが見えなかったので、左下に重ねて大きくした（同じ日。利用者の考え）。
         // どちらも押すたびに開け閉めし、外を押しても Esc でも閉じない（ランチャーもカレンダーに合わせた）。出しているもののつまみは色を付ける。
         // 「見出し」とは呼ばない（文書の見出し・アウトラインの見出しと取り違えるため。レビューの指摘）。
         // 前は、カレンダーは帯の真ん中の持ち手（2026-11-23）、ランチャーは画面のタブの並びの一番右のボタンだった。
@@ -36,12 +37,14 @@ namespace Tsuzuri
             PaintSideTabs();
         }
 
-        /// <summary>つまみの色と説明。出しているものは選んだ色、マウスが載ればその色。カレンダーがランチャーの下に隠れているときは、見えているほう（ランチャー）だけを選んだ色にする。
-        /// ランチャーを出している間は、つまみの間・上下のすき間をふさぐ（LauncherGap）。</summary>
+        /// <summary>つまみの色と説明。出しているものは選んだ色、マウスが載ればその色。カレンダーがランチャーの下に隠れているときは、見えているほう（ランチャー）だけを選んだ色にする。</summary>
         private void PaintSideTabs()
         {
             var launcherOpen = _launcher != null;
-            LauncherGap.Visibility = launcherOpen ? Visibility.Visible : Visibility.Collapsed;
+
+            // 図エディタを出している間は、図エディタの左端（窓の左端。アウトラインは覆われている）の下へ。本文の列のままだと、キャンバスの中ほどにかかる（レビューの指摘）。
+            // ランチャーを図エディタの上に出したときは、ランチャーの左下へ戻す
+            Grid.SetColumn(SideTabs, _drawing != null && !launcherOpen ? 0 : 2);
             var calendarShown = _calendar != null && !launcherOpen;
             PaintSideTab(CalendarTab, CalendarTabShape, CalendarTabIcon, calendarShown);
             PaintSideTab(LauncherTab, LauncherTabShape, LauncherTabIcon, launcherOpen);
@@ -57,7 +60,7 @@ namespace Tsuzuri
             var hover = tab.IsMouseOver;
             shape.Fill = (Brush)FindResource(open ? "AccentFill" : hover ? "HoverFill" : "SidebarBackground");
             shape.Stroke = (Brush)FindResource(open ? "AccentBrush" : "BorderBrushSoft");
-            icon.Foreground = (Brush)FindResource(open ? "AccentText" : hover ? "AccentBrush" : "TextMuted");
+            icon.Foreground = (Brush)FindResource(open ? "AccentText" : hover ? "AccentBrush" : "TextPrimary");
         }
     }
 }

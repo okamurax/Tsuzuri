@@ -22,7 +22,7 @@
         <Border DockPanel.Dock="Top" Height="40"
                 Background="{StaticResource ChromeBackground}"
                 MouseLeftButtonDown="Toolbar_MouseLeftButtonDown">
-            <!-- 左から、新規作成と開いている文書に対する操作｜ウィンドウ全体の機能（AI）｜終了。ランチャーは本文の左端のつまみ（2026-11-24）。全部を左に寄せる（2026-11-01。前は右端、その前はページの上端の段に置いていた） -->
+            <!-- 左から、新規作成と開いている文書に対する操作｜ウィンドウ全体の機能（AI）｜終了。ランチャーは本文の左下のつまみ（2026-11-24）。全部を左に寄せる（2026-11-01。前は右端、その前はページの上端の段に置いていた） -->
             <DockPanel Margin="8,0,8,0" VerticalAlignment="Center" LastChildFill="False"
                        TextElement.FontSize="13">
                 <StackPanel Orientation="Horizontal">
@@ -57,7 +57,7 @@
         <Border DockPanel.Dock="Top" Height="30"
                 Background="{StaticResource ChromeBackground}"
                 MouseLeftButtonDown="Toolbar_MouseLeftButtonDown">
-            <!-- 開いている画面のタブと「＋」（ランチャーは 2026-11-24 から本文の左端のつまみ。MainWindow.SideTabs.cs）。
+            <!-- 開いている画面のタブと「＋」（ランチャーは 2026-11-24 から本文の左下のつまみ。MainWindow.SideTabs.cs）。
                  中身は MainWindow.Windows.cs（BuildWindowList）が組む -->
             <DockPanel Margin="8,0,8,2" VerticalAlignment="Center" LastChildFill="False" TextElement.FontSize="13">
                 <StackPanel x:Name="WindowList" DockPanel.Dock="Left" Orientation="Horizontal" />
@@ -160,51 +160,13 @@
                     ClipToBounds="True"
                     Background="{StaticResource PageBackground}">
                 <Grid>
-                    <!-- 左端のつまみ（2026-11-24。利用者の考え。ルーズリーフのインデックスのように、カレンダーとランチャーを縦に並べる。MainWindow.SideTabs.cs）。
-                         細い帯（列 0。6px）は見た目だけで、押すのはつまみ（14×56px。本文の上へ 8px 張り出す）。押すたびに開け閉めする。
-                         入れ物は Background を持たないので、つまみの外の透けた所は押しても下の本文に届く -->
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="6" />
-                        <ColumnDefinition Width="*" />
-                    </Grid.ColumnDefinitions>
-                    <!-- ランチャーを出している間だけ、左端のつまみの間・上下（ランチャーとの 14px のすき間）をふさぐ。下の本文が見えたり押せたりしないように -->
-                    <Border x:Name="LauncherGap" Grid.Column="0" Grid.ColumnSpan="2" Width="14" HorizontalAlignment="Left" Panel.ZIndex="1"
-                            Visibility="Collapsed" Background="{StaticResource SidebarBackground}" />
-                    <Grid x:Name="SideTabs" Grid.Column="0" Grid.ColumnSpan="2" Width="14"
-                          HorizontalAlignment="Left" Panel.ZIndex="2">
-                        <Border Width="6" HorizontalAlignment="Left" IsHitTestVisible="False"
-                                Background="{StaticResource SidebarBackground}" />
-                        <StackPanel HorizontalAlignment="Left" VerticalAlignment="Center">
-                            <!-- つまみの形: 右の上下の角を斜めにまっすぐ落とす（面取り）。左の辺は帯とつながるので線を引かない -->
-                            <Grid x:Name="CalendarTab" Width="14" Height="56" Cursor="Hand" Background="Transparent"
-                                  MouseLeftButtonDown="CalendarTab_Click" MouseEnter="SideTab_Hover" MouseLeave="SideTab_Hover">
-                                <Path x:Name="CalendarTabShape" SnapsToDevicePixels="True"
-                                      Data="M0,0.5 L9.5,0.5 L13.5,4.5 L13.5,51.5 L9.5,55.5 L0,55.5"
-                                      Fill="{StaticResource SidebarBackground}" Stroke="{StaticResource BorderBrushSoft}" StrokeThickness="1" />
-                                <TextBlock x:Name="CalendarTabIcon" Text="&#xE787;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" FontSize="10"
-                                           HorizontalAlignment="Center" VerticalAlignment="Center" Margin="0,0,1,0"
-                                           Foreground="{StaticResource TextMuted}" IsHitTestVisible="False" />
-                            </Grid>
-                            <Grid x:Name="LauncherTab" Width="14" Height="56" Margin="0,4,0,0" Cursor="Hand" Background="Transparent"
-                                  MouseLeftButtonDown="LauncherTab_Click" MouseEnter="SideTab_Hover" MouseLeave="SideTab_Hover">
-                                <Path x:Name="LauncherTabShape" SnapsToDevicePixels="True"
-                                      Data="M0,0.5 L9.5,0.5 L13.5,4.5 L13.5,51.5 L9.5,55.5 L0,55.5"
-                                      Fill="{StaticResource SidebarBackground}" Stroke="{StaticResource BorderBrushSoft}" StrokeThickness="1" />
-                                <TextBlock x:Name="LauncherTabIcon" Text="&#xE8A9;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" FontSize="10"
-                                           HorizontalAlignment="Center" VerticalAlignment="Center" Margin="0,0,1,0"
-                                           Foreground="{StaticResource TextMuted}" IsHitTestVisible="False" />
-                            </Grid>
-                        </StackPanel>
-                    </Grid>
-
                     <!-- 左に帯（横スクロールの入れ物。ページに幅を残すところまで）、残りにページ（SPEC 6章。2026-10-27） -->
-                    <DockPanel x:Name="StackPanelHost" Grid.Column="1" LastChildFill="True"
+                    <DockPanel x:Name="StackPanelHost" LastChildFill="True"
                                SizeChanged="StackPanelHost_SizeChanged" />
 
                     <!-- カレンダー（SPEC 22章。2026-11-20。MainWindow.Calendar.cs・Views/CalendarView.cs）。ランチャーと同じく本文の場所いっぱいに重ねる。
                          カレンダーを出したままランチャーを出すと、ランチャーが上に重なり（LauncherHost は StackHost より上）、閉じるとカレンダーに戻る（2026-11-21） -->
-                    <!-- 左に 8px あけるのは、左端のつまみ（本文の上へ 8px 張り出す）が日曜の左端（予定の帯を引っぱる所）に重ならないため -->
-                    <Border x:Name="CalendarHost" Grid.Column="1" Margin="8,0,0,0" Visibility="Collapsed"
+                    <Border x:Name="CalendarHost" Visibility="Collapsed"
                             Focusable="False"
                             Background="{StaticResource SidebarBackground}" />
                 </Grid>
@@ -216,8 +178,7 @@
                  前は最前面の独立したウィンドウ、その前は本文の右側に滑らせて重ねていた）。
                  出している間はフォーカスをここへ移す（覆われた本文に打ち込まないため）ので、Focusable にする。
                  本文の場所（StackHost）と同じ列に、StackHost の外に置く（2026-11-23）。図エディタ（DrawingHost）を出したままでも、その上に重ねて出せるように -->
-            <!-- 左を 14px あけるのは、本文の左端のつまみ（カレンダー・ランチャー）を見せたまま押せるように（2026-11-24。ランチャーもつまみで閉じる） -->
-            <Border x:Name="LauncherHost" Grid.Column="2" Margin="14,0,0,0" Visibility="Collapsed" Panel.ZIndex="3"
+            <Border x:Name="LauncherHost" Grid.Column="2" Visibility="Collapsed" Panel.ZIndex="3"
                     Focusable="True" FocusVisualStyle="{x:Null}"
                     Background="{StaticResource SidebarBackground}">
                 <Grid>
@@ -250,6 +211,31 @@
             <Border x:Name="DrawingHost" Grid.Column="0" Grid.ColumnSpan="3" Visibility="Collapsed" Panel.ZIndex="2"
                     Focusable="False"
                     Background="{StaticResource SidebarBackground}" />
+
+            <!-- 本文の左下のつまみ（2026-11-24。利用者の考え。MainWindow.SideTabs.cs）。ルーズリーフのインデックスのように、本文の左端からカレンダーとランチャーのつまみを縦に並べて張り出す。
+                 本文・カレンダー・ランチャー・図エディタの上に重ねる（ZIndex 4）ので、どれを出していても見えて押せる。アイコンが見える大きさ（24×40px）。押すたびに開け閉めする。
+                 入れ物は Background を持たないので、つまみの外の透けた所は押しても下に届く -->
+            <StackPanel x:Name="SideTabs" Grid.Column="2" Panel.ZIndex="4" HorizontalAlignment="Left" VerticalAlignment="Bottom" Margin="0,0,0,16">
+                <!-- つまみの形: 右の上下の角を斜めにまっすぐ落とす（面取り）。左の辺は本文の左端に付くので線を引かない -->
+                <Grid x:Name="CalendarTab" Width="24" Height="40" Cursor="Hand" Background="Transparent"
+                      MouseLeftButtonDown="CalendarTab_Click" MouseEnter="SideTab_Hover" MouseLeave="SideTab_Hover">
+                    <Path x:Name="CalendarTabShape" SnapsToDevicePixels="True"
+                          Data="M0,0.5 L18.5,0.5 L23.5,5.5 L23.5,34.5 L18.5,39.5 L0,39.5"
+                          Fill="{StaticResource SidebarBackground}" Stroke="{StaticResource BorderBrushSoft}" StrokeThickness="1" />
+                    <TextBlock x:Name="CalendarTabIcon" Text="&#xE787;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" FontSize="14"
+                               HorizontalAlignment="Center" VerticalAlignment="Center" Margin="0,0,2,0"
+                               Foreground="{StaticResource TextPrimary}" IsHitTestVisible="False" />
+                </Grid>
+                <Grid x:Name="LauncherTab" Width="24" Height="40" Margin="0,4,0,0" Cursor="Hand" Background="Transparent"
+                      MouseLeftButtonDown="LauncherTab_Click" MouseEnter="SideTab_Hover" MouseLeave="SideTab_Hover">
+                    <Path x:Name="LauncherTabShape" SnapsToDevicePixels="True"
+                          Data="M0,0.5 L18.5,0.5 L23.5,5.5 L23.5,34.5 L18.5,39.5 L0,39.5"
+                          Fill="{StaticResource SidebarBackground}" Stroke="{StaticResource BorderBrushSoft}" StrokeThickness="1" />
+                    <TextBlock x:Name="LauncherTabIcon" Text="&#xE8A9;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" FontSize="14"
+                               HorizontalAlignment="Center" VerticalAlignment="Center" Margin="0,0,2,0"
+                               Foreground="{StaticResource TextPrimary}" IsHitTestVisible="False" />
+                </Grid>
+            </StackPanel>
 
             <!-- AI の欄 (SPEC 19章)。「AI」で出し入れする。中は会話のタブごとの端末（Views/TerminalView。WebView2 の xterm.js と ConPTY）で、PowerShell の中で Claude Code が動く -->
             <GridSplitter x:Name="AiSplitter" Grid.Column="3" Width="4" Visibility="Collapsed"

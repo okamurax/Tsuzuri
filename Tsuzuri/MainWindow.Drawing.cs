@@ -130,6 +130,7 @@ namespace Tsuzuri
             _drawing = session;
             DrawingHost.Child = view;
             DrawingHost.Visibility = Visibility.Visible;
+            PaintSideTabs();   // つまみを図エディタの左端へ（キャンバスの中ほどにかからないように）
             Status("図エディタ: " + stem + "（右の AI の欄はそのまま使えます。保存か終了で本文に戻ります）");
 
             // 覆われた本文に打ち込まないよう、キー入力を図エディタへ移す（ランチャー・カレンダーと同じ。組み版のあとで）
@@ -191,6 +192,7 @@ namespace Tsuzuri
             _drawing = null;
             DrawingHost.Child = null;
             DrawingHost.Visibility = Visibility.Collapsed;
+            PaintSideTabs();
             if (hadFocus && Active != null) Active.TextArea.Focus();
         }
 

@@ -70,8 +70,8 @@ namespace Tsuzuri.Views
             ShowNote("読んでいます…");
         }
 
-        /// <summary>一覧を出し直す。null なら Excel が応答しなかった。</summary>
-        public void Show(List<ExcelReader.Book> books, Func<string, bool> guarded, string selectedBook, string selectedSheet, string problem)
+        /// <summary>一覧を出し直す。null なら読めなかった（problem にわけ）。</summary>
+        public void Show(List<ExcelBridge.Book> books, Func<string, bool> guarded, string selectedBook, string selectedSheet, string problem)
         {
             _list.Children.Clear();
             if (books == null)

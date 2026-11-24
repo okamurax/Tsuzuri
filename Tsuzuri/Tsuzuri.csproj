@@ -222,7 +222,7 @@
     <Compile Include="Views\FileIcon.cs" />
     <Compile Include="Views\FilerView.cs" />
     <Compile Include="Views\FilerGit.cs" />
-    <Compile Include="Office\ExcelReader.cs" />
+    <Compile Include="Office\ExcelBridge.cs" />
     <Compile Include="Views\ExcelListView.cs" />
     <Compile Include="Views\IndentGuideRenderer.cs" />
     <Compile Include="Views\MarkdownColorizer.cs" />

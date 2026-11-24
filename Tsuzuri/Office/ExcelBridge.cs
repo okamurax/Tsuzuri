@@ -9,7 +9,8 @@ using System.Threading;
 namespace Tsuzuri.Office
 {
     /// <summary>
-    /// 開いている Excel（Windows のデスクトップ版）を読む（2026-11-24。利用者の考え。SPEC 19章）。読むだけで、Excel には何も書かない。
+    /// 開いている Excel（Windows のデスクトップ版）を読み書きする（2026-11-24。利用者の考え。SPEC 19章）。
+    /// 書くのは、利用者がランチャーの Excel の一覧で選んだシートだけ（呼ぶ側の MainWindow.Excel.cs が決める）。保存はしない。
     ///
     /// Office のアプリとのやり取りは、この Office フォルダの中だけで行う（COM を使うのはここだけ）。
     /// いつか COM が使えなくなっても、ここを差し替えれば、AI に渡す今の状態の形はそのまま残せるように。
@@ -17,7 +18,7 @@ namespace Tsuzuri.Office
     /// 呼ぶたびに自分の STA のスレッドで読み、時間を切る（Excel が応答しない・セルを編集中でも、こちらを止めない）。
     /// 受け取った COM の参照はその場で全部手放す（持ち続けると、利用者が Excel を閉じても EXCEL.EXE が残る）。
     /// </summary>
-    public static class ExcelReader
+    public static class ExcelBridge
     {
         /// <summary>excel.ps1 で読むときの上限（セルの数）。</summary>
         public const int DumpCells = 20000;
@@ -82,6 +83,154 @@ namespace Tsuzuri.Office
             sheetShown = shownSheet;
             problem = done ? why : "Excel が応答しない（セルを編集中か、ダイアログを出しているか、重い計算の途中）";
             return done ? grid : null;
+        }
+
+        /// <summary>書いた範囲。</summary>
+        public sealed class Written
+        {
+            public string Book;
+            public string Sheet;
+            public string Address;
+            public int Rows;
+            public int Columns;
+        }
+
+        /// <summary>
+        /// 選んだシートに書く。at は書き始めの左上のセル（B3）か、中身と同じ大きさの範囲（B3:D5）。cells は行ごと・列ごとの文字で、
+        /// セルに手で打ったときと同じに入る（「=」で始まれば式。式は英語の関数名と「,」の区切り）。書けなければ problem にわけを入れて null。
+        /// </summary>
+        public static Written Write(string book, string sheet, string at, List<string[]> cells, int timeout, out string problem)
+        {
+            Written written = null;
+            string why = null;
+            var done = RunSta(() => written = WriteCore(book, sheet, at, cells, out why), timeout);
+            problem = done ? why : "Excel が応答しない（セルを編集中か、ダイアログを出しているか、重い計算の途中）。書けたかどうか分からないので、Excel で確かめる";
+            return done ? written : null;
+        }
+
+        private static object FindSheet(Scope scope, object app, string bookName, string sheetName, out string problem)
+        {
+            problem = null;
+            var books = scope.Get(app, "Workbooks");
+            var count = Convert.ToInt32(scope.Get(books, "Count"), CultureInfo.InvariantCulture);
+            object book = null;
+            for (var i = 1; i <= count && book == null; i++)
+            {
+                var candidate = scope.Get(books, "Item", i);
+                if (!Visible(scope, candidate)) continue;   // 隠れたブックには書かない（読むときと同じ）
+                if (string.Equals(Text(scope.Get(candidate, "FullName")), bookName, StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(Text(scope.Get(candidate, "Name")), bookName, StringComparison.OrdinalIgnoreCase))
+                    book = candidate;
+            }
+            if (book == null)
+            {
+                problem = "そのブックは Excel で開いていない: " + bookName;
+                return null;
+            }
+            try
+            {
+                return scope.Get(scope.Get(book, "Sheets"), "Item", sheetName);
+            }
+            catch (Exception)
+            {
+                problem = "そのシートは無い: " + sheetName;
+                return null;
+            }
+        }
+
+        private static Written WriteCore(string bookName, string sheetName, string at, List<string[]> cells, out string problem)
+        {
+            problem = null;
+            var rows = cells.Count;
+            var columns = 0;
+            foreach (var row in cells) columns = Math.Max(columns, row.Length);
+            if (rows == 0 || columns == 0)
+            {
+                problem = "書く中身が空";
+                return null;
+            }
+            if ((long)rows * columns > DumpCells)
+            {
+                problem = "一度に書けるのは " + DumpCells + " セルまで。分けて書く";
+                return null;
+            }
+
+            using (var scope = new Scope())
+            {
+                var app = ActiveExcel(scope);
+                if (app == null)
+                {
+                    problem = "Excel が動いていない";
+                    return null;
+                }
+                try
+                {
+                    var sheet = FindSheet(scope, app, bookName, sheetName, out problem);
+                    if (sheet == null) return null;
+
+                    object given;
+                    try
+                    {
+                        given = scope.Get(sheet, "Range", at);
+                    }
+                    catch (Exception ex)
+                    {
+                        problem = IsBusy(ex) ? Busy(ex) : "書く場所を読めない（B3 か B3:D5 の形で）: " + at;
+                        return null;
+                    }
+                    if (Convert.ToInt32(scope.Get(scope.Get(given, "Areas"), "Count"), CultureInfo.InvariantCulture) > 1)
+                    {
+                        problem = "書く場所は1つ（B3 か B3:D5 の形で）: " + at;
+                        return null;
+                    }
+                    var givenRows = Count(scope, given, "Rows");
+                    var givenColumns = Count(scope, given, "Columns");
+                    if ((givenRows != 1 || givenColumns != 1) && (givenRows != rows || givenColumns != columns))
+                    {
+                        problem = "書く場所（" + givenRows + " 行 × " + givenColumns + " 列）と中身（" + rows + " 行 × " + columns + " 列）の大きさが違う。左上のセルだけを指定するか、大きさを合わせる";
+                        return null;
+                    }
+
+                    var first = scope.Get(given, "Cells", 1, 1);
+                    var target = scope.Get(first, "Resize", rows, columns);
+                    if (!string.Equals(Text(scope.Get(scope.Get(target, "Worksheet"), "Name")), sheetName, StringComparison.Ordinal))
+                    {
+                        problem = "書く場所がほかのシートを指している（B3 の形で、シートの名前を付けない）: " + at;
+                        return null;
+                    }
+                    var address = Address(scope, target);   // 書いたあとは COM を呼ばない（書けたのに「書けなかった」と返さないように）
+
+                    var data = new object[rows, columns];
+                    for (var r = 0; r < rows; r++)
+                        for (var c = 0; c < columns; c++)
+                            data[r, c] = c < cells[r].Length ? cells[r][c] : string.Empty;
+                    object value = rows == 1 && columns == 1 ? data[0, 0] : (object)data;
+                    // Formula2 は、今の Excel で手で打ったときと同じ（FILTER・UNIQUE などの式がそのまま広がる）。Formula だと「@」が付いて1つの値になる。
+                    // Formula2 の無い古い Excel だけ Formula に入れる
+                    try
+                    {
+                        target.GetType().InvokeMember("Formula2", BindingFlags.SetProperty, null, target, new[] { value }, Automation);
+                    }
+                    catch (Exception ex) when (UnknownName(ex))   // Formula2 が無い（DISP_E_UNKNOWNNAME）
+                    {
+                        target.GetType().InvokeMember("Formula", BindingFlags.SetProperty, null, target, new[] { value }, Automation);
+                    }
+
+                    return new Written
+                    {
+                        Book = bookName,
+                        Sheet = sheetName,
+                        Address = address,
+                        Rows = rows,
+                        Columns = columns,
+                    };
+                }
+                catch (Exception ex)
+                {
+                    problem = IsBusy(ex) ? Busy(ex) : "書けなかった（式の書き間違い（英語の関数名・「,」の区切り）・シートの保護・結合したセル・配列の式など）: " + (ex.InnerException ?? ex).Message;
+                    return null;
+                }
+            }
         }
 
         /// <summary>開いているブック（ランチャーの Excel の一覧）。</summary>
@@ -347,6 +496,13 @@ namespace Tsuzuri.Office
                     return null;
                 }
             }
+        }
+
+        private static bool UnknownName(Exception ex)
+        {
+            if (ex is MissingMemberException || ex.InnerException is MissingMemberException) return true;
+            var com = ex as COMException ?? ex.InnerException as COMException;
+            return com != null && com.ErrorCode == unchecked((int)0x80020006);
         }
 
         private static bool IsBusy(Exception ex)

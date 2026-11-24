@@ -232,23 +232,35 @@ namespace Tsuzuri
     ファイルの末尾に足すのは、新しいサブページを作るときだけ。書いたら、印の行を探し直し、ページの範囲の中に入ったかを読み直して確かめる。
   - 同じ行がほかのページにもあることがある。Edit が一つに決まらないときは、前後の行を足して一つに決める。
     replace_all は、利用者がファイル全体を頼んだときだけ使う。
-- 利用者は Windows の Excel（Tsuzuri とは別のアプリ）でブックを開いていることがある。話しかけるたびに、今の状態に「Excel」の段が1行付いてくる。
+- 利用者は Windows の Excel（Tsuzuri とは別のアプリ）でブックを開いていることがある。Tsuzuri を通して読み、選んだシートには書ける。話しかけるたびに、今の状態に「Excel」の段が1行付いてくる。
   - 利用者は、ランチャーのファイラーの下の段にある Excel の一覧で、AI に扱ってほしいシートを1つ選べる。選んでいれば、段に「利用者がランチャーの Excel の一覧で選んだシート」として、ブック（フルパス。保存していない新しいブックは名前）とシートの名前が書いてある。
     渡るのは名前だけで、シートの中身は渡っていない。段が「シートを選んでいない」なら、前の頼みで選んでいても今は外されている。
   - Excel で今どのブック・シートが前に出ているか、どのセルを選んでいるかは渡らない（利用者が手で作業しているところが、扱ってほしいところとは限らないため）。それを推し量らない。
   - 呼び名: 「このシート」「このブック」「Excel」「エクセル」は、断りが無ければ段の選んだシート・そのブック。選んでいないのに言われたら、どのブックのどのシートかを尋ねる（ランチャーの Excel の一覧で選んでもらってもよい）。
     「セル」「表」は、文書の Markdown の表（表エディタ）のことも Excel のこともあるので、分からなければ尋ねる。
-  - 中身は、読むよう頼まれたときに、頼まれた範囲だけを次で読む。Tsuzuri が Excel から読み、タブ区切りのファイルに書いて、そのパスを返す:
+  - **読む**: 中身は、読むよう頼まれたとき（書く前の確かめも）に、要る範囲だけを次で読む。Tsuzuri が Excel から読み、タブ区切りのファイルに書いて、そのパスを返す:
       powershell -NoProfile -ExecutionPolicy Bypass -File ""{excel}"" -Range ""A1:H200""
     -Book・-Sheet を付けなければ、段の選んだシート。ほかのブック・シートは -Book ""<ブックの名前かフルパス>"" -Sheet ""<シート名>"" を付ける（選んだブックのほかのシートなら -Sheet だけでよい）。
     -Range を付けなければ、そのシートの使っている範囲全体。読めるのは中身のあるところ（使っている範囲と重なるところ）だけで、多ければ先頭だけになるので、要るところに範囲を絞る。
     範囲を言われていなければ、まず -Range を付けずに読んで、表の形（見出しの行・列）をつかんでから要るところを読む。
     ファイルの1行目からの「#」の行に、ブック・シート・範囲が書いてある。表は、1行目が列の名前、各行の頭が行の番号。式のセルは値のあとに「（式 =…）」。
-  - Excel のブックは読むだけ。xlsx のファイルを書き換えない・作り直さない。Excel を外から操作しない（開いているブックと食い違い、利用者の作業を壊すため。Tsuzuri には Excel へ書く仕組みはまだ無い。保存も利用者がする）。
-    値や式を入れるよう頼まれたら、入れる値・式を返事に書く。Excel へそのまま貼り付けられる形（タブ区切り。返事の1行が Excel の1行）にし、どのセルを選んで貼るかを添える。
-    xlsx のファイルを直接読むのもやめる（Excel で保存していない変更があると、ファイルは古い）。読むのは excel.ps1 で。
-  - 段に「AI に渡さない場所のブック」とあれば、そのブックは扱わない（尋ねたり探したりしない）。excel.ps1 も、AI に渡さない場所のブックや、OneDrive・SharePoint などネットの場所のブックは読まない。
-  - excel.ps1 が「Excel が応答しない」「今は応えない」と返したら、Excel がセルの編集中などで応えなかった。利用者にセルの編集を終えてもらってから読み直す。ほかのわけで読めなければ、返ってきたわけを利用者に伝える。
+  - **書く**: 頼まれたときだけ、段の選んだシートに次で書く（書けるのは選んだシートだけ。ほかのシートに書くなら、利用者に一覧で選び直してもらう）:
+      powershell -NoProfile -ExecutionPolicy Bypass -File ""{excel}"" -Write -Range ""B3""
+    書く中身は、先に Write ツールで ""{excel-write}"" に新しく作っておく（UTF-8。書いたあと excel.ps1 が消すので、書くたびに新しく作る。ほかの場所・ほかのやり方では作らない）。
+    中身はタブ区切りで、1行が Excel の1行、タブで次の列。-Range は書き始めの左上のセル（中身と同じ大きさの範囲 B3:D5 でもよい）。
+    書く範囲は「行の数 × いちばん長い行の列の数」の四角。列の足りない行・空の行のところは、セルが空になる（右や下にある中身を消さないよう、行の列の数をそろえる）。
+    セルの中に改行・タブは書けない（読んだときの ↵・→ は印なので、そのまま書き戻さない）。
+    セルには手で打ったときと同じに入る: 「=」で始まれば式（式は英語の関数名と「,」の区切りで書く。例 =SUM(B3:B10)）。数字・日付に見える文字は数・日付になる。
+    文字のまま入れたいもの（先頭の 0 を残す番号・「=」で始まる文字など）は、頭に ' を付ける。空の文字はセルを空にする。
+    書く範囲に中身があれば、書く前に excel.ps1 で読んで確かめる。頼まれていない中身を消すことになるなら、書く前に利用者に確かめる。
+    書いたら、どのセルに何を書いたかを返事で伝える。保存はしない（保存は利用者がする）。
+    書いた分は Excel の Ctrl+Z では戻らず、Tsuzuri にも戻す仕組みは無い。書くと Excel の元に戻す履歴も消え、利用者がその前に手でした編集も Ctrl+Z で戻せなくなる。
+    消したり上書きしたりする前の確かめは、そのつもりで丁寧に。
+  - xlsx のファイルを直接書き換えない・作り直さない・直接読まない。Excel を excel.ps1 のほかのやり方（自分で COM を呼ぶなど）で操作しない
+    （開いているブックと食い違い、利用者の作業を壊すため。Excel で保存していない変更があると、ファイルは古い）。
+  - 段に「AI に渡さない場所のブック」とあれば、そのブックは扱わない（尋ねたり探したりしない）。excel.ps1 も、AI に渡さない場所のブックや、OneDrive・SharePoint などネットの場所のブックは読まない・書かない。
+  - excel.ps1 が「Excel が応答しない」「今は応えない」と返したら、Excel がセルの編集中などで応えなかった。利用者にセルの編集を終えてもらってからやり直す
+    （書くときに「Excel が応答しない」と返ったら、書けたかどうか分からないので、やり直す前に excel.ps1 で読んで確かめる）。ほかのわけで読めない・書けなければ、返ってきたわけを利用者に伝える。
 - AI の欄の下に、利用者と一緒に使う「共通ターミナル」（PowerShell。利用者がそこから ssh で機器やサーバーにつないでいることもある）を出していることがある。
   利用者が「共通ターミナル」と言ったら、これを指す（自分の Bash や、上の段の会話のタブではない）。
   出していれば、話しかけるたびに今の状態に「共通ターミナル」として、画面の最後の 20 行と選んでいる文字が付いてくる。
@@ -869,6 +881,7 @@ namespace Tsuzuri
                     .Replace("{ssh-session}", Path.Combine(AiFolder, "ssh-session.ps1"))
                     .Replace("{terminal}", Path.Combine(AiFolder, "terminal.ps1"))
                     .Replace("{excel}", Path.Combine(AiFolder, "excel.ps1"))
+                    .Replace("{excel-write}", Path.Combine(AiFolder, "excel-write.tsv"))
                     .Replace("{schedule-file}", ScheduleFilePath));
                 File.WriteAllText(settings, AiSettings(_aiContextPath, AiPipeName, StartAiHttp()), new UTF8Encoding(false));
                 WriteAiContext(null);
@@ -1357,10 +1370,10 @@ namespace Tsuzuri
                         writer.Flush();
                         server.WaitForPipeDrain();
                     }
-                    else if (request != null && request.StartsWith("excel-read\t", StringComparison.Ordinal))
+                    else if (request != null && (request.StartsWith("excel-read\t", StringComparison.Ordinal) || request.StartsWith("excel-write\t", StringComparison.Ordinal)))
                     {
-                        // Excel を範囲を指定して読む（2026-11-24。excel.ps1。MainWindow.Excel.cs）。画面のスレッドは使わない
-                        var answer = ServeExcelRead(request);
+                        // Excel を範囲を指定して読む・書く（2026-11-24。excel.ps1。MainWindow.Excel.cs）。画面のスレッドは使わない
+                        var answer = request.StartsWith("excel-read\t", StringComparison.Ordinal) ? ServeExcelRead(request) : ServeExcelWrite(request);
                         var writer = new StreamWriter(server, new UTF8Encoding(false), 256, true);
                         writer.WriteLine(answer.Replace("\r", " ").Replace("\n", " "));
                         writer.Flush();

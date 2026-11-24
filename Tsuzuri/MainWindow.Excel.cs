@@ -16,7 +16,8 @@ namespace Tsuzuri
     // ・話しかけるたびの今の状態に「Excel」の段を書く: 選んだブックとシートの名前だけ（中身・Excel で前に出ているもの・保存したかは渡さない。利用者の判断。
     //   手で作業しているシートが AI に扱ってほしいシートとは限らず、読むところは利用者が話しかけて指定するため）。話しかけるたびに Excel は読まない。
     // ・Claude が範囲を指定して読む（excel.ps1 → パイプの excel-read。結果はファイルに書いてパスを返す）。ブック・シートを付けなければ、選んだシート。
-    // 読むだけ。Excel には何もしない。COM を使うのは Office/ExcelReader.cs だけ。
+    // ・Claude が書く（excel.ps1 -Write → パイプの excel-write）。書けるのは一覧で選んだシートだけ。保存は利用者がする。戻す仕組みは持たない（利用者の判断）。
+    // COM を使うのは Office/ExcelBridge.cs だけ。
     public partial class MainWindow
     {
         /// <summary>一覧で選んだシート（ブックはフルパスか、保存していなければ名前）。選んでいなければ null。パイプのスレッドからも読むので、組で入れ替える。</summary>
@@ -119,7 +120,7 @@ namespace Tsuzuri
             }
 
             string bookShown, sheetShown, problem;
-            var grid = ExcelReader.ReadRange(book, sheet, range, 10000, IsGuardedBook, out bookShown, out sheetShown, out problem);
+            var grid = ExcelBridge.ReadRange(book, sheet, range, 10000, IsGuardedBook, out bookShown, out sheetShown, out problem);
             if (grid == null)
                 return "error\t" + (problem ?? "Excel を読めなかった。")
                        + (choice != null && book == chosenBook && problem != null && problem.StartsWith("そのブックは Excel で開いていない", StringComparison.Ordinal)
@@ -150,6 +151,51 @@ namespace Tsuzuri
                    + (grid.Truncated || grid.ColumnsTruncated ? "。多いので一部だけ（ファイルの最後の行に書いた）" : string.Empty) + "）";
         }
 
+        /// <summary>
+        /// Claude が書く（パイプの「excel-write→ブック→シート→場所→中身」。どれも Base64）。書けるのは一覧で選んだシートだけ（ブック・シートを付けなければそのシート）。
+        /// 中身はタブ区切りで、1行が Excel の1行。書けたら「ok→説明」、書けなければ「error→わけ」。
+        /// </summary>
+        private string ServeExcelWrite(string request)
+        {
+            var parts = request.Split('\t');
+            string book, sheet, at, content;
+            try
+            {
+                book = parts.Length > 1 ? Encoding.UTF8.GetString(Convert.FromBase64String(parts[1])).Trim() : string.Empty;
+                sheet = parts.Length > 2 ? Encoding.UTF8.GetString(Convert.FromBase64String(parts[2])).Trim() : string.Empty;
+                at = parts.Length > 3 ? Encoding.UTF8.GetString(Convert.FromBase64String(parts[3])).Trim() : string.Empty;
+                content = parts.Length > 4 ? Encoding.UTF8.GetString(Convert.FromBase64String(parts[4])) : string.Empty;
+            }
+            catch (FormatException)
+            {
+                return "error\t頼みを読めなかった。";
+            }
+
+            var choice = _excelChoice;
+            if (choice == null) return "error\t書けるのは、利用者がランチャーの Excel の一覧で選んだシートだけ。今は選ばれていないので書けない。利用者に一覧で選んでもらう";
+            var sameBook = book.Length == 0 || string.Equals(book, choice.Book, StringComparison.OrdinalIgnoreCase)
+                           || string.Equals(book, Path.GetFileName(choice.Book), StringComparison.OrdinalIgnoreCase);
+            if (!sameBook || (sheet.Length > 0 && !string.Equals(sheet, choice.Sheet, StringComparison.Ordinal)))
+                return "error\t書けるのは、利用者がランチャーの Excel の一覧で選んだシート（" + Path.GetFileName(choice.Book) + " › " + choice.Sheet + "）だけ。ほかのシートに書くなら、利用者に一覧で選び直してもらう";
+            if (IsGuardedBook(choice.Book)) return "error\tAI に渡さない場所のブックには書かない";
+            if (at.Length == 0) return "error\t書く場所（左上のセル。B3 の形）を -Range で付ける";
+
+            var lines = content.Replace("\r\n", "\n").Replace("\r", "\n").Split('\n').ToList();
+            if (lines.Count > 0 && lines[lines.Count - 1].Length == 0) lines.RemoveAt(lines.Count - 1);   // 最後の改行
+            var cells = lines.Select(line => line.Split('\t')).ToList();
+
+            string problem;
+            var written = ExcelBridge.Write(choice.Book, choice.Sheet, at, cells, 10000, out problem);
+            if (written == null) return "error\t" + (problem ?? "書けなかった。");
+
+            Dispatcher.BeginInvoke(new Action(delegate
+            {
+                Status("Claude が Excel に書きました: " + Path.GetFileName(written.Book) + " › " + written.Sheet + "!" + written.Address + "（保存はしていません）");
+            }));
+            return "ok\t書いた: " + Path.GetFileName(written.Book) + " › " + written.Sheet + "!" + written.Address + "（" + written.Rows + " 行 × " + written.Columns + " 列）。"
+                   + "保存はしていない（保存は利用者がする）";
+        }
+
         // ---------------------------------------------------------------
         // ランチャーの Excel の一覧
         // ---------------------------------------------------------------
@@ -178,7 +224,7 @@ namespace Tsuzuri
             _excelListing = true;
             _excelListPending = false;
             string listProblem = null;
-            Task.Run(() => ExcelReader.ListBooks(3000, out listProblem)).ContinueWith(task =>
+            Task.Run(() => ExcelBridge.ListBooks(3000, out listProblem)).ContinueWith(task =>
             {
                 _excelListing = false;
                 if (_excelListPending)
@@ -200,12 +246,12 @@ namespace Tsuzuri
         }
 
         /// <summary>最後に読めた一覧（押したときに出し直すため。Excel を読み直さずに済ませる）。</summary>
-        private List<ExcelReader.Book> _lastExcelBooks;
+        private List<ExcelBridge.Book> _lastExcelBooks;
 
         /// <summary>最後に一覧を読めなかったわけ（一覧に出す）。</summary>
         private string _excelListProblem;
 
-        private void ShowExcelList(List<ExcelReader.Book> books)
+        private void ShowExcelList(List<ExcelBridge.Book> books)
         {
             if (_excelList != null) _excelList.Show(books, IsGuardedBook, _excelBook, _excelSheet, _excelListProblem);
         }

@@ -54,6 +54,7 @@ namespace Tsuzuri
             view.SetResultAreaHeight(_settings.SearchResultHeight);
             view.ResultAreaResized += (sender, height) => ResizeSearchResults(height);
             view.StatusRequested += (sender, message) => Status(message);
+            view.OtherPageResultRequested += (sender, hit) => OpenOtherPageResult(view, hit);
 
             // 検索語のお気に入りは、ファイルごとに state.json に覚える（2026-11-04。SPEC 12章）。
             view.SearchFavoritesSource = () =>
@@ -70,6 +71,29 @@ namespace Tsuzuri
             view.TextArea.GotKeyboardFocus += delegate { OnViewFocused(view); };
 
             return view;
+        }
+
+        /// <summary>
+        /// 検索の一覧で、同じファイルのほかのページの当たりを押した（2026-11-24。SPEC 12章）。そのページをルートからのリンクの連鎖どおりに開き、
+        /// 検索欄を同じ検索語にして、その行の当たりへ移る。辿れないページ（孤立ページ）なら ShowPage が知らせて開かない。
+        /// </summary>
+        private void OpenOtherPageResult(MarkdownView source, MarkdownView.OtherPageResult hit)
+        {
+            var document = source.Owner;
+            if (document == null || !document.Contains(hit.PageId))
+            {
+                Status("そのページはもうありません。検索し直してください");
+                return;
+            }
+
+            var view = FindView(document, hit.PageId);
+            if (view == null || !_visible.Contains(view)) view = ShowPage(document, hit.PageId);
+            if (view == null) return;
+
+            if (view.SearchText != hit.Pattern) view.SearchText = hit.Pattern;
+            var target = view;
+            // 開いたばかりのページはまだ並べ終わっていないので、並んでから移る（見出しのブックマークと同じ）
+            Dispatcher.BeginInvoke(new Action(delegate { target.ShowSearchHitOnLine(hit.Line, hit.Pattern); }), DispatcherPriority.Loaded);
         }
 
         /// <summary>検索語のお気に入りを変えた。そのファイルの state.json に書き、同じファイルのページの欄を並べ直す。</summary>

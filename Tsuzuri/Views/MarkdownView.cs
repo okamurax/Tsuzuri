@@ -156,6 +156,15 @@ namespace Tsuzuri.Views
         private readonly List<int> _matchOffsets = new List<int>();
         private readonly List<int> _matchLengths = new List<int>();
 
+        /// <summary>同じファイルのほかのページの当たり（2026-11-24。SPEC 12章）。一覧に出すだけで、↑↓・置換・本文の地色には使わない。</summary>
+        private readonly List<OtherPageHits> _otherHits = new List<OtherPageHits>();
+
+        /// <summary>ほかのページの照合の覚え（ページ → 照合した中身と検索語と結果）。中身も検索語も同じなら照合し直さない（このページで打つたびに全ページを探し直さないように）。</summary>
+        private readonly Dictionary<string, OtherPageCache> _otherCache = new Dictionary<string, OtherPageCache>(StringComparer.Ordinal);
+
+        /// <summary>一覧を作った検索語（ほかのページの行を押したとき、開いた先へ渡す。押す前に打ち換えていても、一覧と同じ語を渡す）。</summary>
+        private string _appliedPattern = string.Empty;
+
         private Regex _search;
 
         private int _savedCaret = -1;
@@ -2683,13 +2692,18 @@ namespace Tsuzuri.Views
                 // 破滅的なバックトラックを起こす式。当たりを出さずに打ち直してもらう。
                 _matchOffsets.Clear();
                 _matchLengths.Clear();
+                _otherHits.Clear();
                 _search = null;
                 _searchBox.Foreground = Theme.InvalidInput;
             }
 
+            // ほかのページは別に探す。時間切れになっても、このページの当たりは残し、ほかのページを出さないだけにする
+            _appliedPattern = pattern ?? string.Empty;
+            RecomputeOtherPages();
+
             _searchCount.Text = _search == null
                 ? string.Empty
-                : (_matchOffsets.Count == 0 ? "なし" : _matchOffsets.Count + " 件");
+                : (_matchOffsets.Count == 0 ? "なし" : _matchOffsets.Count + " 件") + OtherCountText();
 
             RebuildResults();
             TextArea.TextView.Redraw();
@@ -2797,10 +2811,10 @@ namespace Tsuzuri.Views
             _resultList.Children.Clear();
             _selectedResult = null;
 
-            if (_search == null || _matchOffsets.Count == 0)
+            if (_search == null || (_matchOffsets.Count == 0 && _otherHits.Count == 0))
             {
                 _resultList.Children.Add(CreateHint(_searchBox.Text.Length == 0
-                    ? "検索語を入れると、当たった行をここに出す"
+                    ? "検索語を入れると、当たった行をここに出す（同じファイルのほかのページの当たりも、下に続けて出す）"
                     : _search == null ? "正規表現として読めない" : "当たりなし"));
                 return;
             }
@@ -2808,6 +2822,8 @@ namespace Tsuzuri.Views
             var shown = 0;
             var total = 0;
             var i = 0;
+
+            if (_matchOffsets.Count == 0) _resultList.Children.Add(CreateHint("このページは当たりなし"));
 
             // 当たりは文書の順に並んでいるので、同じ行のものをまとめて1行にする。
             while (i < _matchOffsets.Count)
@@ -2822,6 +2838,23 @@ namespace Tsuzuri.Views
 
                 _resultList.Children.Add(CreateResultRow(line, first, i));
                 shown++;
+            }
+
+            // 同じファイルのほかのページ（ファイルの中の順）。ページごとに題の段を置き、続けて当たった行
+            foreach (var page in _otherHits)
+            {
+                total += page.Lines.Count;
+                if (shown >= MaxResultRows) continue;
+
+                _resultList.Children.Add(CreateOtherPageHeader(page));
+                foreach (var hit in page.Lines)
+                {
+                    if (shown >= MaxResultRows) break;
+                    var target = hit;
+                    _resultList.Children.Add(CreateResultRowCore(hit.LineNumber, hit.Source, hit.Columns, hit.Lengths,
+                        row => OpenOtherResult(row, page.PageId, target.LineNumber)));
+                    shown++;
+                }
             }
 
             if (total > shown)
@@ -3060,12 +3093,23 @@ namespace Tsuzuri.Views
         /// </summary>
         private Border CreateResultRow(DocumentLine line, int from, int to)
         {
-            var source = Document.GetText(line.Offset, line.Length);
+            var columns = new List<int>();
+            var lengths = new List<int>();
+            for (var k = from; k < to; k++)
+            {
+                columns.Add(_matchOffsets[k] - line.Offset);
+                lengths.Add(_matchLengths[k]);
+            }
+            return CreateResultRowCore(line.LineNumber, Document.GetText(line.Offset, line.Length), columns, lengths, row => OpenResult(row, from));
+        }
 
+        /// <summary>一覧の1行。行番号と、当たりに地色を敷いたその行の文字。押すと open（このページの行も、ほかのページの行も同じ形）。</summary>
+        private Border CreateResultRowCore(int lineNumber, string source, IList<int> columns, IList<int> lengths, Action<Border> open)
+        {
             var lead = 0;
             while (lead < source.Length && char.IsWhiteSpace(source[lead])) lead++;
 
-            var firstColumn = _matchOffsets[from] - line.Offset;
+            var firstColumn = columns[0];
             var start = firstColumn - lead > 30 ? firstColumn - 20 : lead;
 
             var text = new TextBlock();
@@ -3081,10 +3125,10 @@ namespace Tsuzuri.Views
 
             var position = start;
 
-            for (var k = from; k < to; k++)
+            for (var k = 0; k < columns.Count; k++)
             {
-                var column = _matchOffsets[k] - line.Offset;
-                var length = Math.Min(_matchLengths[k], source.Length - column);
+                var column = columns[k];
+                var length = Math.Min(lengths[k], source.Length - column);
                 if (column < position || length <= 0) continue;
 
                 if (column > position)
@@ -3101,7 +3145,7 @@ namespace Tsuzuri.Views
                 text.Inlines.Add(new System.Windows.Documents.Run(source.Substring(position)));
 
             var number = new TextBlock();
-            number.Text = line.LineNumber.ToString();
+            number.Text = lineNumber.ToString();
             number.Foreground = Theme.LineNumber;
             number.FontSize = 12;
             number.Width = 34;
@@ -3130,9 +3174,181 @@ namespace Tsuzuri.Views
                 if (row != _selectedResult) row.Background = Brushes.Transparent;
             };
 
-            row.MouseLeftButtonUp += delegate { OpenResult(row, from); };
+            row.MouseLeftButtonUp += delegate { open(row); };
 
             return row;
+        }
+
+        // ---------------------------------------------------------------
+        // 同じファイルのほかのページの当たり（2026-11-24。SPEC 12章「ほかのページ」）
+        //
+        // 一覧に出すだけ。↑↓・置換・本文の地色は今までどおりこのページだけ（置換をほかのページへ広げると、Ctrl+Z がページごとなので戻せなくなるため。利用者の判断）。
+        // 押すと OtherPageResultRequested で知らせ、受け手（MainWindow）がそのページをルートからのリンクの連鎖どおりに開いて、その行へ移る。
+        // ---------------------------------------------------------------
+
+        private sealed class OtherPageHits
+        {
+            public string PageId;
+            public string Title;
+            public readonly List<OtherPageLine> Lines = new List<OtherPageLine>();
+        }
+
+        private sealed class OtherPageLine
+        {
+            public int LineNumber;   // そのページの中の行番号（1 から）
+            public string Source;
+            public readonly List<int> Columns = new List<int>();
+            public readonly List<int> Lengths = new List<int>();
+        }
+
+        /// <summary>ほかのページの当たりを押した。受け手がそのページを開き、Line の行の当たりへ移る（ShowSearchHitOnLine）。</summary>
+        public sealed class OtherPageResult : EventArgs
+        {
+            public string PageId;
+            public int Line;
+            public string Pattern;
+        }
+
+        public event EventHandler<OtherPageResult> OtherPageResultRequested;
+
+        private sealed class OtherPageCache
+        {
+            public string Text;
+            public string Pattern;
+            public OtherPageHits Hits;   // 当たりが無ければ null
+        }
+
+        /// <summary>
+        /// 同じファイルのほかのページを、このページと同じ照合（行ごと・大文字小文字を区別しない・空の当たりは数えない）で探す。読み取り専用・消えたページでは探さない。
+        /// 中身と検索語が前と同じページは、前の結果を使う。時間切れ（1回 100ms）になったら、ほかのページは出さない（このページの当たりはそのまま）。
+        /// </summary>
+        private void RecomputeOtherPages()
+        {
+            _otherHits.Clear();
+            if (_search == null || _owner == null || IsReadOnly || !_owner.Contains(_pageId))
+            {
+                _otherCache.Clear();
+                return;
+            }
+
+            var pattern = _search.ToString();
+            var seen = new HashSet<string>(StringComparer.Ordinal);
+            try
+            {
+                foreach (var page in _owner.Pages)
+                {
+                    if (string.Equals(page.Id, _pageId, StringComparison.Ordinal)) continue;
+                    seen.Add(page.Id);
+
+                    var text = page.Text ?? string.Empty;
+                    OtherPageCache cached;
+                    if (!_otherCache.TryGetValue(page.Id, out cached) || !ReferenceEquals(cached.Text, text) && cached.Text != text || cached.Pattern != pattern)
+                    {
+                        cached = new OtherPageCache { Text = text, Pattern = pattern, Hits = MatchOtherPage(page.Id, text) };
+                        _otherCache[page.Id] = cached;
+                    }
+                    if (cached.Hits != null) _otherHits.Add(cached.Hits);
+                }
+            }
+            catch (RegexMatchTimeoutException)
+            {
+                _otherHits.Clear();
+                _otherCache.Clear();
+                return;
+            }
+
+            foreach (var gone in _otherCache.Keys.Where(id => !seen.Contains(id)).ToList()) _otherCache.Remove(gone);
+        }
+
+        private OtherPageHits MatchOtherPage(string pageId, string text)
+        {
+            var lines = text.Split('\n');
+            OtherPageHits hits = null;
+            for (var i = 0; i < lines.Length; i++)
+            {
+                var source = lines[i].TrimEnd('\r');
+                OtherPageLine hit = null;
+                foreach (Match match in _search.Matches(source))
+                {
+                    if (match.Length == 0) continue;
+                    if (hit == null) hit = new OtherPageLine { LineNumber = i + 1, Source = source };
+                    hit.Columns.Add(match.Index);
+                    hit.Lengths.Add(match.Length);
+                }
+                if (hit == null) continue;
+                if (hits == null) hits = new OtherPageHits { PageId = pageId, Title = OtherPageTitle(pageId, lines) };
+                hits.Lines.Add(hit);
+            }
+            return hits;
+        }
+
+        /// <summary>ページの題（Title に近い形: 文字のある最初の行。見出しの # は外す）。</summary>
+        private string OtherPageTitle(string pageId, string[] lines)
+        {
+            foreach (var line in lines)
+            {
+                var text = HeadingText.Display(line.Trim().TrimStart('#').Trim());
+                if (text.Length > 0) return text;
+            }
+            if (pageId == PageDocument.RootId && FilePath != null) return Path.GetFileNameWithoutExtension(FilePath);
+            return "無題";
+        }
+
+        private string OtherCountText()
+        {
+            var count = _otherHits.Sum(page => page.Lines.Sum(line => line.Columns.Count));
+            return count == 0 ? string.Empty : "（ほかのページ " + count + " 件）";
+        }
+
+        private UIElement CreateOtherPageHeader(OtherPageHits page)
+        {
+            var title = new TextBlock();
+            title.Text = (page.PageId == PageDocument.RootId ? "ルートのページ" : "ページ") + "「" + page.Title + "」";
+            title.Foreground = Theme.Muted;
+            title.FontSize = 12;
+            title.FontWeight = FontWeights.SemiBold;
+            title.TextTrimming = TextTrimming.CharacterEllipsis;
+            title.Margin = new Thickness(14, 6, 8, 2);
+            title.ToolTip = "同じファイルのほかのページ。押した行のページを開いて移る（置換はこのページだけ）";
+            return title;
+        }
+
+        private void OpenOtherResult(Border row, string pageId, int line)
+        {
+            if (_selectedResult != null) _selectedResult.Background = Brushes.Transparent;
+            _selectedResult = row;
+            row.Background = ResourceBrush("SelectionFill");
+
+            var handler = OtherPageResultRequested;
+            if (handler != null) handler(this, new OtherPageResult { PageId = pageId, Line = line, Pattern = _appliedPattern });
+        }
+
+        /// <summary>
+        /// ほかのページの一覧から移ってきた: その行の最初の当たりを選ぶ（検索欄は受け手が先に合わせる）。
+        /// 一覧を作ったあとで書き換わり、行が無い・当たらないときは、行があればその行の頭へ、無ければ何もしない。
+        /// </summary>
+        public void ShowSearchHitOnLine(int lineNumber, string pattern)
+        {
+            if (lineNumber < 1 || lineNumber > Document.LineCount) return;
+
+            var line = Document.GetLineByNumber(lineNumber);
+            var source = Document.GetText(line.Offset, line.Length);
+            try
+            {
+                var regex = new Regex(pattern ?? string.Empty, RegexOptions.IgnoreCase, TimeSpan.FromMilliseconds(100));
+                foreach (Match match in regex.Matches(source))
+                {
+                    if (match.Length == 0) continue;
+                    Select(line.Offset + match.Index, match.Length);
+                    ScrollTo(lineNumber, 0);
+                    Focus();
+                    return;
+                }
+            }
+            catch (ArgumentException) { }
+            catch (RegexMatchTimeoutException) { }
+
+            GoToLine(lineNumber);
         }
 
         /// <summary>
@@ -3274,7 +3490,9 @@ namespace Tsuzuri.Views
             }
             if (plan.Lines > plan.Samples.Count) text.Append("ほか ").Append(plan.Lines - plan.Samples.Count).Append(" 行").AppendLine();
             text.AppendLine();
-            text.Append("リンクの URL・ID の中の当たりも置き換わります。ほかのページへ移ると、Ctrl+Z では戻せなくなります。").AppendLine();
+            text.Append("リンクの URL・ID の中の当たりも置き換わります。");
+            if (_otherHits.Count > 0) text.Append("一覧に出ている、ほかのページの当たりは置き換えません。");
+            text.Append("ほかのページへ移ると、Ctrl+Z では戻せなくなります。").AppendLine();
             text.Append("置き換えますか？");
 
             var answer = MessageBox.Show(Window.GetWindow(this), text.ToString(), "置換",

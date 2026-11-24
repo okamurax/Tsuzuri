@@ -189,29 +189,7 @@
                         <ColumnDefinition x:Name="FilerColumn" Width="300" MinWidth="180" />
                     </Grid.ColumnDefinitions>
 
-                    <!-- 左: ランチャー。ファイラーの git の印を押すと、下半分に差分を出す（2026-11-24。× で閉じるとランチャーだけに戻る。MainWindow.Overlays.cs） -->
-                    <Grid Grid.Column="0">
-                        <Grid.RowDefinitions>
-                            <RowDefinition x:Name="LauncherRow" Height="*" />
-                            <RowDefinition x:Name="DiffSplitRow" Height="0" />
-                            <RowDefinition x:Name="DiffRow" Height="0" />
-                        </Grid.RowDefinitions>
-                        <Border x:Name="LauncherSlot" Grid.Row="0" />
-                        <GridSplitter x:Name="DiffSplitter" Grid.Row="1" Height="4" Visibility="Collapsed"
-                                      HorizontalAlignment="Stretch" VerticalAlignment="Stretch" ResizeDirection="Rows" />
-                        <DockPanel x:Name="DiffPanel" Grid.Row="2" Visibility="Collapsed">
-                            <Border DockPanel.Dock="Top" Height="32" BorderBrush="{StaticResource BorderBrushSoft}" BorderThickness="0,1,0,1">
-                                <DockPanel Margin="12,0,4,0">
-                                    <Button x:Name="DiffClose" DockPanel.Dock="Right" Style="{StaticResource ToolButton}" Content="&#xE711;"
-                                            FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" FontSize="12" Padding="8,4,8,4" Focusable="False"
-                                            VerticalAlignment="Center" ToolTip="差分を閉じる（ランチャーだけに戻す）" Click="DiffClose_Click" />
-                                    <TextBlock x:Name="DiffTitle" VerticalAlignment="Center" FontSize="12" TextTrimming="CharacterEllipsis"
-                                               Foreground="{StaticResource SidebarText}" />
-                                </DockPanel>
-                            </Border>
-                            <Border x:Name="DiffSlot" />
-                        </DockPanel>
-                    </Grid>
+                    <Border x:Name="LauncherSlot" Grid.Column="0" />
 
                     <GridSplitter Grid.Column="1" Width="4"
                                   HorizontalAlignment="Stretch" VerticalAlignment="Stretch"

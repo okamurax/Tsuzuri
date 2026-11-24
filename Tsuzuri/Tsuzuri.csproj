@@ -218,7 +218,6 @@
     <Compile Include="Views\FileIcon.cs" />
     <Compile Include="Views\FilerView.cs" />
     <Compile Include="Views\FilerGit.cs" />
-    <Compile Include="Views\DiffView.cs" />
     <Compile Include="Views\IndentGuideRenderer.cs" />
     <Compile Include="Views\MarkdownColorizer.cs" />
     <Compile Include="Views\CodeHighlighter.cs" />

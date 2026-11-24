@@ -23,7 +23,7 @@ namespace Tsuzuri.Views
     /// フォルダの木でも、作業フォルダの登録でもない（SPEC 1章。フォルダの登録はランチャー）。
     /// できるのは探すこと、ドラッグ、開くこと（Markdown はこのエディタで、ほかは既定のアプリで）と、
     /// 右クリックでの作成・名前の変更・削除（2026-10-12）。コピーや移動など、それ以上はエクスプローラーで行う。
-    /// 見ているフォルダが git の管理の中なら、行の右端に git の状態の印を付け、押すと差分を見せる（2026-11-24。FilerGit。差分はランチャーの下半分に出す: MainWindow.Overlays.cs）。
+    /// 見ているフォルダが git の管理の中なら、行の右端に git の状態の印を付ける（2026-11-24。FilerGit）。
     /// </summary>
     public sealed class FilerView : DockPanel
     {
@@ -211,9 +211,6 @@ namespace Tsuzuri.Views
             Children.Add(_scroll);
         }
 
-        /// <summary>git の状態の印を押した（2026-11-24）。パスと、フォルダかどうか。差分を見せる（MainWindow.Overlays.cs）。</summary>
-        public event Action<string, bool> DiffRequested;
-
         /// <summary>見ているフォルダが変わった（2026-11-05。アプリで1つの「最後に見たフォルダ」として、すぐ app.json に覚える）。</summary>
         public event Action<string> FolderChanged;
 
@@ -386,7 +383,6 @@ namespace Tsuzuri.Views
                 row.Mark.Foreground = brush;
                 row.Mark.FontSize = row.IsFolder ? 9 : 12;
                 row.Mark.ToolTip = FilerGit.Describe(mark, row.IsFolder);
-                row.Mark.Cursor = letter != null ? Cursors.Hand : null;
                 row.Mark.Visibility = letter != null ? Visibility.Visible : Visibility.Collapsed;
             }
         }
@@ -701,19 +697,8 @@ namespace Tsuzuri.Views
                     Margin = new Thickness(6, 0, 0, 0),
                     FontSize = 12,
                     FontWeight = FontWeights.SemiBold,
-                    Background = Brushes.Transparent,   // 字の無い所を押しても受ける
                 };
                 DockPanel.SetDock(mark, Dock.Right);
-                mark.MouseLeftButtonDown += (sender, e) =>
-                {
-                    if (mark.Visibility != Visibility.Visible || mark.Text.Length == 0) return;
-                    e.Handled = true;   // 行の「押して離すと開く・移る」にしない
-                    if (e.ClickCount > 1) return;
-                    var requested = DiffRequested;
-                    if (requested != null) requested(path, isFolder);
-                };
-                mark.MouseEnter += delegate { if (mark.Text.Length > 0) mark.TextDecorations = TextDecorations.Underline; };
-                mark.MouseLeave += delegate { mark.TextDecorations = null; };
                 content.Children.Add(mark);
                 _gitRows[name] = new GitRow { Name = text, Mark = mark, IsFolder = isFolder };
             }

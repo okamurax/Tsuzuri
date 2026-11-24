@@ -578,7 +578,6 @@ namespace Tsuzuri
         private void CreateFiler()
         {
             _filer = new FilerView(Status, OpenInApp, CreateFromFiler, IsInUse, OnFilerRenamed);
-            _filer.DiffRequested += ShowDiff;   // git の印を押した（2026-11-24。MainWindow.Overlays.cs）
 
             // 前回最後に見ていたフォルダから。無ければ見ているページのフォルダ、それも無ければドキュメント。
             // ただし作るのはコンストラクタの中で、まだ何も開いていないので、今は「見ているページのフォルダ」になることは無い。

@@ -22,7 +22,7 @@ namespace Tsuzuri.Views
     }
 
     /// <summary>
-    /// ファイラーの git の状態と差分（2026-11-24。利用者の考え。SPEC 4章）。
+    /// ファイラーの git の状態（2026-11-24。利用者の考え。SPEC 4章）。
     /// 見ているフォルダが git の管理の中なら、`git status` でそのフォルダの直下の名前ごとの状態を読む（フォルダは中の変更をまとめる）。
     /// git は文書の変更の履歴と同じもの（exe の隣の MinGit か、PC の Git。DocumentHistory.GitPath）。無ければ何もしない。
     /// 読むだけで、利用者の git には書かない（--no-optional-locks で index も書き換えない）。どれも裏のスレッドから呼ぶ。
@@ -31,13 +31,6 @@ namespace Tsuzuri.Views
     {
         /// <summary>\\Mac\ 共有などで遅いとき、これを過ぎたら打ち切る（印を出さないだけ）。</summary>
         private const int StatusTimeout = 5000;
-        private const int DiffTimeout = 10000;
-
-        /// <summary>差分の文字の上限（大きすぎるとエディタが重い）。超えた分は切って、そう書く。</summary>
-        private const int MaxDiffChars = 2000000;
-
-        /// <summary>まだ記録の無い（HEAD の無い）リポジトリで比べる、空の木。</summary>
-        private const string EmptyTree = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
 
         /// <summary>
         /// フォルダの直下の名前（大文字小文字は区別しない）ごとの状態。git の管理の外・git が無い・読めない・時間切れなら null。
@@ -160,7 +153,7 @@ namespace Tsuzuri.Views
                 case GitMark.Conflict: text = isFolder ? "競合がある" : "競合"; break;
                 default: return null;
             }
-            return "git: " + text + "（押すと差分を見る）";
+            return "git: " + text;
         }
 
         private static readonly Brush Green = Freeze("#FF73C991");
@@ -174,83 +167,6 @@ namespace Tsuzuri.Views
             var brush = new SolidColorBrush((Color)ColorConverter.ConvertFromString(color));
             brush.Freeze();
             return brush;
-        }
-
-        /// <summary>
-        /// 差分の文（git diff の形）。最後の記録（HEAD。無ければ空）と今のファイルを比べる（ステージ済みも、まだのものも合わせて）。
-        /// git の管理に入っていないファイルは、中身を全部足した行として出す。フォルダは中の変更をまとめて出し、管理に入っていないものは名前を並べる。
-        /// 出せなければ、そのわけを書いた文を返す。
-        /// </summary>
-        public static string Diff(string path, bool isFolder)
-        {
-            if (DocumentHistory.GitPath == null) return "git が見つかりません。";
-            var folder = isFolder ? path : Path.GetDirectoryName(path);
-            var name = isFolder ? "." : Path.GetFileName(path);
-            if (string.IsNullOrEmpty(folder) || !Directory.Exists(folder)) return "フォルダが見つかりません: " + folder;
-
-            string head;
-            var baseRef = Run(folder, "rev-parse --verify --quiet HEAD", StatusTimeout, out head) == 0 ? "HEAD" : EmptyTree;
-
-            string untracked;
-            if (Run(folder, "--no-optional-locks --literal-pathspecs ls-files --others --exclude-standard -z -- " + Quote(name), DiffTimeout, out untracked) != 0) untracked = null;
-            var newFiles = new List<string>();
-            foreach (var item in (untracked ?? string.Empty).Split('\0'))
-            {
-                if (item.Length > 0) newFiles.Add(item);
-            }
-
-            if (!isFolder && newFiles.Count > 0) return NewFileDiff(path);
-
-            string diff;
-            var code = Run(folder, "--no-optional-locks --literal-pathspecs -c core.quotepath=false diff --no-color --no-ext-diff --no-textconv " + baseRef + " -- " + Quote(name), DiffTimeout, out diff);
-            if (code != 0 || diff == null) return "差分を出せませんでした（git の管理の外か、時間切れ）。";
-
-            var text = new StringBuilder(diff);
-            if (isFolder && newFiles.Count > 0)
-            {
-                if (text.Length > 0) text.Append('\n');
-                text.Append("# git の管理に入っていない新しいファイル（").Append(newFiles.Count).Append(" 個）\n");
-                foreach (var item in newFiles) text.Append("? ").Append(item).Append('\n');
-            }
-            if (text.Length == 0) return "差分はありません（最後の記録と同じ）。";
-            return Cut(text.ToString());
-        }
-
-        /// <summary>管理に入っていないファイル: 全部の行を足した形で出す（文字でなさそうなら、そう書くだけ）。</summary>
-        private static string NewFileDiff(string path)
-        {
-            try
-            {
-                var bytes = File.ReadAllBytes(path);
-                if (Array.IndexOf(bytes, (byte)0) >= 0) return "# git の管理に入っていない新しいファイル（文字のファイルではないので、中身は出さない）: " + Path.GetFileName(path);
-                var content = Encoding.UTF8.GetString(bytes).Replace("\r\n", "\n");
-                var lines = content.Split('\n');
-                var count = content.EndsWith("\n") ? lines.Length - 1 : lines.Length;
-                var text = new StringBuilder();
-                text.Append("# git の管理に入っていない新しいファイル: ").Append(Path.GetFileName(path)).Append('\n');
-                text.Append("@@ -0,0 +1,").Append(count).Append(" @@\n");
-                for (var i = 0; i < count; i++)
-                {
-                    text.Append('+').Append(lines[i]).Append('\n');
-                    if (text.Length > MaxDiffChars) break;
-                }
-                return Cut(text.ToString());
-            }
-            catch (Exception ex)
-            {
-                return "読めませんでした: " + ex.Message;
-            }
-        }
-
-        private static string Cut(string text)
-        {
-            if (text.Length <= MaxDiffChars) return text;
-            return text.Substring(0, MaxDiffChars) + "\n# （長いので、ここで切りました）\n";
-        }
-
-        private static string Quote(string text)
-        {
-            return "\"" + text.Replace("\"", string.Empty).TrimEnd('\\') + "\"";
         }
 
         /// <summary>git を動かして、標準出力を受け取る。終わらなければ止めて -1。動かせなければ -1。</summary>

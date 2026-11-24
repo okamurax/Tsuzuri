@@ -89,7 +89,6 @@ namespace Tsuzuri
             StoreFilerWidth();   // 隠すと幅が 0 になるので、その前に覚える
             _settings.Save();
 
-            CloseDiff();   // 次に出すときはランチャーだけ
             _launcher.Close();
             _launcher = null;
             LauncherSlot.Child = null;
@@ -137,65 +136,6 @@ namespace Tsuzuri
                 ? "AI の会話が無いので渡せない（AI の欄を出して会話を始めてから）"
                 : "ファイラーで今見ているフォルダを、AI の欄で選んでいる会話" + (string.IsNullOrEmpty(tab.Name) ? string.Empty : "（" + tab.Name + "）")
                   + "のプロジェクトフォルダにする。話しかけるたびに Claude に伝える";
-        }
-
-        // ---------------------------------------------------------------
-        // ファイラーの git の差分（2026-11-24。利用者の考え。SPEC 4章）
-        // ファイラーの行の右端の git の印を押すと、ランチャーの下半分に差分を出す。上の段の × で閉じるとランチャーだけに戻る。
-        // 同じ印をもう一度押すと読み直す。ランチャーを閉じれば差分も閉じる。
-        // ---------------------------------------------------------------
-
-        private DiffView _diffView;
-        private int _diffRequest;
-
-        private void ShowDiff(string path, bool isFolder)
-        {
-            if (_launcher == null) return;
-            if (_diffView == null)
-            {
-                _diffView = new DiffView();
-                DiffSlot.Child = _diffView;
-            }
-
-            if (DiffPanel.Visibility != Visibility.Visible)
-            {
-                LauncherRow.Height = new GridLength(1, GridUnitType.Star);
-                DiffSplitRow.Height = GridLength.Auto;
-                DiffRow.Height = new GridLength(1, GridUnitType.Star);
-                DiffSplitter.Visibility = Visibility.Visible;
-                DiffPanel.Visibility = Visibility.Visible;
-            }
-
-            var name = isFolder ? path.TrimEnd(Path.DirectorySeparatorChar) : Path.GetFileName(path);
-            DiffTitle.Text = (isFolder ? "フォルダ " + Path.GetFileName(name) : name) + " の差分（git の最後の記録と、今のファイル）";
-            DiffTitle.ToolTip = path;
-            _diffView.Show("読んでいます…");
-
-            var request = ++_diffRequest;
-            System.Threading.Tasks.Task.Run(() => FilerGit.Diff(path, isFolder)).ContinueWith(task =>
-            {
-                if (request != _diffRequest || _diffView == null || DiffPanel.Visibility != Visibility.Visible) return;
-                _diffView.Show(task.IsFaulted ? "差分を出せませんでした。" : task.Result);
-            }, System.Threading.Tasks.TaskScheduler.FromCurrentSynchronizationContext());
-        }
-
-        private void CloseDiff()
-        {
-            _diffRequest++;
-            if (DiffPanel.Visibility != Visibility.Visible) return;
-            DiffPanel.Visibility = Visibility.Collapsed;
-            DiffSplitter.Visibility = Visibility.Collapsed;
-            LauncherRow.Height = new GridLength(1, GridUnitType.Star);
-            DiffSplitRow.Height = new GridLength(0);
-            DiffRow.Height = new GridLength(0);
-            if (_diffView != null) _diffView.Show(string.Empty);   // 大きな差分を持ち続けない
-        }
-
-        private void DiffClose_Click(object sender, RoutedEventArgs e)
-        {
-            var hadFocus = DiffPanel.IsKeyboardFocusWithin;
-            CloseDiff();
-            if (hadFocus && _launcher != null) Keyboard.Focus(LauncherHost);
         }
 
         /// <summary>

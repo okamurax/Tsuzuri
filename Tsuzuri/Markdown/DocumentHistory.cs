@@ -233,8 +233,24 @@ namespace Tsuzuri.Markdown
             get { return Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "git", "cmd"); }
         }
 
+        /// <summary>git.exe の場所（ファイラーの git の状態でも使う。2026-11-24）。無ければ null。</summary>
+        public static string GitPath
+        {
+            get { return FindGit(); }
+        }
+
         /// <summary>git.exe の場所。exe の隣の git、PATH の通った場所、Git for Windows の決まった入れ場所の順に探す。無ければ null。</summary>
+        private static readonly object GitSearchLock = new object();
+
         private static string FindGit()
+        {
+            lock (GitSearchLock)   // ファイラーの裏のスレッドからも呼ぶ（探し終わる前に「無い」と答えないように）
+            {
+                return FindGitCore();
+            }
+        }
+
+        private static string FindGitCore()
         {
             if (_searched) return _git;
             _searched = true;

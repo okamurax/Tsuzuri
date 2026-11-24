@@ -23,6 +23,7 @@ namespace Tsuzuri.Views
     /// フォルダの木でも、作業フォルダの登録でもない（SPEC 1章。フォルダの登録はランチャー）。
     /// できるのは探すこと、ドラッグ、開くこと（Markdown はこのエディタで、ほかは既定のアプリで）と、
     /// 右クリックでの作成・名前の変更・削除（2026-10-12）。コピーや移動など、それ以上はエクスプローラーで行う。
+    /// 見ているフォルダが git の管理の中なら、行の右端に git の状態の印を付け、押すと差分を見せる（2026-11-24。FilerGit。差分はランチャーの下半分に出す: MainWindow.Overlays.cs）。
     /// </summary>
     public sealed class FilerView : DockPanel
     {
@@ -210,6 +211,9 @@ namespace Tsuzuri.Views
             Children.Add(_scroll);
         }
 
+        /// <summary>git の状態の印を押した（2026-11-24）。パスと、フォルダかどうか。差分を見せる（MainWindow.Overlays.cs）。</summary>
+        public event Action<string, bool> DiffRequested;
+
         /// <summary>見ているフォルダが変わった（2026-11-05。アプリで1つの「最後に見たフォルダ」として、すぐ app.json に覚える）。</summary>
         public event Action<string> FolderChanged;
 
@@ -322,6 +326,71 @@ namespace Tsuzuri.Views
         /// 「更新」。今のフォルダ（検索中なら検索）を読み直す。フォルダの一覧ならスクロール位置を残す
         /// （エクスプローラーでファイルを作って戻ったとき、見ていた場所が先頭に飛ばないように）。
         /// </summary>
+        // =====================================================================
+        // git の状態（2026-11-24。FilerGit）
+        // =====================================================================
+
+        private sealed class GitRow
+        {
+            public TextBlock Name;
+            public TextBlock Mark;
+            public bool IsFolder;
+        }
+
+        /// <summary>今の一覧の行（名前ごと）。印を付けるため。</summary>
+        private readonly Dictionary<string, GitRow> _gitRows = new Dictionary<string, GitRow>(StringComparer.OrdinalIgnoreCase);
+        private bool _gitRunning;
+        private bool _gitPending;
+
+        /// <summary>今のフォルダの git の状態を裏で読み、来たら行に印を付ける。読んでいる最中なら、終わってからもう1回読む。</summary>
+        private void RefreshGit()
+        {
+            if (string.IsNullOrEmpty(_folder)) return;
+            if (_gitRunning)
+            {
+                _gitPending = true;
+                return;
+            }
+
+            _gitRunning = true;
+            _gitPending = false;
+            var folder = _folder;
+            Task.Run(() => FilerGit.Status(folder)).ContinueWith(task =>
+            {
+                _gitRunning = false;
+                var marks = task.IsFaulted ? null : task.Result;
+                if (_gitPending || !string.Equals(folder, _folder, StringComparison.OrdinalIgnoreCase) || _searchBox.Text.Trim().Length > 0)
+                {
+                    if (_gitPending || !string.Equals(folder, _folder, StringComparison.OrdinalIgnoreCase)) RefreshGit();
+                    return;
+                }
+                ApplyGit(marks);
+            }, TaskScheduler.FromCurrentSynchronizationContext());
+        }
+
+        /// <summary>行に印と名前の色を付ける（無いものは消す）。</summary>
+        private void ApplyGit(Dictionary<string, GitMark> marks)
+        {
+            var whole = FilerGit.Whole(marks);
+            foreach (var pair in _gitRows)
+            {
+                GitMark mark;
+                if (marks == null || !marks.TryGetValue(pair.Key, out mark)) mark = whole;
+                var row = pair.Value;
+                var letter = FilerGit.Letter(mark, row.IsFolder);
+                var brush = FilerGit.BrushOf(mark);
+
+                if (brush != null) row.Name.Foreground = brush;
+                else row.Name.ClearValue(TextBlock.ForegroundProperty);
+                row.Mark.Text = letter ?? string.Empty;
+                row.Mark.Foreground = brush;
+                row.Mark.FontSize = row.IsFolder ? 9 : 12;
+                row.Mark.ToolTip = FilerGit.Describe(mark, row.IsFolder);
+                row.Mark.Cursor = letter != null ? Cursors.Hand : null;
+                row.Mark.Visibility = letter != null ? Visibility.Visible : Visibility.Collapsed;
+            }
+        }
+
         /// <summary>一覧に出しているフォルダの中身の名前（フォルダとファイル。出すものだけ）。読めなければ null。</summary>
         private string _shownListing;
 
@@ -349,7 +418,12 @@ namespace Tsuzuri.Views
         public void ReloadIfChanged()
         {
             if (string.IsNullOrEmpty(_folder) || _cancelRename != null || _searchBox.Text.Trim().Length > 0) return;
-            if (!Directory.Exists(_folder) || ListingOf(_folder) == _shownListing) return;
+            if (!Directory.Exists(_folder)) return;
+            if (ListingOf(_folder) == _shownListing)
+            {
+                RefreshGit();   // 名前が同じでも、中身が変わって git の状態は変わりうる（Claude がファイルを書き換えたとき）
+                return;
+            }
             Reload();
         }
 
@@ -429,9 +503,11 @@ namespace Tsuzuri.Views
                 return;
             }
 
-            foreach (var folder in folders) _list.Children.Add(CreateRow(folder.FullName, true, folder.Name, null));
-            foreach (var file in files) _list.Children.Add(CreateRow(file.FullName, false, file.Name, null));
+            _gitRows.Clear();
+            foreach (var folder in folders) _list.Children.Add(CreateRow(folder.FullName, true, folder.Name, null, true));
+            foreach (var file in files) _list.Children.Add(CreateRow(file.FullName, false, file.Name, null, true));
             _shownListing = ListingOf(_folder);
+            RefreshGit();
 
             if (folders.Count == 0 && files.Count == 0) AddNote("（空のフォルダ）");
 
@@ -591,7 +667,7 @@ namespace Tsuzuri.Views
         /// 一覧の1行。フォルダはクリックで中へ。ファイルはドラッグで本文へ、クリック（1回）で開く
         /// （Markdown はこのエディタで、スクリプトは別の窓で、ほかは既定のアプリで。Open）。2回目のクリックは無視する。
         /// </summary>
-        private Border CreateRow(string path, bool isFolder, string name, string where)
+        private Border CreateRow(string path, bool isFolder, string name, string where, bool listing = false)
         {
             var glyph = RowIcon(path, isFolder);
             glyph.Margin = new Thickness(0, 0, 8, 0);
@@ -612,6 +688,36 @@ namespace Tsuzuri.Views
 
             var content = new DockPanel();
             content.Children.Add(glyph);
+
+            // git の状態の印（右端。フォルダの一覧のときだけ。印が来るまでは隠しておく。RefreshGit・ApplyGit）
+            if (listing)
+            {
+                var mark = new TextBlock
+                {
+                    Visibility = Visibility.Collapsed,
+                    VerticalAlignment = VerticalAlignment.Center,
+                    TextAlignment = TextAlignment.Center,
+                    MinWidth = 18,
+                    Margin = new Thickness(6, 0, 0, 0),
+                    FontSize = 12,
+                    FontWeight = FontWeights.SemiBold,
+                    Background = Brushes.Transparent,   // 字の無い所を押しても受ける
+                };
+                DockPanel.SetDock(mark, Dock.Right);
+                mark.MouseLeftButtonDown += (sender, e) =>
+                {
+                    if (mark.Visibility != Visibility.Visible || mark.Text.Length == 0) return;
+                    e.Handled = true;   // 行の「押して離すと開く・移る」にしない
+                    if (e.ClickCount > 1) return;
+                    var requested = DiffRequested;
+                    if (requested != null) requested(path, isFolder);
+                };
+                mark.MouseEnter += delegate { if (mark.Text.Length > 0) mark.TextDecorations = TextDecorations.Underline; };
+                mark.MouseLeave += delegate { mark.TextDecorations = null; };
+                content.Children.Add(mark);
+                _gitRows[name] = new GitRow { Name = text, Mark = mark, IsFolder = isFolder };
+            }
+
             content.Children.Add(text);
 
             var row = new Border();

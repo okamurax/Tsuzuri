@@ -169,6 +169,9 @@
     <Compile Include="MainWindow.AiPin.cs">
       <DependentUpon>MainWindow.xaml</DependentUpon>
     </Compile>
+    <Compile Include="MainWindow.SideTabs.cs">
+      <DependentUpon>MainWindow.xaml</DependentUpon>
+    </Compile>
     <Compile Include="MainWindow.AiTopic.cs">
       <DependentUpon>MainWindow.xaml</DependentUpon>
     </Compile>

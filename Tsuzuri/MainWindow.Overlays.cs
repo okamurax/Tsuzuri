@@ -33,12 +33,12 @@ namespace Tsuzuri
         // ファイラーと2つで1つの画面にし、「ランチャー」で一緒に出し入れする（2026-10-14。前はファイラーを右の列に常に出していた）。
         // 画面は本文の場所（StackHost）いっぱいに重ねる（2026-11-20。2026-10-31 からは上半分で、下半分の本文が見えていた）。下のエディタはそのままで、閉じれば全部また見える。
         // 経緯: 本文の右側に滑らせて重ねていた → 独立した最前面のウィンドウ（2026-10-28）→ 上半分（2026-10-31）→ 今の形。
-        // 出し入れは画面のタブの並びの一番右の「ランチャー」（2026-11-20。前はツールバーのボタン）。
+        // 出し入れは本文の左端のつまみ（カレンダーのつまみの下）か Alt+L（2026-11-24。前は画面のタブの並びの一番右、その前はツールバーのボタン）。もう一度押すまで出したまま。
         // ファイルが開いていなくても使える。ファイラーは閉じても作ったまま持ち、見ていたフォルダを覚えている。
         // ---------------------------------------------------------------
 
         /// <summary>
-        /// 画面のタブの段の「ランチャー」。ランチャーとファイラーを一緒に出し入れする。
+        /// 本文の左端のつまみの「ランチャー」・Alt+L（2026-11-24。前は画面のタブの段の「ランチャー」）。ランチャーとファイラーを一緒に出し入れする。
         /// 本文の場所（StackHost）いっぱいに重ねて出す。閉じればエディタが全部また見える（SPEC 4章）。
         /// エディタは閉じない・動かさない（ページの並び・カーソル・打ちかけはそのまま）。動きはつけない。
         /// </summary>
@@ -57,7 +57,6 @@ namespace Tsuzuri
                 _filer.Navigate(last);
 
             // カレンダーは閉じない（2026-11-21。利用者の考え）。ランチャーを上に重ね、ランチャーを閉じればカレンダーに戻る。
-            // ランチャーは外を押す・Esc でも閉じるが、カレンダーは外を押しても Esc でも閉じないので
 
             _launcher = new LauncherView(_settings, OpenFromLauncher, Status, folder =>
             {
@@ -66,10 +65,10 @@ namespace Tsuzuri
             });
             LauncherSlot.Child = _launcher;
             LauncherHost.Visibility = Visibility.Visible;
-            PaintLauncherButton();
+            PaintSideTabs();
             PaintFilerUseFolder();
 
-            // 覆われたエディタにキー入力が届かないよう、フォーカスをランチャーの側へ移す（見えない本文に打ち込まないため）。Esc もここで受ける。
+            // 覆われたエディタにキー入力が届かないよう、フォーカスをランチャーの側へ移す（見えない本文に打ち込まないため）。
             // 出したばかりで、まだ見えていない（組み版の前）とフォーカスを受け取れないので、組み版のあとで移す。
             Dispatcher.BeginInvoke(new Action(delegate
             {
@@ -77,43 +76,8 @@ namespace Tsuzuri
             }), DispatcherPriority.Loaded);
         }
 
-        /// <summary>ランチャーを出している間の Esc で閉じる。名前を書き換えている途中の Esc は、その欄が受け取る（Handled）ので、ここには来ない。</summary>
-        private void LauncherHost_KeyDown(object sender, KeyEventArgs e)
-        {
-            if (e.Key != Key.Escape || _launcher == null) return;
-
-            e.Handled = true;
-            CloseLauncher();
-        }
-
-        /// <summary>
-        /// ランチャーを出している間に、ランチャーの外（アウトライン・ツールバー・画面のタブ等）を押したら閉じる。
-        /// ランチャーとファイラーの中と、「ランチャー」のタブは除く（そのボタン自身が開け閉めする。除かないと、押した瞬間に閉じて、続くクリックでまた開いてしまう）。
-        /// ランチャーから出したダイアログは別のウィンドウなので、ここには来ない。
-        /// </summary>
-        private void CloseLauncherOnOutsideClick(object sender, MouseButtonEventArgs e)
-        {
-            // カレンダーは外を押しても閉じない。本文の左端の出し入れの帯・Alt+C で出し入れする（2026-11-21。利用者の希望。SPEC 22章）
-
-            if (_launcher == null) return;
-            if (IsInside(e.OriginalSource as DependencyObject, LauncherButton, LauncherHost)) return;
-            CloseLauncher();
-        }
-
-        private static bool IsInside(DependencyObject source, DependencyObject a, DependencyObject b)
-        {
-            for (var node = source; node != null; node = ParentOf(node))
-            {
-                if (node == a || node == b) return true;
-            }
-            return false;
-        }
-
-        private static DependencyObject ParentOf(DependencyObject node)
-        {
-            if (node is Visual || node is System.Windows.Media.Media3D.Visual3D) return VisualTreeHelper.GetParent(node);
-            return LogicalTreeHelper.GetParent(node);   // 文字の一部（Run など）は見た目の木に載らない
-        }
+        // 外を押しても Esc でも閉じない（2026-11-24。利用者の考え。カレンダーと同じ。閉じるのは本文の左端のつまみ・Alt+L、
+        // ランチャーから文書を開いたとき、アウトラインの見出しのダブルクリック）。前は外を押す・Esc で閉じていた
 
         private void CloseLauncher()
         {
@@ -127,9 +91,9 @@ namespace Tsuzuri
             _launcher = null;
             LauncherSlot.Child = null;
             LauncherHost.Visibility = Visibility.Collapsed;
-            PaintLauncherButton();
+            PaintSideTabs();
 
-            // ランチャーにフォーカスがあったなら、下（図エディタ・カレンダーを出していればそれ、無ければエディタ）へ戻す（外を押して閉じたときは、押した先に任せる）。
+            // ランチャーにフォーカスがあったなら、下（図エディタ・カレンダーを出していればそれ、無ければエディタ）へ戻す。
             if (hadFocus && _drawing != null) _drawing.View.FocusCanvas();
             else if (hadFocus && _calendar != null) _calendar.Focus();
             else if (hadFocus && Active != null) Active.TextArea.Focus();
@@ -168,12 +132,6 @@ namespace Tsuzuri
                 ? "AI の会話が無いので渡せない（AI の欄を出して会話を始めてから）"
                 : "ファイラーで今見ているフォルダを、AI の欄で選んでいる会話" + (string.IsNullOrEmpty(tab.Name) ? string.Empty : "（" + tab.Name + "）")
                   + "のフォルダにする。話しかけるたびに Claude に伝える";
-        }
-
-        /// <summary>「ランチャー」のタブを、出している間は今の画面のタブと同じ色にする（App.xaml の LauncherTabButton が Tag を見る）。</summary>
-        private void PaintLauncherButton()
-        {
-            LauncherButton.Tag = _launcher != null ? "Open" : null;
         }
 
         /// <summary>

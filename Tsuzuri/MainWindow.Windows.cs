@@ -688,8 +688,6 @@ namespace Tsuzuri
                 });
             }
 
-            WindowList.Children.Add(LauncherButton);   // タブの並びの一番右（「＋」の左。2026-11-20）
-
             var add = new Button
             {
                 Content = "＋",
@@ -701,35 +699,6 @@ namespace Tsuzuri
         }
 
         private const double WindowTabWidth = 180;
-
-        private Button _launcherButton;
-
-        /// <summary>
-        /// 「ランチャー」のタブ（2026-11-20。前はツールバーのボタン）。いつも画面のタブの並びの一番右（「＋」の左）に置く（BuildWindowList）。
-        /// 押すとこの画面にランチャーを出し入れし、出している間は今の画面のタブと同じ色にする（MainWindow.Overlays.cs）。Alt+L でも。
-        /// ランチャーの外を押すと閉じるが、このボタンは除く（CloseLauncherOnOutsideClick）。
-        /// </summary>
-        private Button LauncherButton
-        {
-            get
-            {
-                if (_launcherButton != null) return _launcherButton;
-                // 字は出さずアイコン（4つの四角）だけで幅を狭く（2026-11-20。見た目は画面のタブにそろえる。App.xaml の LauncherTabButton）
-                _launcherButton = new Button
-                {
-                    Content = new TextBlock { Text = "\uE8A9", FontFamily = IconFont, FontSize = 14, VerticalAlignment = VerticalAlignment.Center },
-                    Style = (Style)FindResource("LauncherTabButton"),
-                    Width = 34,
-                    Height = 26,
-                    Margin = new Thickness(0, 0, 4, 0),
-                    VerticalAlignment = VerticalAlignment.Center,
-                    ToolTip = "ランチャー（Alt+L）。ランチャーとファイラーを、本文の場所いっぱいに重ねて出す。もう一度押すか Esc で閉じる",
-                };
-                _launcherButton.Click += Launcher_Click;
-                System.Windows.Input.AccessKeyManager.Register("L", _launcherButton);   // 字を出さなくなったので、Alt+L は自分で付ける
-                return _launcherButton;
-            }
-        }
 
         /// <summary>画面のタブを掴んで横にこれだけ動かしたら、並べ替える（ピクセル。2026-11-10）。</summary>
         private const double ReorderDragDistance = 8;

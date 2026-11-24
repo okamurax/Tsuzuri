@@ -141,7 +141,7 @@ namespace Tsuzuri
         {
             _settings = settings;
             InitializeComponent();
-            PlaceCalendarHandle();   // カレンダーの出し入れの帯の説明（SPEC 22章）
+            PaintSideTabs();   // 本文の左端のつまみ（カレンダー・ランチャー）の色と説明
             RegisterWindow(session);
             DirtyText.Foreground = Theme.DirtyMark;
 
@@ -208,11 +208,11 @@ namespace Tsuzuri
                 view.FocusSearchBox();
             };
 
-            // Alt+C でカレンダーを出し入れする（SPEC 22章。2026-11-23 からはタブのボタンでなく本文の左端の帯なので、アクセスキーの代わりにここで受ける）。
-            // AI の欄の端末にキーボードがあるときは、端末のキーとして向こうに渡す。
+            // Alt+C でカレンダーを、Alt+L でランチャーを出し入れする（SPEC 22章・4章。どちらも本文の左端のつまみなので、アクセスキーの代わりにここで受ける。
+            // Alt+L は 2026-11-24 から）。AI の欄の端末にキーボードがあるときは、端末のキーとして向こうに渡す。
             PreviewKeyDown += (sender, e) =>
             {
-                if (e.Key != Key.System || e.SystemKey != Key.C || Keyboard.Modifiers != ModifierKeys.Alt) return;
+                if (e.Key != Key.System || (e.SystemKey != Key.C && e.SystemKey != Key.L) || Keyboard.Modifiers != ModifierKeys.Alt) return;
 
                 var source = e.OriginalSource as Visual;
                 if (AiPane.IsKeyboardFocusWithin || (source != null && AiPane.IsAncestorOf(source))) return;
@@ -223,7 +223,8 @@ namespace Tsuzuri
                 }
 
                 e.Handled = true;
-                ToggleCalendar();
+                if (e.SystemKey == Key.C) ToggleCalendar();
+                else ToggleLauncher();
             };
 
             // Ctrl+PageUp で前の画面、Ctrl+PageDown で次の画面（タブの並び。端で反対の端へ回る。2026-11-01）。
@@ -268,10 +269,6 @@ namespace Tsuzuri
             };
 
             SidebarColumn.Width = new GridLength(_settings.SidebarWidth);
-
-            // ランチャーを出している間に、その外（アウトライン・ツールバー等）を押したら閉じる。Esc でも閉じる（SPEC 4章）。
-            PreviewMouseDown += CloseLauncherOnOutsideClick;
-            LauncherHost.KeyDown += LauncherHost_KeyDown;
 
             // アウトラインのドラッグで節を動かす（SPEC 7章）。木はページごとに作るので、つなぐのは HookOutlineTree で（2026-11-05）。
             HookOutlineTree(OutlineTree);
@@ -477,7 +474,7 @@ namespace Tsuzuri
 
             StatusText.Text = HasDocument
                 ? Active.FilePath
-                : "タブの「ランチャー」からファイルを選ぶか、「新規作成」で作ってください。";
+                : "本文の左端の下のつまみ（ランチャー。Alt+L）からファイルを選ぶか、「新規作成」で作ってください。";
         }
 
         private void OnClosing(object sender, CancelEventArgs e)

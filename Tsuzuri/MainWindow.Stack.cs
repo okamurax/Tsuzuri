@@ -802,13 +802,13 @@ namespace Tsuzuri
         }
 
         /// <summary>
-        /// 何も開いていないときの画面。案内の文だけ。「ランチャー」はツールバーにあるので、文書があってもなくても同じ場所で押せる
+        /// 何も開いていないときの画面。案内の文だけ。「ランチャー」は本文の左端のつまみ（2026-11-24）なので、文書があってもなくても同じ場所で押せる
         /// （2026-10-31。前はここにもエディタと同じ高さの段を置き、右端に「ランチャー」を出していた）。
         /// </summary>
         private UIElement CreatePlaceholder()
         {
             var text = new TextBlock();
-            text.Text = "タブの「ランチャー」からファイルを選ぶか、「新規作成」で作ってください";
+            text.Text = "左端の下のつまみ（ランチャー。Alt+L）からファイルを選ぶか、「新規作成」で作ってください";
             text.FontSize = 15;
             text.HorizontalAlignment = HorizontalAlignment.Center;
             text.VerticalAlignment = VerticalAlignment.Center;

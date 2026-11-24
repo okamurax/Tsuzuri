@@ -427,7 +427,7 @@ namespace Tsuzuri.Views
                     ScrollToToday();
                     break;
                 case Key.Escape:
-                    // 選んでいる予定・日があれば、選ぶのをやめる（カレンダーは閉じない。閉じるのは出し入れの帯・Alt+C など。SPEC 22章）
+                    // 選んでいる予定・日があれば、選ぶのをやめる（カレンダーは閉じない。閉じるのは本文の左端のカレンダーのつまみ・Alt+C など。SPEC 22章）
                     if (_selected == null && !_dayAnchor.HasValue) return;
                     e.Handled = true;
                     ClearDays();

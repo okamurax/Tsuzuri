@@ -18,7 +18,7 @@ namespace Tsuzuri.Views
     /// <summary>
     /// 添付を本文へドラッグするための、ファイラー（SPEC 9章）。
     ///
-    /// ランチャーと1つの画面に並べ、その右側に置く（MainWindow の LauncherHost の FilerHost）。その画面は画面のタブの段の「ランチャー」で
+    /// ランチャーと1つの画面に並べ、その右側に置く（MainWindow の LauncherHost の FilerHost）。その画面は本文の左端のランチャーのつまみ（2026-11-24）で
     /// 本文の場所いっぱいに重ねて出し入れする（2026-11-20。前は上半分、その前は右のサイドパネルに常に置いていた）。
     /// フォルダの木でも、作業フォルダの登録でもない（SPEC 1章。フォルダの登録はランチャー）。
     /// できるのは探すこと、ドラッグ、開くこと（Markdown はこのエディタで、ほかは既定のアプリで）と、
@@ -322,6 +322,37 @@ namespace Tsuzuri.Views
         /// 「更新」。今のフォルダ（検索中なら検索）を読み直す。フォルダの一覧ならスクロール位置を残す
         /// （エクスプローラーでファイルを作って戻ったとき、見ていた場所が先頭に飛ばないように）。
         /// </summary>
+        /// <summary>一覧に出しているフォルダの中身の名前（フォルダとファイル。出すものだけ）。読めなければ null。</summary>
+        private string _shownListing;
+
+        private static string ListingOf(string folder)
+        {
+            try
+            {
+                var info = new DirectoryInfo(folder);
+                var names = info.EnumerateDirectories().Where(IsListed).Select(entry => "d:" + entry.Name)
+                    .Concat(info.EnumerateFiles().Where(IsListed).Select(entry => "f:" + entry.Name))
+                    .OrderBy(name => name, StringComparer.OrdinalIgnoreCase);
+                return string.Join("\n", names);
+            }
+            catch (Exception)
+            {
+                return null;
+            }
+        }
+
+        /// <summary>
+        /// フォルダの中身（名前）が一覧と変わっていれば読み直す（2026-11-24。AI の欄の Claude がファイルを作る・消す・名前を変えることがあるので、
+        /// ランチャーを出している間は、Claude が書き換えるたび・話しかけるたび・窓に戻るたびに呼ぶ。MainWindow の ReloadChangedDocuments）。
+        /// 変わっていなければ何もしない（ちらつかせない）。検索中・名前を打っている途中は読み直さない（検索はやり直すと重い。打ちかけを消さない）。
+        /// </summary>
+        public void ReloadIfChanged()
+        {
+            if (string.IsNullOrEmpty(_folder) || _cancelRename != null || _searchBox.Text.Trim().Length > 0) return;
+            if (!Directory.Exists(_folder) || ListingOf(_folder) == _shownListing) return;
+            Reload();
+        }
+
         private void Reload()
         {
             if (string.IsNullOrEmpty(_folder)) return;
@@ -400,6 +431,7 @@ namespace Tsuzuri.Views
 
             foreach (var folder in folders) _list.Children.Add(CreateRow(folder.FullName, true, folder.Name, null));
             foreach (var file in files) _list.Children.Add(CreateRow(file.FullName, false, file.Name, null));
+            _shownListing = ListingOf(_folder);
 
             if (folders.Count == 0 && files.Count == 0) AddNote("（空のフォルダ）");
 

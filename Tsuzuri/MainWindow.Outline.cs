@@ -569,17 +569,22 @@ namespace Tsuzuri
             if (node == null || Active == null) return;
 
             GoToOutlineNode(node);
+
+            // カレンダー・ランチャーを出している間は、下の本文を動かすだけで、キーボードは上の画面に戻す（覆われて見えない本文に打ち込まないため。2026-11-24。
+            // ランチャーが外を押しても閉じなくなったので）
+            if (_launcher != null) Keyboard.Focus(LauncherHost);
+            else if (_calendar != null) _calendar.Focus();
         }
 
         /// <summary>
-        /// カレンダーを出している間に見出しをダブルクリックしたら、カレンダーを閉じて本文のその見出しへ（2026-11-23。利用者の希望）。
+        /// カレンダー・ランチャーを出している間に見出しをダブルクリックしたら、どちらも閉じて本文のその見出しへ（2026-11-23。利用者の希望。ランチャーは 2026-11-24 から）。
         /// 1回のクリックはカレンダーの下の本文を動かすだけ（カレンダーへ見出しをドラッグするときに閉じないように）。
         /// 2回目の押し（ClickCount 2）で受ける。MouseDoubleClick では、子のある見出しの開閉（TreeViewItem が2回目の押しで切り替える）を止められないため。
         /// 押しは親の項目から順に来るので、押した見出しの項目のときだけ受ける。
         /// </summary>
         private void OutlineItem_DoubleClick(object sender, MouseButtonEventArgs e)
         {
-            if (_calendar == null || e.ClickCount != 2) return;
+            if ((_calendar == null && _launcher == null) || e.ClickCount != 2) return;
             if (IsExpanderClick(e.OriginalSource as DependencyObject)) return;
 
             var item = sender as TreeViewItem;
@@ -587,7 +592,9 @@ namespace Tsuzuri
 
             e.Handled = true;
             var node = item.Tag as OutlineNode;
-            if (node == null || Active == null || !CloseCalendar()) return;
+            if (node == null || Active == null) return;
+            CloseLauncher();   // ランチャーもカレンダーと同じく、閉じてその見出しへ（2026-11-24）
+            if (!CloseCalendar()) return;
 
             GoToOutlineNode(node);
             Active.TextArea.Focus();

@@ -71,12 +71,12 @@ namespace Tsuzuri.Views
         }
 
         /// <summary>一覧を出し直す。null なら Excel が応答しなかった。</summary>
-        public void Show(List<ExcelReader.Book> books, Func<string, bool> guarded, string selectedBook, string selectedSheet)
+        public void Show(List<ExcelReader.Book> books, Func<string, bool> guarded, string selectedBook, string selectedSheet, string problem)
         {
             _list.Children.Clear();
             if (books == null)
             {
-                ShowNote("Excel が応答しません（セルを編集中か、ダイアログを出している）");
+                ShowNote(string.IsNullOrEmpty(problem) ? "Excel を読めませんでした" : problem);
                 return;
             }
             if (books.Count == 0)

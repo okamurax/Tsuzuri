@@ -93,16 +93,19 @@ namespace Tsuzuri.Office
             public List<string> Sheets = new List<string>();
         }
 
-        /// <summary>開いているブックとシートの一覧。Excel が動いていなければ空。応答しなければ null。</summary>
-        public static List<Book> ListBooks(int timeout)
+        /// <summary>開いているブックとシートの一覧。Excel が動いていなければ空。読めなければ null で、problem にわけ。</summary>
+        public static List<Book> ListBooks(int timeout, out string problem)
         {
             List<Book> books = null;
-            var done = RunSta(() => books = ListBooksCore(), timeout);
-            return done ? books : null;   // 途中で断られたときも null（ListBooksCore）
+            string why = null;
+            var done = RunSta(() => books = ListBooksCore(out why), timeout);
+            problem = done ? why : "Excel が応答しない（セルを編集中か、ダイアログを出しているか、重い計算の途中）";
+            return done ? books : null;
         }
 
-        private static List<Book> ListBooksCore()
+        private static List<Book> ListBooksCore(out string problem)
         {
+            problem = null;
             var list = new List<Book>();
             using (var scope = new Scope())
             {
@@ -112,9 +115,10 @@ namespace Tsuzuri.Office
                 {
                     ListBooksInto(scope, app, list);
                 }
-                catch (Exception)
+                catch (Exception ex)
                 {
-                    return null;   // セルを編集中などで断られた（「ブックが無い」と取り違えないように）
+                    problem = Busy(ex);   // 「ブックが無い」と取り違えないように、わけを返す
+                    return null;
                 }
             }
             return list;
@@ -178,6 +182,12 @@ namespace Tsuzuri.Office
             return thread.Join(timeout);
         }
 
+        /// <summary>
+        /// Excel を呼ぶときの言語（LCID）。英語（1033）にする（2026-11-24）。Excel の自動操作は英語ならどの版でも受け付け、範囲の書き方（A1:B2）も英語のまま通る。
+        /// 初めは InvariantCulture（LCID 127）を渡していて、日本語の Excel で一覧が読めなかった。
+        /// </summary>
+        private static readonly CultureInfo Automation = new CultureInfo("en-US");
+
         /// <summary>受け取った COM の参照を覚えておき、最後に全部手放す。</summary>
         private sealed class Scope : IDisposable
         {
@@ -192,13 +202,13 @@ namespace Tsuzuri.Office
             public object Get(object target, string name, params object[] args)
             {
                 if (target == null) return null;
-                return Keep(target.GetType().InvokeMember(name, BindingFlags.GetProperty, null, target, args, CultureInfo.InvariantCulture));
+                return Keep(target.GetType().InvokeMember(name, BindingFlags.GetProperty, null, target, args, Automation));
             }
 
             public object Call(object target, string name, params object[] args)
             {
                 if (target == null) return null;
-                return Keep(target.GetType().InvokeMember(name, BindingFlags.InvokeMethod, null, target, args, CultureInfo.InvariantCulture));
+                return Keep(target.GetType().InvokeMember(name, BindingFlags.InvokeMethod, null, target, args, Automation));
             }
 
             public void Dispose()

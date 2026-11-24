@@ -177,7 +177,8 @@ namespace Tsuzuri
 
             _excelListing = true;
             _excelListPending = false;
-            Task.Run(() => ExcelReader.ListBooks(3000)).ContinueWith(task =>
+            string listProblem = null;
+            Task.Run(() => ExcelReader.ListBooks(3000, out listProblem)).ContinueWith(task =>
             {
                 _excelListing = false;
                 if (_excelListPending)
@@ -193,6 +194,7 @@ namespace Tsuzuri
                     _excelChoice = null;
                 }
                 _lastExcelBooks = books ?? _lastExcelBooks;
+                _excelListProblem = task.IsFaulted ? task.Exception.GetBaseException().Message : listProblem;
                 ShowExcelList(books);
             }, TaskScheduler.FromCurrentSynchronizationContext());
         }
@@ -200,9 +202,12 @@ namespace Tsuzuri
         /// <summary>最後に読めた一覧（押したときに出し直すため。Excel を読み直さずに済ませる）。</summary>
         private List<ExcelReader.Book> _lastExcelBooks;
 
+        /// <summary>最後に一覧を読めなかったわけ（一覧に出す）。</summary>
+        private string _excelListProblem;
+
         private void ShowExcelList(List<ExcelReader.Book> books)
         {
-            if (_excelList != null) _excelList.Show(books, IsGuardedBook, _excelBook, _excelSheet);
+            if (_excelList != null) _excelList.Show(books, IsGuardedBook, _excelBook, _excelSheet, _excelListProblem);
         }
 
         /// <summary>シートを押した: 選ぶ（選んでいたシートなら外す）。Excel の側は何も切り替えない。</summary>

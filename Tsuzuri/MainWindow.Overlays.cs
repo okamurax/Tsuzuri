@@ -69,6 +69,7 @@ namespace Tsuzuri
             StackOverlays();
             PaintSideTabs();
             PaintFilerUseFolder();
+            RefreshExcelList();   // ファイラーの下の段の Excel の一覧（2026-11-24。MainWindow.Excel.cs）
 
             // 覆われたエディタにキー入力が届かないよう、フォーカスをランチャーの側へ移す（見えない本文に打ち込まないため）。
             // 出したばかりで、まだ見えていない（組み版の前）とフォーカスを受け取れないので、組み版のあとで移す。

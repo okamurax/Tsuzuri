@@ -30,6 +30,10 @@ namespace Tsuzuri
         [DataMember(Name = "filerWidth")]
         public double FilerWidth { get; set; }
 
+        /// <summary>ランチャーのファイラーの下の段の、Excel の一覧の高さ（2026-11-24。SPEC 4章）。</summary>
+        [DataMember(Name = "excelListHeight")]
+        public double ExcelListHeight { get; set; }
+
         /// <summary>右の AI の欄の幅（SPEC 19章）。</summary>
         [DataMember(Name = "aiWidth")]
         public double AiWidth { get; set; }
@@ -161,6 +165,7 @@ namespace Tsuzuri
 
             if (SidebarWidth < 110 || SidebarWidth > 2000) SidebarWidth = 190;
             if (FilerWidth < 180 || FilerWidth > 2000) FilerWidth = 300;
+            if (!(ExcelListHeight >= 60 && ExcelListHeight <= 2000)) ExcelListHeight = 180;   // NaN もここで直す
             if (AiWidth < 200 || AiWidth > 4000) AiWidth = 560;
             if (!(SearchResultHeight >= 40 && SearchResultHeight <= 4000)) SearchResultHeight = 132;   // NaN もここで直す
             if (!(AiShellSplit >= 0.15 && AiShellSplit <= 0.85)) AiShellSplit = 0.6;   // NaN もここで直す

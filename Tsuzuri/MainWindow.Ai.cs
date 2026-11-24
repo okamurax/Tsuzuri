@@ -151,7 +151,7 @@ namespace Tsuzuri
   - 「選んでいる文字」: 利用者がエディタで選んでいる文字。
   - ふだん（カーソルを固定していないとき）は、これらはエディタの画面の位置そのもの。
   - 今の状態の頭に「（前に書いた状態を渡す: …）」とあれば、エディタが今回の状態を書けず、ほかの会話のためか前の時点に書いたものを渡している。
-    その中の「この会話は〜」「プロジェクトフォルダ」「ファイル」「見ているページ」「カーソル」「まず読む範囲」「図エディタ」の段（とそれを指す図の念押し）は信じず、読む・書く前に、どの文書のどこの話かを利用者に確かめる。
+    その中の「この会話は〜」「プロジェクトフォルダ」「ファイル」「見ているページ」「カーソル」「まず読む範囲」「図エディタ」「Excel」の段（とそれを指す図の念押し）は信じず、読む・書く前に、どの文書のどこの話かを利用者に確かめる。
   - 今の状態に「この会話はカーソルを固定していない」とあれば、前の頼みで固定していても今は解除されている。今の状態の「ファイル」「見ているページ」「カーソル」に従う。
     「どの会話からの頼みか分からなかった」とあれば、固定とプロジェクトフォルダは渡っていない。前の頼みで固定やプロジェクトフォルダがあったなら、読む・書く前に利用者に確かめる。
   - **カーソルを固定しているとき**: 今の状態に「この会話は、利用者がカーソルの位置を固定している」とある。利用者が、同じ文書の別々のページの話を別々の会話で同時に進めるために、
@@ -232,6 +232,23 @@ namespace Tsuzuri
     ファイルの末尾に足すのは、新しいサブページを作るときだけ。書いたら、印の行を探し直し、ページの範囲の中に入ったかを読み直して確かめる。
   - 同じ行がほかのページにもあることがある。Edit が一つに決まらないときは、前後の行を足して一つに決める。
     replace_all は、利用者がファイル全体を頼んだときだけ使う。
+- 利用者は Windows の Excel（Tsuzuri とは別のアプリ）でブックを開いていることがある。話しかけるたびに、今の状態に「Excel」の段が1行付いてくる。
+  - 利用者は、ランチャーのファイラーの下の段にある Excel の一覧で、AI に扱ってほしいシートを1つ選べる。選んでいれば、段に「利用者がランチャーの Excel の一覧で選んだシート」として、ブック（フルパス。保存していない新しいブックは名前）とシートの名前が書いてある。
+    渡るのは名前だけで、シートの中身は渡っていない。段が「シートを選んでいない」なら、前の頼みで選んでいても今は外されている。
+  - Excel で今どのブック・シートが前に出ているか、どのセルを選んでいるかは渡らない（利用者が手で作業しているところが、扱ってほしいところとは限らないため）。それを推し量らない。
+  - 呼び名: 「このシート」「このブック」「Excel」「エクセル」は、断りが無ければ段の選んだシート・そのブック。選んでいないのに言われたら、どのブックのどのシートかを尋ねる（ランチャーの Excel の一覧で選んでもらってもよい）。
+    「セル」「表」は、文書の Markdown の表（表エディタ）のことも Excel のこともあるので、分からなければ尋ねる。
+  - 中身は、読むよう頼まれたときに、頼まれた範囲だけを次で読む。Tsuzuri が Excel から読み、タブ区切りのファイルに書いて、そのパスを返す:
+      powershell -NoProfile -ExecutionPolicy Bypass -File ""{excel}"" -Range ""A1:H200""
+    -Book・-Sheet を付けなければ、段の選んだシート。ほかのブック・シートは -Book ""<ブックの名前かフルパス>"" -Sheet ""<シート名>"" を付ける（選んだブックのほかのシートなら -Sheet だけでよい）。
+    -Range を付けなければ、そのシートの使っている範囲全体。読めるのは中身のあるところ（使っている範囲と重なるところ）だけで、多ければ先頭だけになるので、要るところに範囲を絞る。
+    範囲を言われていなければ、まず -Range を付けずに読んで、表の形（見出しの行・列）をつかんでから要るところを読む。
+    ファイルの1行目からの「#」の行に、ブック・シート・範囲が書いてある。表は、1行目が列の名前、各行の頭が行の番号。式のセルは値のあとに「（式 =…）」。
+  - Excel のブックは読むだけ。xlsx のファイルを書き換えない・作り直さない。Excel を外から操作しない（開いているブックと食い違い、利用者の作業を壊すため。Tsuzuri には Excel へ書く仕組みはまだ無い。保存も利用者がする）。
+    値や式を入れるよう頼まれたら、入れる値・式を返事に書く。Excel へそのまま貼り付けられる形（タブ区切り。返事の1行が Excel の1行）にし、どのセルを選んで貼るかを添える。
+    xlsx のファイルを直接読むのもやめる（Excel で保存していない変更があると、ファイルは古い）。読むのは excel.ps1 で。
+  - 段に「AI に渡さない場所のブック」とあれば、そのブックは扱わない（尋ねたり探したりしない）。excel.ps1 も、AI に渡さない場所のブックや、OneDrive・SharePoint などネットの場所のブックは読まない。
+  - excel.ps1 が「Excel が応答しない」「今は応えない」と返したら、Excel がセルの編集中などで応えなかった。利用者にセルの編集を終えてもらってから読み直す。ほかのわけで読めなければ、返ってきたわけを利用者に伝える。
 - AI の欄の下に、利用者と一緒に使う「共通ターミナル」（PowerShell。利用者がそこから ssh で機器やサーバーにつないでいることもある）を出していることがある。
   利用者が「共通ターミナル」と言ったら、これを指す（自分の Bash や、上の段の会話のタブではない）。
   出していれば、話しかけるたびに今の状態に「共通ターミナル」として、画面の最後の 20 行と選んでいる文字が付いてくる。
@@ -351,7 +368,7 @@ namespace Tsuzuri
             "@powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File \"%~dp0ssh-askpass.ps1\"\r\n";
 
         /// <summary>exe の隣の Ai から AI のフォルダへ写す台本（2026-11-08。SPEC 19章）。askpass と、ネットワーク機器への入り方（ssh-session.ps1）。</summary>
-        private static readonly string[] AiScripts = { "ssh-askpass.ps1", "ssh-session.ps1", "terminal.ps1" };
+        private static readonly string[] AiScripts = { "ssh-askpass.ps1", "ssh-session.ps1", "terminal.ps1", "excel.ps1" };
 
         /// <summary>ツールバーの「AI」。AI の欄を出し入れする。タブが1つも無ければ、claude を起動したタブを1つ開く。</summary>
         private void ToggleAi()
@@ -851,6 +868,7 @@ namespace Tsuzuri
                     .Replace("{ssh-askpass}", askpass)
                     .Replace("{ssh-session}", Path.Combine(AiFolder, "ssh-session.ps1"))
                     .Replace("{terminal}", Path.Combine(AiFolder, "terminal.ps1"))
+                    .Replace("{excel}", Path.Combine(AiFolder, "excel.ps1"))
                     .Replace("{schedule-file}", ScheduleFilePath));
                 File.WriteAllText(settings, AiSettings(_aiContextPath, AiPipeName, StartAiHttp()), new UTF8Encoding(false));
                 WriteAiContext(null);
@@ -1339,6 +1357,15 @@ namespace Tsuzuri
                         writer.Flush();
                         server.WaitForPipeDrain();
                     }
+                    else if (request != null && request.StartsWith("excel-read\t", StringComparison.Ordinal))
+                    {
+                        // Excel を範囲を指定して読む（2026-11-24。excel.ps1。MainWindow.Excel.cs）。画面のスレッドは使わない
+                        var answer = ServeExcelRead(request);
+                        var writer = new StreamWriter(server, new UTF8Encoding(false), 256, true);
+                        writer.WriteLine(answer.Replace("\r", " ").Replace("\n", " "));
+                        writer.Flush();
+                        server.WaitForPipeDrain();
+                    }
                     else if (request != null && request.StartsWith("guard\t", StringComparison.Ordinal))
                     {
                         // 読み書きの前（2026-11-09。AiGuard）。画面のスレッドは使わない
@@ -1755,7 +1782,7 @@ namespace Tsuzuri
         /// </summary>
         private const string AiStaleNote =
             "（前に書いた状態を渡す: エディタが今回の状態を書けなかったので、前に書いたものを渡す。ほかの会話のため、または前の時点のものかもしれない。"
-            + "中の「この会話は〜」「プロジェクトフォルダ」「ファイル」「見ているページ」「カーソル」「まず読む範囲」「図エディタ」の段を信じず、読む・書く前に利用者に確かめる）\n";
+            + "中の「この会話は〜」「プロジェクトフォルダ」「ファイル」「見ているページ」「カーソル」「まず読む範囲」「図エディタ」「Excel」の段を信じず、読む・書く前に利用者に確かめる）\n";
 
         /// <summary>タブごとの今の状態のファイル（パイプのフックが読む。2026-11-22）。claude を起動する前は null。</summary>
         private string AiTabContextPath(AiTab tab)
@@ -1775,7 +1802,7 @@ namespace Tsuzuri
             {
                 var pinned = AiGuard.IsGuarded(tab.Pin.File) ? "AI に渡さない文書（場所を渡していない）"
                     : PinLabel(tab.Pin) + (File.Exists(tab.Pin.File) ? string.Empty : "（ファイルが見つからない）");
-                AiContextText.Text = tab.Name + " に渡した状態（固定）  " + pinned + "  " + DateTime.Now.ToString("HH:mm:ss");
+                AiContextText.Text = tab.Name + " に渡した状態（固定）  " + pinned + ExcelSummaryPart() + "  " + DateTime.Now.ToString("HH:mm:ss");
                 AiContextText.ToolTip = tab.Pin.File;
                 RefreshAiFileLinks();
                 return;
@@ -1786,7 +1813,7 @@ namespace Tsuzuri
             var view = Active;
             if (view == null || view.Owner == null)
             {
-                AiContextText.Text = who + "渡した状態  ファイルを開いていません  " + DateTime.Now.ToString("HH:mm:ss");
+                AiContextText.Text = who + "渡した状態  ファイルを開いていません" + ExcelSummaryPart() + "  " + DateTime.Now.ToString("HH:mm:ss");
                 AiContextText.ToolTip = null;
                 RefreshAiFileLinks();
                 return;
@@ -1794,7 +1821,7 @@ namespace Tsuzuri
 
             if (AiGuard.IsGuarded(view.FilePath))
             {
-                AiContextText.Text = who + "渡していない  AI に渡さない文書（" + AiGuard.MarkerName + " のあるフォルダ）  " + DateTime.Now.ToString("HH:mm:ss");
+                AiContextText.Text = who + "渡していない  AI に渡さない文書（" + AiGuard.MarkerName + " のあるフォルダ）" + ExcelSummaryPart() + "  " + DateTime.Now.ToString("HH:mm:ss");
                 AiContextText.ToolTip = null;
                 RefreshAiFileLinks();
                 return;
@@ -1803,7 +1830,7 @@ namespace Tsuzuri
             var selected = _drawing == null && !string.IsNullOrEmpty(view.SimpleSelectedText.Trim());   // 図エディタで覆っている間は選択を渡さない
             AiContextText.Text = who + "渡した状態  " + Path.GetFileName(view.FilePath) + " › " + PageLabel(view)
                                  + "  " + view.TextArea.Caret.Line + " 行目" + (selected ? "（選択あり）" : string.Empty)
-                                 + "  " + DateTime.Now.ToString("HH:mm:ss");
+                                 + ExcelSummaryPart() + "  " + DateTime.Now.ToString("HH:mm:ss");
             AiContextText.ToolTip = view.FilePath;
             RefreshAiFileLinks();
         }
@@ -2054,6 +2081,7 @@ namespace Tsuzuri
             AppendOtherDocuments(text, pin != null ? subject : hasView && !viewGuarded ? view.Owner : null);
             AppendCalendarContext(text);  // カレンダーを開いていれば、出している週・選んでいる日（2026-11-21）
             AppendDrawingContext(text, pin != null, tab == null);   // 図エディタを出していれば、図のファイル・選んでいる図形（2026-11-23。MainWindow.Drawing.cs）
+            AppendExcelContext(text);   // ランチャーの Excel の一覧で選んだブックとシートの名前（2026-11-24。MainWindow.Excel.cs）
             AppendAiShellContext(text);   // 共通ターミナルの画面（2026-11-08）
 
             // 図の頼みは、最初の指示に書くだけでは罫線で描かれた（2026-11-01）。話しかけるたびに1行だけ念を押す（書き方そのものは渡さない）。
@@ -2325,6 +2353,7 @@ namespace Tsuzuri
 
             if (_calendar != null) _calendar.ReloadIfChanged();   // Claude が予定を書き換えたら出し直す（2026-11-21）
             if (_launcher != null && _filer != null) _filer.ReloadIfChanged();   // ランチャーのファイラーの一覧も、フォルダの中身が変わっていれば読み直す（2026-11-24）
+            if (_launcher != null) RefreshExcelList();   // ランチャーの Excel の一覧も（2026-11-24。MainWindow.Excel.cs）
             foreach (var view in _stack) view.RecheckImages();      // 画像は、ここでだけ確かめ直す（スクロールでは確かめない。2026-11-23）
             ReloadDrawingIfChanged();   // 図エディタで開いている図を Claude などが書き換えたら、図エディタに読み込む（2026-11-23）
 

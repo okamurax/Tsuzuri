@@ -76,6 +76,7 @@
     <Content Include="Ai\ssh-askpass.ps1"><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory></Content>
     <Content Include="Ai\ssh-session.ps1"><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory></Content>
     <Content Include="Ai\terminal.ps1"><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory></Content>
+    <Content Include="Ai\excel.ps1"><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory></Content>
     <Content Include="Terminal\terminal.html"><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory></Content>
     <Content Include="Terminal\xterm.js"><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory></Content>
     <Content Include="Terminal\xterm.css"><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory></Content>
@@ -169,6 +170,9 @@
     <Compile Include="MainWindow.AiPin.cs">
       <DependentUpon>MainWindow.xaml</DependentUpon>
     </Compile>
+    <Compile Include="MainWindow.Excel.cs">
+      <DependentUpon>MainWindow.xaml</DependentUpon>
+    </Compile>
     <Compile Include="MainWindow.SideTabs.cs">
       <DependentUpon>MainWindow.xaml</DependentUpon>
     </Compile>
@@ -218,6 +222,8 @@
     <Compile Include="Views\FileIcon.cs" />
     <Compile Include="Views\FilerView.cs" />
     <Compile Include="Views\FilerGit.cs" />
+    <Compile Include="Office\ExcelReader.cs" />
+    <Compile Include="Views\ExcelListView.cs" />
     <Compile Include="Views\IndentGuideRenderer.cs" />
     <Compile Include="Views\MarkdownColorizer.cs" />
     <Compile Include="Views\CodeHighlighter.cs" />

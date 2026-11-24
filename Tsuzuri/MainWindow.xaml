@@ -196,14 +196,24 @@
                                   DragCompleted="Layout_DragCompleted" />
 
                     <!-- ファイラーの上に、AI の会話のプロジェクトフォルダを渡す段（2026-11-24。プロジェクトフォルダはここから渡す。MainWindow.Overlays.cs） -->
-                    <DockPanel Grid.Column="2">
-                        <Border DockPanel.Dock="Top" Height="32" BorderBrush="{StaticResource BorderBrushSoft}" BorderThickness="0,0,0,1">
+                    <!-- 下の段に、開いている Excel のブックとシートの一覧（2026-11-24。ファイラーとの間の仕切りで高さを変えられる。MainWindow.Excel.cs） -->
+                    <Grid Grid.Column="2">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="*" MinHeight="80" />
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition x:Name="ExcelListRow" Height="180" MinHeight="60" />
+                        </Grid.RowDefinitions>
+                        <Border Grid.Row="0" Height="32" BorderBrush="{StaticResource BorderBrushSoft}" BorderThickness="0,0,0,1">
                             <Button x:Name="FilerUseFolder" Style="{StaticResource ToolButton}" Content="このフォルダをプロジェクトフォルダにする"
                                     Margin="8,0,8,0" Padding="8,1,8,1" FontSize="12" Focusable="False"
                                     VerticalAlignment="Center" HorizontalAlignment="Left" Click="FilerUseFolder_Click" />
                         </Border>
-                        <Border x:Name="FilerHost" />
-                    </DockPanel>
+                        <Border x:Name="FilerHost" Grid.Row="1" />
+                        <GridSplitter Grid.Row="2" Height="4" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" ResizeDirection="Rows"
+                                      DragCompleted="Layout_DragCompleted" />
+                        <Border x:Name="ExcelListHost" Grid.Row="3" />
+                    </Grid>
                 </Grid>
             </Border>
 

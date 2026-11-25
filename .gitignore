@@ -27,6 +27,7 @@ ssh/
 
 # 設定（exe の隣。開いたファイルのパスなどを含む）
 app.json
+ailink.json
 
 # Google カレンダーへ送る（OAuth クライアントの ID と秘密・ログインの鍵。exe の隣。SPEC 22章）
 google.json

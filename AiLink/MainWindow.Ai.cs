@@ -23,7 +23,7 @@ namespace AiLink
     // MainWindow の一部: AI の欄の会話のタブと、台本（Ai/*.ps1）からの頼みを受けるパイプ（Tsuzuri の MainWindow.Ai.cs から写したもの。2026-11-25）。
     //
     // 欄はいつも出しておく。会話のタブごとに別の PowerShell が動く（端末は Views/TerminalView。WebView2 の xterm.js と ConPTY）。
-    // 今は（第2段）タブの中は PowerShell だけで、AI はまだ起動しない。AI のつなぎ口（IAgent）と Codex は第3段で足す（PORTING.md）。
+    // タブを開くと PowerShell の中で AI（Codex）を起動する。指示・フック・会話の続きを渡すのは、これから第3段で足す（PORTING.md）。
     // 中の PowerShell には環境変数でタブの番号（AILINK_TAB）とパイプの名前（AILINK_PIPE）を渡す。台本（excel.ps1・terminal.ps1）はこのパイプで頼んでくる。
     public partial class MainWindow
     {
@@ -87,6 +87,9 @@ namespace AiLink
 
             /// <summary>端末のタイトル（ツールチップに出す）。</summary>
             public string TerminalTitle;
+
+            /// <summary>このタブで AI を一度起動したか（起動するのは最初の1回だけ）。</summary>
+            public bool AgentStarted;
         }
 
         /// <summary>会話のタブ。左から。</summary>
@@ -157,7 +160,7 @@ namespace AiLink
         }
 
         /// <summary>
-        /// 会話を始めるフォルダ。前の会話を戻すならそのフォルダ、無ければ利用者のフォルダ。AI に渡さない場所（AiGuard）では始めない。
+        /// 会話を始めるフォルダ。前の会話を戻すならそのフォルダ、無ければ AiWorkFolder。AI に渡さない場所（AiGuard）では始めない。
         /// （プロジェクトフォルダは持たない。2026-11-25。利用者の判断。扱うのは開いている Excel で、ファイルが要るときは端末へ落としてもらう）
         /// </summary>
         private string AiStartFolder(AiTab tab)
@@ -165,10 +168,31 @@ namespace AiLink
             var folder = tab != null && !string.IsNullOrEmpty(tab.Folder) && Directory.Exists(tab.Folder) ? tab.Folder : null;
             if (folder != null && AiGuard.IsGuarded(folder))
             {
-                Dispatcher.BeginInvoke(new Action(() => Status("AI に渡さないフォルダ（" + AiGuard.MarkerName + "）なので、会話は利用者のフォルダで始めました。")));
+                Dispatcher.BeginInvoke(new Action(() => Status("AI に渡さないフォルダ（" + AiGuard.MarkerName + "）なので、会話は AI 用のフォルダで始めました。")));
                 folder = null;
             }
-            return folder ?? AiHomeFolder;
+            return folder ?? AiWorkFolder;
+        }
+
+        /// <summary>
+        /// AI の会話を始めるフォルダ（%LOCALAPPDATA%\AiLink\work）。扱うのは開いている Excel なので、AI に利用者のフォルダ全体を作業の場所として渡さない
+        /// （Codex は作業のフォルダの中を自由に読み、そこに書ける）。無ければ作る。作れなければ利用者のフォルダ。
+        /// </summary>
+        private static string AiWorkFolder
+        {
+            get
+            {
+                var folder = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "AiLink", "work");
+                try
+                {
+                    Directory.CreateDirectory(folder);
+                    return folder;
+                }
+                catch (Exception)
+                {
+                    return AiHomeFolder;
+                }
+            }
         }
 
         /// <summary>利用者のフォルダ。共通ターミナルもここで始める。</summary>
@@ -389,7 +413,7 @@ namespace AiLink
         // =====================================================================
 
         /// <summary>
-        /// タブの端末で起動するコマンド。今は PowerShell だけ（AI は第3段で IAgent が起動する）。
+        /// タブの端末で起動するコマンド。PowerShell を起動し、AI が入っていれば続けて AI を起動する（起動の細かいことは第3段で IAgent へ移す）。
         /// 台本を AI のフォルダへ写し、パイプを開いてから、環境変数を置いた PowerShell を返す。用意に失敗しても PowerShell は起動する。
         /// </summary>
         private string AiCommandLine(AiTab tab)
@@ -415,6 +439,21 @@ namespace AiLink
             StartAiListener();
 
             var command = "$env:AILINK_TAB=" + Quote(tab.Id) + ";$env:AILINK_PIPE=" + Quote(AiPipeName);
+
+            // AI を起動する（2026-11-25。第3段の最初。指示・フック・会話の続きはまだ渡さない）。
+            // PowerShell の関数 codex を置き、終わったあとに codex と打っても同じ AI が動くようにする。PATH も足す（AiLink を起動したあとに入れた AI でも動くように）。
+            // 起動するのはタブを開いた最初の1回だけ（終わったあとに Enter で開き直した PowerShell では起動しない）
+            var agent = _agentExecutable;
+            if (agent != null)
+            {
+                command += ";$env:PATH=" + Quote(Path.GetDirectoryName(agent) + ";") + "+$env:PATH"
+                           + ";function codex { & " + Quote(agent) + " @args }";
+                if (!tab.AgentStarted)
+                {
+                    tab.AgentStarted = true;
+                    command += ";codex";
+                }
+            }
             return powershell + " -NoExit -EncodedCommand " + Convert.ToBase64String(Encoding.Unicode.GetBytes(command));
         }
 

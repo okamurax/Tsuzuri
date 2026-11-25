@@ -121,6 +121,12 @@ namespace AiLink.Views
         }
 
 
+        /// <summary>中のプログラム（PowerShell）のプロセスの番号。動いていなければ 0。</summary>
+        public int ProcessId
+        {
+            get { return _console != null && !_console.HasExited ? _console.ProcessId : 0; }
+        }
+
         public bool IsRunning
         {
             get { return _console != null && !_console.HasExited; }

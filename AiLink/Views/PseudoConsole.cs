@@ -63,6 +63,9 @@ namespace AiLink.Views
         /// <summary>終わったときの終了コード。終わっていなければ null。</summary>
         public int? ExitCode { get; private set; }
 
+        /// <summary>起動したプログラム（AI の欄では PowerShell）のプロセスの番号。起動する前は 0（AiLink。2026-11-25。その下で AI が動いているかを見るため）。</summary>
+        public int ProcessId { get; private set; }
+
         /// <param name="commandLine">exe のパスと引数（パスは引用符で囲む）。</param>
         /// <param name="folder">作業フォルダ。UNC（\\Mac\...）でもよい。</param>
         public void Start(string commandLine, string folder, int columns, int rows)
@@ -270,6 +273,7 @@ namespace AiLink.Views
 
                 _processHandle = info.hProcess;
                 _threadHandle = info.hThread;
+                ProcessId = info.dwProcessId;
             }
             finally
             {

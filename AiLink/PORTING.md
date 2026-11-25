@@ -14,7 +14,8 @@ AI は Codex CLI に固定するが、つなぎ口（`IAgent`）で抽象化し�
 - AI（Codex）が見つからなければ、会話のタブを開かず、AI の欄に入れ方の案内を出す（MainWindow.AiSetup.cs。「入れる」で公式の手順を別の PowerShell の窓で動かす。窓に戻るたびに探し直す）。
 - AI に渡さない場所の目印は `.ailink-no-ai` だけ（Tsuzuri の `.tsuzuri-no-ai` は見ない）。
 - Codex に起動のフラグでフックを渡せなければ、`~/.codex` にフックを書き込んでよい（AiLink の外で動かした codex では、中継が何もせずに終わる）。
-- タブどうしの伝言は、受け取ったタブの受け箱に預け、利用者がそのタブの「伝言を入力欄に置く」で入力欄に置く（Enter は利用者が押す。2026-11-25。じかに置くと、相手の AI が確かめを出しているときに文字が答えのキーとして効くため）。受け箱は保存しない。
+- タブどうしの伝言は Enter 不要で自動で渡す（2026-11-25。利用者の判断）。相手の AI が待っていて（作業の終わりから 3 秒・利用者の書きかけ無し・キーから 3 秒・タブの PowerShell の下で AI のプロセスが動いている）なら入力欄に置いて Enter、作業中なら作業の終わりのフック（Stop の decision: block）で渡す。利用者が話しかけないまま自動で渡すのはタブごとに 4 回まで。超えたら受け箱と「伝言を渡す」。受け箱は保存しない。
+- フック（MainWindow.AiHooks.cs）は work\.codex\hooks.json。会話の始まり・話しかけた（今の状態を渡す）・道具の前（AiGuard）・作業の終わり（伝言）・会話の終わり。AiLink に届かないとき（hook.ps1 がつながらない）は、道具の前の確かめも通してしまう（受け入れた。AiLink が答えて例外になったときは断る）。
 - 設定ファイルは exe の隣の `ailink.json`。置き場所は `%LOCALAPPDATA%\AiLink\ai`。パイプは `AiLink-<プロセス番号>`。
   環境変数は `AILINK_TAB`・`AILINK_PIPE`・`AILINK_SSH_HOST`。WebView2 のデータは `%LOCALAPPDATA%\AiLink\WebView2`、ホスト名は `ailink.local`。
 

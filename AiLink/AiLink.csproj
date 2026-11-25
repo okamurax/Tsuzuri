@@ -61,7 +61,7 @@
   </ItemGroup>
   <ItemGroup>
     <Content Include="Ai\excel.ps1"><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory></Content>
-    <Content Include="Ai\hook-probe.ps1"><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory></Content>
+    <Content Include="Ai\hook.ps1"><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory></Content>
     <Content Include="Ai\talk.ps1"><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory></Content>
     <Content Include="Ai\state.ps1"><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory></Content>
     <Content Include="Terminal\LICENSE-xterm.txt"><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory></Content>
@@ -99,6 +99,9 @@
     <Compile Include="MainWindow.Ai.cs">
       <DependentUpon>MainWindow.xaml</DependentUpon>
     </Compile>
+    <Compile Include="MainWindow.AiHooks.cs">
+      <DependentUpon>MainWindow.xaml</DependentUpon>
+    </Compile>
     <Compile Include="MainWindow.AiInstructions.cs">
       <DependentUpon>MainWindow.xaml</DependentUpon>
     </Compile>
@@ -121,6 +124,7 @@
     <Compile Include="Properties\AssemblyInfo.cs" />
     <Compile Include="Views\ExcelListView.cs" />
     <Compile Include="Views\FileIcon.cs" />
+    <Compile Include="Views\ProcessTree.cs" />
     <Compile Include="Views\PseudoConsole.cs" />
     <Compile Include="Views\ScrollThumbLength.cs" />
     <Compile Include="Views\ShellIcons.cs" />

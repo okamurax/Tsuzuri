@@ -28,6 +28,12 @@ namespace AiLink.Agents
         /// <summary>この PC に合う版と見たもの（InstallChoices のどれか）。分からなければ null。案内でそのボタンを目立たせる。</summary>
         AgentInstallChoice LikelyInstallChoice { get; }
 
+        /// <summary>会話の番号として正しい形か（起動のコマンドに書くので、ほかのものは使わない）。</summary>
+        bool IsValidSessionId(string id);
+
+        /// <summary>AI がその会話を残しているか（次の起動で続きとして開けるか）。調べられなければ true。</summary>
+        bool SessionExists(string id);
+
         /// <summary>入れ方を説明している公式のページ。</summary>
         string InstallPage { get; }
     }

@@ -38,7 +38,7 @@ namespace AiLink
         private static readonly string AiPipeName = "AiLink-" + AiProcessId;
 
         /// <summary>exe の隣の Ai から AI のフォルダへ写す台本。</summary>
-        private static readonly string[] AiScripts = { "excel.ps1", "state.ps1", "talk.ps1", "hook-probe.ps1" };
+        private static readonly string[] AiScripts = { "excel.ps1", "state.ps1", "talk.ps1", "hook.ps1" };
 
         /// <summary>前に落ちた AiLink が残したファイルを片付けたか（最初にタブを開くとき1回だけ）。</summary>
         private bool _aiStaleFilesCleaned;
@@ -77,6 +77,31 @@ namespace AiLink
             /// <summary>このタブで AI を一度起動したか（起動するのは最初の1回だけ）。</summary>
             public bool AgentStarted;
 
+            /// <summary>起動するときに続きとして開く会話の番号（前の起動の会話を戻すとき）。無ければ null（新しい会話）。</summary>
+            public string ResumeSession;
+
+            /// <summary>AI が会話を始めて、頼みを受け付けられる（会話の始まりのフックが来た。終わりのフックで false）。</summary>
+            public bool AgentReady;
+
+            /// <summary>AI が頼みに取り組んでいる最中（話しかけたフックから、作業の終わりのフックまで。確かめを出している間もこの中）。</summary>
+            public bool Busy;
+
+            /// <summary>利用者が話しかけないまま、伝言を自動で渡した回数（AI どうしがやりとりし続けないための歯止め。MainWindow.AiTalk.cs）。</summary>
+            public int AutoTalks;
+
+            /// <summary>AI が最後に頼みを終えた（か会話を始めた）時刻。直後には伝言を打たない（起動の案内などの画面に Enter が効かないように）。</summary>
+            public DateTime ReadySince;
+
+            /// <summary>AiLink が伝言を打って Enter を送った時刻と、それが頼みとして受け付けられるのを待っているか。</summary>
+            public DateTime TypedAt;
+            public bool AwaitingPrompt;
+
+            /// <summary>利用者がこのタブの入力欄に書きかけている（AI が待っている間に打った字があり、Enter・Esc・Ctrl+C をまだ押していない）。</summary>
+            public bool InputPending;
+
+            /// <summary>利用者がこのタブで最後にキーを打った時刻。</summary>
+            public DateTime LastUserKey;
+
             /// <summary>ほかの会話からの伝言の受け箱（まだ入力欄に置いていないもの。見出しに印を出す。MainWindow.AiTalk.cs）。</summary>
             public readonly List<string> Inbox = new List<string>();
         }
@@ -105,8 +130,8 @@ namespace AiLink
             var saved = _settings.AiTabs;
             if (saved != null)
             {
-                // 第3段で、AI がその会話を残しているかを IAgent で確かめてから戻す
-                foreach (var state in saved) AddAiTab(state);
+                // AI がその会話を残しているものだけ戻す（話しかける前に閉じた会話は残っていない）
+                foreach (var state in saved.Where(state => _agent.SessionExists(state.Session)).ToList()) AddAiTab(state);
             }
             if (_aiTabs.Count == 0) AddAiTab(null);
             else SelectAiTab(_aiTabs[0]);
@@ -119,6 +144,7 @@ namespace AiLink
             if (restore != null)
             {
                 tab.SessionId = restore.Session;
+                tab.ResumeSession = restore.Session;
                 tab.Folder = restore.Folder;
                 tab.Topic = string.IsNullOrWhiteSpace(restore.Topic) ? null : restore.Topic;
                 var name = restore.Name != null && restore.Name.StartsWith("#", StringComparison.Ordinal) ? restore.Name : null;
@@ -138,6 +164,7 @@ namespace AiLink
                 tab.TerminalTitle = (title ?? string.Empty).Trim();
                 tab.Header.ToolTip = AiTabToolTip(tab);
             };
+            tab.View.UserInput += data => OnAiTabInput(tab, data);
             tab.View.FocusRequested += delegate
             {
                 // 押したタブが今のタブなら渡し直す（タブを選んだときと同じ手順。日本語の変換の位置がずれないように）
@@ -440,7 +467,7 @@ namespace AiLink
                 if (!tab.AgentStarted)
                 {
                     tab.AgentStarted = true;
-                    command += ";codex";
+                    command += tab.ResumeSession != null ? ";codex resume " + tab.ResumeSession : ";codex";   // 番号は Guid の形のものだけ（AppSettings）
                 }
             }
             return powershell + " -NoExit -EncodedCommand " + Convert.ToBase64String(Encoding.Unicode.GetBytes(command));
@@ -467,10 +494,10 @@ namespace AiLink
             Directory.CreateDirectory(work);
             WriteIfChanged(Path.Combine(work, "AGENTS.md"), AiInstructionsText(work));
 
-            // 試しのフック（2026-11-25。Codex のフックが Windows でどう動くかを確かめるため。確かめたら本物に置き換える）。
-            // プロジェクトの単位のフック（work\.codex\hooks.json）にする（利用者の ~/.codex には書かない）。利用者が Codex の /hooks で信頼するまでは動かない
+            // フック（MainWindow.AiHooks.cs）。プロジェクトの単位のフック（work\.codex\hooks.json）にする（利用者の ~/.codex には書かない）。
+            // 中身が変わると、Codex が利用者に信頼するかを尋ねる（信頼するまでは動かない）
             Directory.CreateDirectory(Path.Combine(work, ".codex"));
-            WriteIfChanged(Path.Combine(work, ".codex", "hooks.json"), HookProbeConfig());
+            WriteIfChanged(Path.Combine(work, ".codex", "hooks.json"), AiHooksConfig());
 
             // AiLink の台本（state.ps1・excel.ps1・talk.ps1）は、Codex に毎回は確かめさせない（2026-11-25。excel.ps1 のたびに
             // 「囲いの外で動かしてよいか」と聞かれた）。プロジェクトの単位のルール（work\.codex\rules）で、この形のコマンドだけを許す。
@@ -493,32 +520,6 @@ namespace AiLink
                    + "    decision = \"allow\",\n"
                    + "    justification = \"AiLink のパイプに頼むだけの台本（Excel に触るのは AiLink）\",\n"
                    + ")\n";
-        }
-
-        /// <summary>試しのフックの設定（hooks.json）。どのイベントでも hook-probe.ps1 を動かす。道具のイベントは全部の道具に当てる。</summary>
-        private static string HookProbeConfig()
-        {
-            var probe = Path.Combine(AiFolder, "hook-probe.ps1");
-            Func<string, string, string> entry = (name, matcher) =>
-            {
-                // exe はパスを書かず powershell（Codex がフックのコマンドを PowerShell で動かすと、"…\powershell.exe" -NoProfile は
-                // 文字列のあとに引数が続く文法の誤りになり、code 1 で終わった。2026-11-25 に Windows で試して分かった。Tsuzuri のフックと同じ形）
-                var command = "powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File \"" + probe + "\" " + name;
-                var escaped = command.Replace("\\", "\\\\").Replace("\"", "\\\"");
-                return "\"" + name + "\": [{" + (matcher != null ? "\"matcher\": \"" + matcher + "\", " : string.Empty)
-                       + "\"hooks\": [{\"type\": \"command\", \"command\": \"" + escaped + "\", \"timeout\": " + (name == "SessionEnd" ? "3" : "30") + "}]}]";
-            };
-            return "{\n  \"description\": \"AiLink hook probe (temporary)\",\n  \"hooks\": {\n    "
-                   + string.Join(",\n    ", new[]
-                   {
-                       entry("SessionStart", null),
-                       entry("UserPromptSubmit", null),
-                       entry("PreToolUse", "*"),
-                       entry("PostToolUse", "*"),
-                       entry("Stop", null),
-                       entry("SessionEnd", null),
-                   })
-                   + "\n  }\n}\n";
         }
 
         /// <summary>PowerShell の文字列（'...'）にする。中の ' は2つ重ねる。</summary>
@@ -594,7 +595,11 @@ namespace AiLink
                     var request = reader.ReadLine() ?? string.Empty;
                     string answer;
 
-                    if (request.StartsWith("talk\t", StringComparison.Ordinal))
+                    if (request.StartsWith("hook\t", StringComparison.Ordinal))
+                    {
+                        answer = ServeAiHook(request);
+                    }
+                    else if (request.StartsWith("talk\t", StringComparison.Ordinal))
                     {
                         answer = ServeAiTalk(request);
                     }

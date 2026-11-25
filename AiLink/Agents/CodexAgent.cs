@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 
 namespace AiLink.Agents
 {
@@ -100,6 +101,34 @@ namespace AiLink.Agents
                     "3. 初めて使うときは、会社の ChatGPT のアカウントでサインインします（ブラウザーが開きます）。",
                     "うまく入らないときは、「コマンドをコピー」で写したものを、情報システムの担当に見せてください。",
                 };
+            }
+        }
+
+        /// <summary>Codex の会話の番号は Guid の形（例 01a212f9-6f77-7c60-b430-f223a299318e。2026-11-25 にフックで確かめた）。</summary>
+        public bool IsValidSessionId(string id)
+        {
+            Guid parsed;
+            return !string.IsNullOrEmpty(id) && Guid.TryParse(id, out parsed);
+        }
+
+        /// <summary>
+        /// Codex は会話を %CODEX_HOME%（無ければ %USERPROFILE%\.codex）\sessions\年\月\日\rollout-…-番号.jsonl に残す（2026-11-25 にフックの transcript_path で確かめた）。
+        /// 話しかける前に閉じた会話は残らないことがあるので、無ければ戻さない。
+        /// </summary>
+        public bool SessionExists(string id)
+        {
+            if (!IsValidSessionId(id)) return false;
+            try
+            {
+                var home = Environment.GetEnvironmentVariable("CODEX_HOME");
+                if (string.IsNullOrEmpty(home)) home = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".codex");
+                var sessions = Path.Combine(home, "sessions");
+                if (!Directory.Exists(sessions)) return true;
+                return Directory.EnumerateFiles(sessions, "rollout-*" + id + ".jsonl", SearchOption.AllDirectories).Any();
+            }
+            catch (Exception)
+            {
+                return true;
             }
         }
 

@@ -63,6 +63,7 @@
     <Content Include="Ai\excel.ps1"><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory></Content>
     <Content Include="Ai\ssh-askpass.ps1"><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory></Content>
     <Content Include="Ai\ssh-session.ps1"><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory></Content>
+    <Content Include="Ai\state.ps1"><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory></Content>
     <Content Include="Ai\terminal.ps1"><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory></Content>
     <Content Include="Terminal\LICENSE-xterm.txt"><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory></Content>
     <Content Include="Terminal\addon-fit.js"><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory></Content>
@@ -97,6 +98,9 @@
     <Compile Include="AppSettings.cs" />
     <Compile Include="GitLocator.cs" />
     <Compile Include="MainWindow.Ai.cs">
+      <DependentUpon>MainWindow.xaml</DependentUpon>
+    </Compile>
+    <Compile Include="MainWindow.AiInstructions.cs">
       <DependentUpon>MainWindow.xaml</DependentUpon>
     </Compile>
     <Compile Include="MainWindow.AiSetup.cs">

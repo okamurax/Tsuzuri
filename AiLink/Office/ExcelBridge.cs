@@ -10,10 +10,10 @@ namespace AiLink.Office
 {
     /// <summary>
     /// 開いている Excel（Windows のデスクトップ版）を読み書きする（2026-11-24。利用者の考え。SPEC 19章）。
-    /// 開いているブックのどのシートにも書ける（AI に渡さない場所・ネットの場所・隠れたブックは除く。書く前に Claude が利用者の許可を取る）。保存はしない。
-    /// Claude の COM の台本（excel.ps1 -Script）は、別のプロセスで動かす。ここでは、Excel を呼ぶほかの処理と重ならないように順番を守る（RunExclusive）。
+    /// 開いているブックのどのシートにも書ける（AI に渡さない場所・ネットの場所・隠れたブックは除く。書く前に AI が利用者の許可を取る）。保存はしない。
+    /// AI の COM の台本（excel.ps1 -Script）は、別のプロセスで動かす。ここでは、Excel を呼ぶほかの処理と重ならないように順番を守る（RunExclusive）。
     ///
-    /// Office のアプリとのやり取りは、この Office フォルダの中だけで行う（Tsuzuri の中で COM を使うのはここだけ。Claude の台本は別のプロセス）。
+    /// Office のアプリとのやり取りは、この Office フォルダの中だけで行う（AiLink の中で COM を使うのはここだけ。AI の台本は別のプロセス）。
     /// いつか COM が使えなくなっても、ここを差し替えれば、AI に渡す今の状態の形はそのまま残せるように。
     /// 型の参照（Interop）は使わず、名前で呼ぶ（Excel の版に縛られない）。
     /// 呼ぶたびに自分の STA のスレッドで読み、時間を切る（Excel が応答しない・セルを編集中でも、こちらを止めない）。
@@ -317,7 +317,7 @@ namespace AiLink.Office
             public List<string> Sheets = new List<string>();
             /// <summary>Excel のプロセスの番号（Excel を開き直すと変わる）。読めなければ 0。</summary>
             public long Instance;
-            /// <summary>保存していない変更がある（Workbook.Saved が偽。Claude の分も、手で直した分も）。</summary>
+            /// <summary>保存していない変更がある（Workbook.Saved が偽。AI の分も、手で直した分も）。</summary>
             public bool Unsaved;
         }
 
@@ -412,12 +412,12 @@ namespace AiLink.Office
         /// <summary>
         /// Excel を呼ぶのは一度に1つだけ（2026-11-25。レビューの指摘）。時間切れになっても、Excel の中に入った呼び出しを抱えた裏のスレッドは止められない。
         /// そのスレッドが終わるまで次を始めないことで、Excel が止まっている間にスレッドと COM の参照が積み上がらず、
-        /// 書く手順（確かめる→書く）や Claude の台本が、ほかの呼び出しと混ざらない。
+        /// 書く手順（確かめる→書く）や AI の台本が、ほかの呼び出しと混ざらない。
         /// </summary>
         private static readonly SemaphoreSlim Gate = new SemaphoreSlim(1, 1);
 
         private const string NotAnswering = "Excel が応答しない（セルを編集中か、ダイアログを出しているか、重い計算・マクロの途中）";
-        private const string StillBusy = "Excel がまだ前の頼みに応えていない（セルを編集中か、ダイアログを出しているか、重い計算・マクロの途中か、Claude の台本を動かしている途中）。今回は何もしていない";
+        private const string StillBusy = "Excel がまだ前の頼みに応えていない（セルを編集中か、ダイアログを出しているか、重い計算・マクロの途中か、AI の台本を動かしている途中）。今回は何もしていない";
 
         /// <summary>
         /// 自分の STA のスレッドで work を呼び、timeout まで待つ。前の呼び出しのスレッドが timeout のうちに終わらなければ、始めずに Previous。
@@ -470,7 +470,7 @@ namespace AiLink.Office
         }
 
         /// <summary>
-        /// Excel を呼ぶほかの処理と重ならないように、work を呼ぶ（Claude の台本を別のプロセスで動かす間。2026-11-25）。
+        /// Excel を呼ぶほかの処理と重ならないように、work を呼ぶ（AI の台本を別のプロセスで動かす間。2026-11-25）。
         /// 前の呼び出しが wait のうちに終わらなければ、呼ばずに StillBusy を返す（started は偽）。work はこのスレッドで動く。
         /// </summary>
         public static string RunExclusive(Func<string> work, int wait, out bool started)

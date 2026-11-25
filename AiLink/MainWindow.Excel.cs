@@ -166,7 +166,7 @@ namespace AiLink
             var file = sheetList.Length > 0 ? WriteExcelSheets(sheetList.ToString()) : null;
             if (file == null) listedOut.Clear();   // 書けなければ、名前を並べる
 
-            text.Append("Excel: 利用者がExcel の一覧で選んだシート（").Append(shown.Count).Append(" 枚。渡すのは名前だけで、中身は渡していない）: ");
+            text.Append("Excel: 利用者が Excel の一覧で選んだシート（").Append(shown.Count).Append(" 枚。渡すのは名前だけで、中身は渡していない）: ");
             var first = true;
             foreach (var group in groups)
             {
@@ -340,7 +340,7 @@ namespace AiLink
             {
                 return "error\t書き出せなかった: " + ex.Message;
             }
-            return "ok\t" + file + "（ブック " + bookShown + "・シート " + sheetShown + " の概要。シートの画像のパス・書式・結合・図形・グラフなどと、セルの値と式。長いことがあるので、Read で全部読み、「## 画像」に書いた画像も Read で見る）";
+            return "ok\t" + file + "（ブック " + bookShown + "・シート " + sheetShown + " の概要。シートの画像のパス・書式・結合・図形・グラフなどと、セルの値と式。長いことがあるので全部読み、「## 画像」に書いた画像も（画像を見る道具で）見る）";
         }
 
         /// <summary>

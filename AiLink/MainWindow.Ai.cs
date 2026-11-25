@@ -52,7 +52,7 @@ namespace AiLink
             "@powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File \"%~dp0ssh-askpass.ps1\"\r\n";
 
         /// <summary>exe の隣の Ai から AI のフォルダへ写す台本。</summary>
-        private static readonly string[] AiScripts = { "ssh-askpass.ps1", "ssh-session.ps1", "terminal.ps1", "excel.ps1" };
+        private static readonly string[] AiScripts = { "ssh-askpass.ps1", "ssh-session.ps1", "terminal.ps1", "excel.ps1", "state.ps1" };
 
         /// <summary>前に落ちた AiLink が残したファイルを片付けたか（最初にタブを開くとき1回だけ）。</summary>
         private bool _aiStaleFilesCleaned;
@@ -160,39 +160,31 @@ namespace AiLink
         }
 
         /// <summary>
-        /// 会話を始めるフォルダ。前の会話を戻すならそのフォルダ、無ければ AiWorkFolder。AI に渡さない場所（AiGuard）では始めない。
+        /// 会話を始めるフォルダ。いつも AiWorkFolder（指示の AGENTS.md があり、AI が書ける場所。前の会話を戻すときも同じ）。
         /// （プロジェクトフォルダは持たない。2026-11-25。利用者の判断。扱うのは開いている Excel で、ファイルが要るときは端末へ落としてもらう）
         /// </summary>
         private string AiStartFolder(AiTab tab)
         {
-            var folder = tab != null && !string.IsNullOrEmpty(tab.Folder) && Directory.Exists(tab.Folder) ? tab.Folder : null;
-            if (folder != null && AiGuard.IsGuarded(folder))
+            // 端末は、コマンド（AiCommandLine）より先にフォルダを尋ねるので、ここでも作る。
+            // 作れなかったときは利用者のフォルダで PowerShell だけを起動する（AiCommandLine の PrepareAiFolder も同じフォルダを作れずに失敗し、AI を起動しない）
+            try
             {
-                Dispatcher.BeginInvoke(new Action(() => Status("AI に渡さないフォルダ（" + AiGuard.MarkerName + "）なので、会話は AI 用のフォルダで始めました。")));
-                folder = null;
+                Directory.CreateDirectory(AiWorkFolder);
+                return AiWorkFolder;
             }
-            return folder ?? AiWorkFolder;
+            catch (Exception)
+            {
+                return AiHomeFolder;
+            }
         }
 
         /// <summary>
         /// AI の会話を始めるフォルダ（%LOCALAPPDATA%\AiLink\work）。扱うのは開いている Excel なので、AI に利用者のフォルダ全体を作業の場所として渡さない
-        /// （Codex は作業のフォルダの中を自由に読み、そこに書ける）。無ければ作る。作れなければ利用者のフォルダ。
+        /// （Codex は作業のフォルダの中を自由に読み、そこに書ける）。PrepareAiFolder が作る（作れなければ AI は起動しない）。
         /// </summary>
         private static string AiWorkFolder
         {
-            get
-            {
-                var folder = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "AiLink", "work");
-                try
-                {
-                    Directory.CreateDirectory(folder);
-                    return folder;
-                }
-                catch (Exception)
-                {
-                    return AiHomeFolder;
-                }
-            }
+            get { return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "AiLink", "work"); }
         }
 
         /// <summary>利用者のフォルダ。共通ターミナルもここで始める。</summary>
@@ -438,7 +430,7 @@ namespace AiLink
 
             StartAiListener();
 
-            var command = "$env:AILINK_TAB=" + Quote(tab.Id) + ";$env:AILINK_PIPE=" + Quote(AiPipeName);
+            var command = "$env:AILINK_TAB=" + Quote(tab.Id) + ";$env:AILINK_PIPE=" + Quote(AiPipeName) + ";$env:AILINK_WORK=" + Quote(AiWorkFolder);
 
             // AI を起動する（2026-11-25。第3段の最初。指示・フック・会話の続きはまだ渡さない）。
             // PowerShell の関数 codex を置き、終わったあとに codex と打っても同じ AI が動くようにする。PATH も足す（AiLink を起動したあとに入れた AI でも動くように）。
@@ -474,6 +466,11 @@ namespace AiLink
                 if (File.Exists(source)) WriteIfChanged(Path.Combine(AiFolder, script), File.ReadAllText(source, Encoding.UTF8));
             }
             CopySshFolder();
+
+            // 指示は会話を始めるフォルダの AGENTS.md に書く（Codex が自分で読む。MainWindow.AiInstructions.cs）
+            var work = AiWorkFolder;
+            Directory.CreateDirectory(work);
+            WriteIfChanged(Path.Combine(work, "AGENTS.md"), AiInstructionsText(work));
         }
 
         /// <summary>PowerShell の文字列（'...'）にする。中の ' は2つ重ねる。</summary>
@@ -563,7 +560,11 @@ namespace AiLink
                     var request = reader.ReadLine() ?? string.Empty;
                     string answer;
 
-                    if (request == "shell-open")
+                    if (request.StartsWith("state\t", StringComparison.Ordinal))
+                    {
+                        answer = ServeAiState(request.Substring("state\t".Length));
+                    }
+                    else if (request == "shell-open")
                     {
                         answer = OpenAiShellForAi();
                     }

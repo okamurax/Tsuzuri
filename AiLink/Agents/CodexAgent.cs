@@ -21,6 +21,28 @@ namespace AiLink.Agents
             get { return "irm https://chatgpt.com/codex/install.ps1 | iex"; }
         }
 
+        /// <summary>
+        /// 公式の install.ps1 を取ってきて、CPU の種類を調べる1か所を差し替えてから動かす（2026-11-25。Windows の PowerShell 5.1 で試して分かった）。
+        /// 公式の手順は [System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture で調べるが、PowerShell 5.1 ではこれが無く、
+        /// Set-StrictMode の下で「プロパティ 'OSArchitecture' が見つかりません」で止まる（PowerShell 7 では動く）。
+        /// 差し替えた先は、まず同じものを試し、無ければ Win32_Processor（12 は ARM64、9 は x64）、それも無ければ環境変数で決める。
+        /// 公式の手順がこの書き方をやめていれば、差し替えずにそのまま動かす。
+        /// </summary>
+        public string InstallScript
+        {
+            get
+            {
+                return "function Get-AiLinkArchitecture {" +
+                       " try { $a = [string][System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture; if ($a) { return $a } } catch { }" +
+                       " try { switch ([int](Get-CimInstance Win32_Processor | Select-Object -First 1).Architecture) { 12 { return 'Arm64' } 9 { return 'X64' } } } catch { }" +
+                       " if ($env:PROCESSOR_ARCHITEW6432 -eq 'ARM64' -or $env:PROCESSOR_ARCHITECTURE -eq 'ARM64') { return 'Arm64' }" +
+                       " return 'X64' };" +
+                       "$installer = Invoke-RestMethod 'https://chatgpt.com/codex/install.ps1';" +
+                       "$installer = $installer.Replace('[System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture', '(Get-AiLinkArchitecture)');" +
+                       "Invoke-Expression $installer";
+            }
+        }
+
         public string InstallPage
         {
             get { return "https://learn.chatgpt.com/docs/codex/cli"; }

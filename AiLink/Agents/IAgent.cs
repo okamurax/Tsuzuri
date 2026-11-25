@@ -19,8 +19,14 @@ namespace AiLink.Agents
         /// <summary>入っていないときに出す案内の文（何をするものか・入れ方・入れたあとにすること）。1行ずつ。</summary>
         string[] InstallSteps { get; }
 
-        /// <summary>入れるコマンド（PowerShell の1行）。案内の「入れる」で別の PowerShell の窓で動かし、「コマンドをコピー」で写す。</summary>
+        /// <summary>入れるコマンド（公式の PowerShell の1行）。案内に出し、「コマンドをコピー」で写す。</summary>
         string InstallCommand { get; }
+
+        /// <summary>
+        /// 案内の「入れる」で、別の PowerShell（Windows PowerShell 5.1）の窓で動かす台本。
+        /// ふつうは InstallCommand と同じでよいが、公式の手順が 5.1 で動かないところを補うときはここで補う。
+        /// </summary>
+        string InstallScript { get; }
 
         /// <summary>入れ方を説明している公式のページ。</summary>
         string InstallPage { get; }

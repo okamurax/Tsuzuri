@@ -156,7 +156,7 @@ namespace AiLink
             try
             {
                 var script = "Write-Host '" + _agent.DisplayName + " を入れます（OpenAI の入れる手順）。' -ForegroundColor Cyan;"
-                             + _agent.InstallCommand + ";"
+                             + _agent.InstallScript + ";"
                              + "Write-Host '';Write-Host '終わりました。この窓を閉じて、AI連携ツールに戻ってください。' -ForegroundColor Green";
                 var powershell = Path.Combine(Environment.SystemDirectory, "WindowsPowerShell", "v1.0", "powershell.exe");
                 var start = new ProcessStartInfo(powershell,

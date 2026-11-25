@@ -10,7 +10,7 @@ namespace AiLink
     //
     // Codex には Claude Code のような会話どうしのメッセージが無いので、AiLink が仲立ちする。Enter は要らない（利用者の判断）。
     // AI が talk.ps1 -To "#1" で頼むと、AiLink は「【#2 からの伝言】…」をそのタブの受け箱に入れ、すぐ渡せるなら渡す:
-    // ・相手の AI が待っている（作業の終わりのフックから 3 秒たち、利用者がそのタブで書きかけていない・3 秒キーを打っていない）:
+    // ・相手の AI が待っている（作業の終わりのフックから 3 秒たち、利用者が 3 秒キーを打っておらず、画面に入力欄が空の印が出ている）:
     //   入力欄に置き、少し置いて Enter を送る（見回り AiTalkTick が 2 秒ごとに試す）
     // ・相手の AI が作業中（確かめを出している間も）: 入力欄には打たない（文字が確かめの答えのキーとして効くため。2026-11-25 のレビュー）。
     //   作業の終わりのフック（Stop）で、伝言を次の頼みとして返す（MainWindow.AiHooks.cs）
@@ -80,18 +80,13 @@ namespace AiLink
 
             body = body.Replace("【#", "［#");   // 本文に差出人の見出しの形を書いて、ほかの会話になりすませないように
             target.Inbox.Add("【" + from.Name + " からの伝言】" + body);
-            var delivered = DeliverAiTalk(target);
             AfterAiInboxChanged(target);
-            if (target.Inbox.Count > 0) EnsureAiTalkTimer();
-            if (delivered)
-            {
-                Status(from.Name + " から " + target.Name + " へ伝言を渡しました");
-                return "ok\t" + target.Name + " に渡した（" + target.Name + " の AI が読んで取り組む。返事を頼んでいれば、伝言としてこちらに届く）。";
-            }
+            EnsureAiTalkTimer();
+            TryDeliverAiTalk(target);
             if (target.HooksSeen && target.AgentReady && target.AutoTalks < AiAutoTalkLimit)
             {
-                Status(from.Name + " から " + target.Name + " へ伝言を預けました（" + target.Name + " の手が空いたら渡します）");
-                return "ok\t" + target.Name + " は作業中か、利用者が入力欄を使っているので預けた（手が空くと自動で渡る）。";
+                Status(from.Name + " から " + target.Name + " へ伝言を預けました（" + target.Name + " の手が空いていれば、すぐ渡ります）");
+                return "ok\t" + target.Name + " に預けた（" + target.Name + " の手が空いていれば、すぐに渡る。作業中なら終わったときに渡る）。";
             }
             Status(from.Name + " から " + target.Name + " へ伝言が来ました（" + target.Name + " のタブの下の「伝言を渡す」で渡せます）");
             return "ok\t" + target.Name + " の受け箱に預けた（" + (!target.HooksSeen ? target.Name + " の AI が動いていないか、AI連携ツールがその AI の様子を知れない"
@@ -100,15 +95,43 @@ namespace AiLink
         }
 
         /// <summary>
-        /// 受け箱の伝言を、今すぐ渡せるなら1つ渡す（入力欄に置き、少し置いて Enter）。渡せるのは、次が全部そろったときだけ:
-        /// AI が会話を始めていて作業中でない・作業を終えて（会話を始めて）3 秒たった・利用者が書きかけていない・利用者が最後にキーを打って 3 秒たった・
-        /// 前に打った伝言がまだ頼みとして受け付けられていない、ではない・自動で渡した回数が上限より少ない。渡したら true。
+        /// 受け箱の伝言を、今渡せるなら1つ渡す。まず次が全部そろっているかを見る:
+        /// フックが来ている・AI が会話を始めていて作業中でない・前に打った伝言の受け付けを待っていない・作業を終えて（会話を始めて）3 秒たった・
+        /// 利用者が最後にキーを打って 3 秒たった・自動で渡した回数が上限より少ない・タブの PowerShell の下で AI のプロセスが動いている。
+        /// そろっていれば端末の画面を読み、入力欄が空の印（IAgent.EmptyInputMarker）が出ているときだけ打つ（書きかけ・確かめの画面に打ち込まない。
+        /// キーの流れから書きかけを推し量るのは、フォーカスの知らせなどが混ざって当てにならなかった。2026-11-25）。
         /// 渡せなければ、見回り（AiTalkTick）がまた試す。
         /// </summary>
-        private bool DeliverAiTalk(AiTab tab)
+        private void TryDeliverAiTalk(AiTab tab)
+        {
+            if (!CanDeliverAiTalk(tab)) return;
+            var marker = _agent.EmptyInputMarker;
+            if (marker == null) return;
+
+            System.Threading.Tasks.Task<string> read;
+            try
+            {
+                read = tab.View.RunScriptAsync("tsuzuriScreen(20)");
+            }
+            catch (Exception)
+            {
+                return;
+            }
+            if (read == null) return;
+            tab.Checking = true;
+            read.ContinueWith(task =>
+            {
+                tab.Checking = false;
+                if (task.IsFaulted || task.IsCanceled || !CanDeliverAiTalk(tab)) return;
+                if (!ScreenShows(task.Result, marker)) return;
+                TypeAiTalk(tab, true);
+            }, System.Threading.Tasks.TaskScheduler.FromCurrentSynchronizationContext());
+        }
+
+        private bool CanDeliverAiTalk(AiTab tab)
         {
             var now = DateTime.UtcNow;
-            if (tab.Inbox.Count == 0 || !tab.HooksSeen || !tab.AgentReady || tab.Busy || tab.AwaitingPrompt || tab.InputPending || !tab.View.IsRunning
+            if (tab.Inbox.Count == 0 || tab.Checking || !tab.HooksSeen || !tab.AgentReady || tab.Busy || tab.AwaitingPrompt || !tab.View.IsRunning
                 || tab.AutoTalks >= AiAutoTalkLimit || now - tab.ReadySince < TimeSpan.FromSeconds(3) || now - tab.LastUserKey < TimeSpan.FromSeconds(3))
                 return false;
             // タブの PowerShell の下で AI が動いていなければ打たない（AI が落ちて会話の終わりのフックが来なかったとき、
@@ -118,15 +141,44 @@ namespace AiLink
                 tab.AgentReady = false;
                 return false;
             }
+            return true;
+        }
 
+        /// <summary>端末の画面（terminal.html の tsuzuriScreen の JSON）の下のほうに、その文字があるか。</summary>
+        private static bool ScreenShows(string json, string marker)
+        {
+            try
+            {
+                var value = HookJson.DeserializeObject(json) as System.Collections.Generic.Dictionary<string, object>;
+                object lines;
+                if (value == null || !value.TryGetValue("lines", out lines) || !(lines is object[])) return false;
+                return ((object[])lines).Any(line => line is string && ((string)line).IndexOf(marker, StringComparison.Ordinal) >= 0);
+            }
+            catch (Exception)
+            {
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// 受け箱の先頭の伝言を入力欄に置き、少し置いて Enter を送る。track なら、頼みとして受け付けられるのを待つ印を付ける
+        /// （フックが動いていないタブでは、受け付けの知らせが来ないので付けない）。
+        /// </summary>
+        private bool TypeAiTalk(AiTab tab, bool track)
+        {
+            if (tab.Inbox.Count == 0 || !tab.View.IsRunning) return false;
             var message = tab.Inbox[0];
             if (!tab.View.WriteInput(message)) return false;
             tab.Inbox.RemoveAt(0);
             tab.AutoTalks++;
-            tab.Busy = true;   // 話しかけたフックが来るまでの間に、次の伝言を重ねて打たない
-            tab.AwaitingPrompt = true;
-            tab.TypedAt = now;
+            if (track)
+            {
+                tab.Busy = true;   // 話しかけたフックが来るまでの間に、次の伝言を重ねて打たない
+                tab.AwaitingPrompt = true;
+                tab.TypedAt = DateTime.UtcNow;
+            }
             AfterAiInboxChanged(tab);
+            Status(tab.Name + " に伝言を渡しました");
 
             // Enter は少し置いて別に送る（一度に流し込むと、Codex が貼り付けとみなして Enter を改行にすることがあるため）
             var enter = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromMilliseconds(400) };
@@ -151,61 +203,49 @@ namespace AiLink
         }
 
         /// <summary>
-        /// 見回り: 打った伝言が 15 秒たっても頼みとして受け付けられなければ、入力欄に残ったとみなす（作業中の印を外し、書きかけと同じに扱う。
-        /// 利用者が中身を見て Enter を押せば渡る）。渡せるタブには渡す。受け箱が空になったら止まる。
+        /// 見回り: 打った伝言が 15 秒たっても頼みとして受け付けられなければ、待つ印を外す（入力欄に残っていれば、画面の確かめで打たない）。
+        /// 渡せるタブには渡す。受け箱が空になったら止まる。
         /// </summary>
         private void AiTalkTick()
         {
             var waiting = false;
             foreach (var tab in _aiTabs.ToList())
             {
-                if (tab.AwaitingPrompt && tab.HooksSeen && DateTime.UtcNow - tab.TypedAt > TimeSpan.FromSeconds(15))
+                if (tab.AwaitingPrompt && DateTime.UtcNow - tab.TypedAt > TimeSpan.FromSeconds(15))
                 {
+                    // 受け付けられなかった（入力欄に残ったなど）。次は画面を読んで、入力欄が空のときだけ打つ
                     tab.AwaitingPrompt = false;
                     tab.Busy = false;
-                    tab.InputPending = true;
                 }
                 if (tab.Inbox.Count == 0) continue;
-                DeliverAiTalk(tab);
+                TryDeliverAiTalk(tab);
                 if (tab.Inbox.Count > 0) waiting = true;
             }
             if (!waiting && _aiTalkTimer != null) _aiTalkTimer.Stop();
         }
 
         /// <summary>
-        /// 利用者がタブの端末に打った（Views/TerminalView の UserInput）。Enter で書きかけは無くなる。Esc・Ctrl+C は、書きかけを消すか
-        /// 作業を止める（止めると作業の終わりのフックが来ないことがあるので、作業中の印も外す）。AI が待っている間の字は書きかけの印にする
-        /// （作業中の字は確かめへの答えなどなので数えない）。
+        /// 利用者がタブの端末に打った（Views/TerminalView の UserInput）。最後にキーを打った時刻を覚える（打っている最中には伝言を打たない）。
+        /// Esc・Ctrl+C は作業を止めることがあり、そのときは作業の終わりのフックが来ないので、作業中の印も外す（次に道具を使えば立て直す）。
+        /// 制御の並び（ESC で始まるもの。フォーカスの知らせ ESC [ I・ESC [ O、矢印キー、マウス）はキーに数えない。
         /// </summary>
         private void OnAiTabInput(AiTab tab, string data)
         {
-            // 制御の並び（ESC で始まるもの）は打った字に数えない。Codex は端末にフォーカスの知らせ（ESC [ I・ESC [ O）を送らせるので、
-            // タブを選ぶだけで「書きかけ」になっていた（2026-11-25 に Windows で、伝言が止まった）。矢印キー・マウスの知らせも同じ
             if (data != "\x1b")
             {
                 data = System.Text.RegularExpressions.Regex.Replace(data, @"\x1b(\[[0-9;?<>=]*[ -/]*[@-~]|O.|.)", string.Empty);
                 if (data.Length == 0) return;
             }
             tab.LastUserKey = DateTime.UtcNow;
-            if (data == "\r")
-            {
-                tab.InputPending = false;
-                return;
-            }
             if (data == "\x1b" || data.IndexOf('\x03') >= 0)
             {
-                tab.InputPending = false;
                 tab.AwaitingPrompt = false;
                 if (tab.Busy)
                 {
                     tab.Busy = false;
                     tab.ReadySince = DateTime.UtcNow;
                 }
-                return;
             }
-            // 作業中に打った字も書きかけとみなす（Codex は作業中も入力欄に書ける）。ただし、確かめの画面への答え（y・n・a・p・数字の1字）は数えない
-            if (tab.Busy && data.Length == 1 && "ynapYNAP123456789".IndexOf(data[0]) >= 0) return;
-            if (data.Any(c => c >= ' ' || c == '\b')) tab.InputPending = true;
         }
 
         /// <summary>受け箱が変わった: 見出しの印と、欄の下のボタンを合わせる。</summary>
@@ -227,7 +267,7 @@ namespace AiLink
             {
                 Content = "伝言を渡す: " + (message.Length > 60 ? message.Substring(0, 60) + "…" : message)
                           + (tab.Inbox.Count > 1 ? "（ほかに " + (tab.Inbox.Count - 1) + " 件）" : string.Empty),
-                ToolTip = message + "\n\n押すと、この会話の AI に渡す（作業中なら、手が空いたときに渡す。入力欄に書きかけがあるときは渡さない）。AI どうしで自動で渡せる回数も数え直す。",
+                ToolTip = message + "\n\n押すと、この会話の AI に渡す（作業中なら、手が空いたときに渡す。入力欄に書きかけがあれば、その後ろに付いて送られる）。AI どうしで自動で渡せる回数も数え直す。",
                 FontSize = 12,
                 Padding = new Thickness(8, 2, 8, 2),
                 Margin = new Thickness(6, 2, 6, 2),
@@ -244,38 +284,19 @@ namespace AiLink
                     Status(tab.Name + " の AI が動いていないので、渡せません（タブで codex と打って起動すると、渡します）。");
                     return;
                 }
-                if (tab.InputPending)
-                {
-                    Status(tab.Name + " の入力欄に書きかけがあるので、渡せません（送るか、Esc で消してから押してください）。");
-                    return;
-                }
                 tab.AgentReady = true;   // AI は動いている（フックを信頼する前に始まった会話では、フックがまだ来ていないことがある）
-                if (!tab.HooksSeen)
+                tab.AutoTalks = 0;       // 利用者が渡すと決めた
+                if (tab.HooksSeen && (tab.Busy || tab.AwaitingPrompt))
                 {
-                    // フックが動いていないタブ: 作業中かが分からないので、利用者が押したときだけ、受け付けの知らせを待たずに渡す
-                    if (tab.View.WriteInput(tab.Inbox[0]))
-                    {
-                        var typed = tab.Inbox[0];
-                        tab.Inbox.RemoveAt(0);
-                        AfterAiInboxChanged(tab);
-                        var enter = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromMilliseconds(400) };
-                        enter.Tick += delegate
-                        {
-                            enter.Stop();
-                            if (tab.View.IsRunning) tab.View.WriteInput("\r");
-                        };
-                        enter.Start();
-                        Status(tab.Name + " に伝言を渡しました（このタブはフックが動いていないので、自動では渡せません。Codex を開き直して「Hooks need review」で信頼すると、自動で渡るようになります）");
-                    }
-                    FocusAiTerminal(tab);
-                    return;
+                    Status(tab.Name + " は作業中なので、手が空いたら渡します");
+                    EnsureAiTalkTimer();
                 }
-                tab.AutoTalks = 0;   // 利用者が渡すと決めた
-                tab.LastUserKey = DateTime.MinValue;
-                tab.ReadySince = DateTime.MinValue;
-                if (DeliverAiTalk(tab)) Status(tab.Name + " に伝言を渡しました");
-                else Status(tab.Name + " は作業中なので、手が空いたら渡します");
-                EnsureAiTalkTimer();
+                else
+                {
+                    // 利用者が押したので、入力欄の確かめはしない（書きかけがあれば、その後ろに付く。ツールチップに書いた）
+                    TypeAiTalk(tab, tab.HooksSeen);
+                    if (!tab.HooksSeen) Status(tab.Name + " に伝言を渡しました（このタブはフックが動いていないので、自動では渡せません。Codex を開き直して「Hooks need review」で信頼すると、自動で渡るようになります）");
+                }
                 FocusAiTerminal(tab);
             };
             AiFileLinks.Children.Add(button);

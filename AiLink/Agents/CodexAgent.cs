@@ -104,6 +104,12 @@ namespace AiLink.Agents
             }
         }
 
+        /// <summary>入力欄が空のときの薄い文字（2026-11-25 に Windows の Codex v0.172 の画面で確かめた）。</summary>
+        public string EmptyInputMarker
+        {
+            get { return "Ask Codex to do anything"; }
+        }
+
         /// <summary>Codex の会話の番号は Guid の形（例 01a212f9-6f77-7c60-b430-f223a299318e。2026-11-25 にフックで確かめた）。</summary>
         public bool IsValidSessionId(string id)
         {

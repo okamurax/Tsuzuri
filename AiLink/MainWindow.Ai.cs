@@ -96,8 +96,8 @@ namespace AiLink
             public DateTime TypedAt;
             public bool AwaitingPrompt;
 
-            /// <summary>利用者がこのタブの入力欄に書きかけている（AI が待っている間に打った字があり、Enter・Esc・Ctrl+C をまだ押していない）。</summary>
-            public bool InputPending;
+            /// <summary>伝言を打つ前に、画面を読んで入力欄が空かを確かめている最中（重ねて確かめない）。</summary>
+            public bool Checking;
 
             /// <summary>利用者がこのタブで最後にキーを打った時刻。</summary>
             public DateTime LastUserKey;

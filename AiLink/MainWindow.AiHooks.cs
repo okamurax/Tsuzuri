@@ -90,7 +90,6 @@ namespace AiLink
                     if (late == null) return;
                     late.Busy = true;
                     late.AwaitingPrompt = false;
-                    late.InputPending = false;
                 }));
             // 道具を使う前: AI は作業中（確かめの画面で Esc を押して Busy が外れていても、立て直す）
             if (eventName == "PreToolUse")
@@ -196,7 +195,6 @@ namespace AiLink
                 case "UserPromptSubmit":
                     tab.Busy = true;
                     tab.AwaitingPrompt = false;
-                    tab.InputPending = false;
                     var prompt = HookString(input, "prompt") ?? string.Empty;
                     if (prompt.IndexOf("【#", StringComparison.Ordinal) < 0) tab.AutoTalks = 0;   // 利用者が打った頼み
                     return HookContext(eventName, AiStateText(tabId));

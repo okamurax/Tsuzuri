@@ -28,6 +28,12 @@ namespace AiLink.Agents
         /// <summary>この PC に合う版と見たもの（InstallChoices のどれか）。分からなければ null。案内でそのボタンを目立たせる。</summary>
         AgentInstallChoice LikelyInstallChoice { get; }
 
+        /// <summary>
+        /// 入力欄が空で、頼みを待っているときに画面に出る文字（Codex の「Ask Codex to do anything」）。ほかの会話の伝言を打つ前に、
+        /// これが画面にあるかを確かめる（書きかけ・確かめの画面に打ち込まないため）。無ければ null（自動では打たない）。
+        /// </summary>
+        string EmptyInputMarker { get; }
+
         /// <summary>会話の番号として正しい形か（起動のコマンドに書くので、ほかのものは使わない）。</summary>
         bool IsValidSessionId(string id);
 

@@ -14,6 +14,7 @@ namespace AiLink
     //   入力欄に置き、少し置いて Enter を送る（見回り AiTalkTick が 2 秒ごとに試す）
     // ・相手の AI が作業中（確かめを出している間も）: 入力欄には打たない（文字が確かめの答えのキーとして効くため。2026-11-25 のレビュー）。
     //   作業の終わりのフック（Stop）で、伝言を次の頼みとして返す（MainWindow.AiHooks.cs）
+    // ・フックがまだ来ていないタブ（フックを信頼する前に始まった会話など）でも、画面の確かめで渡す（利用者の判断。2026-11-25）
     // ・相手の AI が動いていない・利用者が話しかけないまま自動で渡した回数が上限（AiAutoTalkLimit）に達した: 受け箱に残し、
     //   見出しに「●伝言」、欄の下に「伝言を渡す」を出す（押すと回数を 0 に戻して渡す）
     // 受け箱は保存しない（AiLink を閉じると、渡していない伝言は消える）。
@@ -83,14 +84,13 @@ namespace AiLink
             AfterAiInboxChanged(target);
             EnsureAiTalkTimer();
             TryDeliverAiTalk(target);
-            if (target.HooksSeen && target.AgentReady && target.AutoTalks < AiAutoTalkLimit)
+            if (target.AgentStarted && target.View.IsRunning && (target.AgentReady || !target.HooksSeen) && target.AutoTalks < AiAutoTalkLimit)
             {
                 Status(from.Name + " から " + target.Name + " へ伝言を預けました（" + target.Name + " の手が空いていれば、すぐ渡ります）");
                 return "ok\t" + target.Name + " に預けた（" + target.Name + " の手が空いていれば、すぐに渡る。作業中なら終わったときに渡る）。";
             }
             Status(from.Name + " から " + target.Name + " へ伝言が来ました（" + target.Name + " のタブの下の「伝言を渡す」で渡せます）");
-            return "ok\t" + target.Name + " の受け箱に預けた（" + (!target.HooksSeen ? target.Name + " の AI が動いていないか、AI連携ツールがその AI の様子を知れない"
-                       : target.AgentReady ? "利用者が話しかけないまま自動で渡せる回数を超えた" : target.Name + " の AI が動いていない")
+            return "ok\t" + target.Name + " の受け箱に預けた（" + (target.AutoTalks >= AiAutoTalkLimit ? "利用者が話しかけないまま自動で渡せる回数を超えた" : target.Name + " の AI が動いていない")
                    + "。利用者が " + target.Name + " のタブで「伝言を渡す」を押すと渡る）。";
         }
 
@@ -124,16 +124,21 @@ namespace AiLink
                 tab.Checking = false;
                 if (task.IsFaulted || task.IsCanceled || !CanDeliverAiTalk(tab)) return;
                 if (!ScreenShows(task.Result, marker)) return;
-                TypeAiTalk(tab, true);
+                TypeAiTalk(tab, tab.HooksSeen);
             }, System.Threading.Tasks.TaskScheduler.FromCurrentSynchronizationContext());
         }
 
         private bool CanDeliverAiTalk(AiTab tab)
         {
             var now = DateTime.UtcNow;
-            if (tab.Inbox.Count == 0 || tab.Checking || !tab.HooksSeen || !tab.AgentReady || tab.Busy || tab.AwaitingPrompt || !tab.View.IsRunning
-                || tab.AutoTalks >= AiAutoTalkLimit || now - tab.ReadySince < TimeSpan.FromSeconds(3) || now - tab.LastUserKey < TimeSpan.FromSeconds(3))
+            // フックがまだ来ていないタブ（フックを信頼する前に始まった会話など）でも渡す（利用者の判断。ボタンを押さずに届くように）。
+            // そのときは作業中かを知れないが、画面の確かめ（入力欄が空の印が出ているか）で、確かめの画面・書きかけには打たない。
+            // 打ったあとは、少なくとも 5 秒は次を打たない（受け付けの知らせが来ないので）
+            if (tab.Inbox.Count == 0 || tab.Checking || tab.Busy || tab.AwaitingPrompt || !tab.View.IsRunning || !tab.AgentStarted
+                || tab.AutoTalks >= AiAutoTalkLimit || now - tab.ReadySince < TimeSpan.FromSeconds(3) || now - tab.LastUserKey < TimeSpan.FromSeconds(3)
+                || now - tab.TypedAt < TimeSpan.FromSeconds(5))
                 return false;
+            if (tab.HooksSeen && !tab.AgentReady) return false;   // フックが来ていて、会話が終わった（SessionEnd）
             // タブの PowerShell の下で AI が動いていなければ打たない（AI が落ちて会話の終わりのフックが来なかったとき、
             // 打った伝言が PowerShell のコマンドとして動いてしまうため。2026-11-25 のレビュー）
             if (!ProcessTree.HasChild(tab.View.ProcessId))
@@ -171,11 +176,11 @@ namespace AiLink
             if (!tab.View.WriteInput(message)) return false;
             tab.Inbox.RemoveAt(0);
             tab.AutoTalks++;
+            tab.TypedAt = DateTime.UtcNow;
             if (track)
             {
                 tab.Busy = true;   // 話しかけたフックが来るまでの間に、次の伝言を重ねて打たない
                 tab.AwaitingPrompt = true;
-                tab.TypedAt = DateTime.UtcNow;
             }
             AfterAiInboxChanged(tab);
             Status(tab.Name + " に伝言を渡しました");
@@ -237,6 +242,8 @@ namespace AiLink
                 if (data.Length == 0) return;
             }
             tab.LastUserKey = DateTime.UtcNow;
+            // 利用者がこのタブで Enter を押した: 自分で話しかけたので、自動で渡した回数を数え直す（フックが来ないタブでは、話しかけたフックで数え直せないため）
+            if (data == "\r" && !tab.HooksSeen) tab.AutoTalks = 0;
             if (data == "\x1b" || data.IndexOf('\x03') >= 0)
             {
                 tab.AwaitingPrompt = false;

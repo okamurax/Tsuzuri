@@ -10,7 +10,8 @@ AI は Codex CLI に固定するが、つなぎ口（`IAgent`）で抽象化し�
 
 - 置き場所はこのリポジトリの `AiLink/`。ソリューションは Tsuzuri と同じ `Tsuzuri.sln`（利用者の判断。動かすほうはスタートアップ プロジェクトで選ぶ。AiLink は Tsuzuri のプロジェクトを参照しない）。
 - 画面: 左の列に開いている Excel の一覧、仕切り、右に AI の欄。ランチャーとファイラーは持たない（2026-11-25 に外した。利用者の判断。いつも起動している Excel だけを相手にする）。
-- プロジェクトフォルダは、AI の欄の下端の欄に「選ぶ…」（フォルダを選ぶ画面）・打つ・エクスプローラーから落とすで入れる。
+- プロジェクトフォルダは持たない（2026-11-25。利用者の判断。扱うのは開いている Excel で、ファイルが要るときは端末へ落としてもらう。落としたファイルのパスは入力欄に置く）。
+- AI（Codex）が見つからなければ、会話のタブを開かず、AI の欄に入れ方の案内を出す（MainWindow.AiSetup.cs。「入れる」で公式の手順を別の PowerShell の窓で動かす。窓に戻るたびに探し直す）。
 - AI に渡さない場所の目印は `.ailink-no-ai` だけ（Tsuzuri の `.tsuzuri-no-ai` は見ない）。
 - Codex に起動のフラグでフックを渡せなければ、`~/.codex` にフックを書き込んでよい（AiLink の外で動かした codex では、中継が何もせずに終わる）。
 - タブどうしの伝言は、受け取ったタブの入力欄に置くだけ（Enter は利用者が押す）。
@@ -37,13 +38,13 @@ AI は Codex CLI に固定するが、つなぎ口（`IAgent`）で抽象化し�
 
 ## MainWindow.Ai*.cs の仕分け
 
-- そのまま: タブの見出し・選ぶ・閉じる（Ai.cs 561-771）、StartAiListener、CopySshFolder、WriteIfChanged、WrittenPath、AiPipeSecurity、Quote、Fenced、StopAi、DeleteStaleAiFiles、WriteAiContext、AiTopic の見出しの部分、AiPin のプロジェクトフォルダの段（FindAiTab・ShowAiProjectState・DroppedFolder・AppendAiProject）。
+- そのまま: タブの見出し・選ぶ・閉じる（Ai.cs 561-771）、StartAiListener、CopySshFolder、WriteIfChanged、WrittenPath、AiPipeSecurity、Quote、Fenced、StopAi、DeleteStaleAiFiles、WriteAiContext、AiTopic の見出しの部分、FindAiTab。
 - 変える: AiTab（Pin を消し、IdleSince・Inbox を足す）、AddAiTab（起動のコマンドは IAgent）、AiStartFolder（文書を外す）、OnAiSession・StoreAiTabs・RestoreAiTabs（SessionExists は IAgent）、AiCommandLine（大半を IAgent へ）、ServeAiRequest（`hook\t<event>\t<tab>\t<b64 json>` の1形式＋shell-*・excel-*・talk-*）、HandleAiPrompt（保存・図を外す）、HandleAiChanged（ファイラーと Excel の一覧を読み直すだけ）、ShowAiContextSummary、RefreshAiFileLinks（UserFiles は IAgent）、AiContext（下）、AiInstructions（下）。
 - 捨てる: 文書・ページ・カーソルの固定（AiPin の大半）・図（RenderAiDrawings ほか）・カレンダー・WordPress・SaveForAi・ReloadChangedDocuments・AppendDocumentFacts など・AiHttp.cs（HTTP のフック。中継の exe にそろえる）。
 
-今の状態（AiContext）に残す段: 頭の行（[AiLink の今の状態 …]）・「この会話は #n」（足す）・プロジェクトフォルダ・どの会話か分からなかった・Excel・共通ターミナル・タブどうしの伝言（足す）。
+今の状態（AiContext）に残す段: 頭の行（[AiLink の今の状態 …]）・「この会話は #n」（足す）・どの会話か分からなかった・Excel・共通ターミナル・タブどうしの伝言（足す）。
 
-指示（AiInstructions）に残すもの: 呼び名のうちプロジェクトフォルダと会話を始めたフォルダ・前に書いた状態の扱い（段の名前を絞る）・タブの #番号と伝言（talk.ps1 に書き換える）・Excel・共通ターミナル・SSH・日本語で短く。道具の名前は雛形の `{agent}` `{write-file}` `{read-file}` `{view-image}` `{shell}` `{shell-timeout}` をアダプタが埋める。
+指示（AiInstructions）に残すもの: 呼び名のうち会話を始めたフォルダ・前に書いた状態の扱い（段の名前を絞る）・タブの #番号と伝言（talk.ps1 に書き換える）・Excel・共通ターミナル・SSH・日本語で短く。道具の名前は雛形の `{agent}` `{write-file}` `{read-file}` `{view-image}` `{shell}` `{shell-timeout}` をアダプタが埋める。
 
 ## AI のつなぎ口（Agents/）
 

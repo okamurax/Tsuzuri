@@ -82,9 +82,6 @@ namespace AiLink
             /// <summary>タブの名前（#1・#2…）。ほかの会話に伝言を頼むときの宛先になる。# を付けるのは、話の中の数と取り違えないため。</summary>
             public string Name;
 
-            /// <summary>この会話のプロジェクトフォルダ（下端の段）。無ければ null。</summary>
-            public string Project;
-
             /// <summary>この会話の題（見出しに「#1  題」と出す）。無ければ null。</summary>
             public string Topic;
 
@@ -106,9 +103,13 @@ namespace AiLink
 
         /// <summary>
         /// 窓が出たら、前に開いていた会話のタブを戻す。1つも無ければ新しいタブを1つ開く（欄はいつも出しているので、空にしない）。
+        /// AI が入っていなければ、タブは開かず案内を出す（入ったら RecheckAgent がもう一度呼ぶ）。
         /// </summary>
         private void StartAi()
         {
+            if (_aiTabs.Count > 0) return;
+            if (!EnsureAgent()) return;   // 入っていなければ、タブを開かずに入れ方の案内を出す（MainWindow.AiSetup.cs）
+
             var saved = _settings.AiTabs;
             if (saved != null)
             {
@@ -127,7 +128,6 @@ namespace AiLink
             {
                 tab.SessionId = restore.Session;
                 tab.Folder = restore.Folder;
-                tab.Project = string.IsNullOrWhiteSpace(restore.Project) ? null : restore.Project;
                 tab.Topic = string.IsNullOrWhiteSpace(restore.Topic) ? null : restore.Topic;
                 var name = restore.Name != null && restore.Name.StartsWith("#", StringComparison.Ordinal) ? restore.Name : null;
                 if (name != null && !AiTabNameUsed(name)) tab.Name = name;
@@ -157,27 +157,24 @@ namespace AiLink
         }
 
         /// <summary>
-        /// 会話を始めるフォルダ。前の会話を戻すならそのフォルダ、プロジェクトフォルダがあればそこ、無ければ利用者のフォルダ。
-        /// AI に渡さない場所（AiGuard）では始めない。
+        /// 会話を始めるフォルダ。前の会話を戻すならそのフォルダ、無ければ利用者のフォルダ。AI に渡さない場所（AiGuard）では始めない。
+        /// （プロジェクトフォルダは持たない。2026-11-25。利用者の判断。扱うのは開いている Excel で、ファイルが要るときは端末へ落としてもらう）
         /// </summary>
         private string AiStartFolder(AiTab tab)
         {
             var folder = tab != null && !string.IsNullOrEmpty(tab.Folder) && Directory.Exists(tab.Folder) ? tab.Folder : null;
-            if (folder == null) folder = AiTerminalFolder(tab);
-            if (AiGuard.IsGuarded(folder))
+            if (folder != null && AiGuard.IsGuarded(folder))
             {
                 Dispatcher.BeginInvoke(new Action(() => Status("AI に渡さないフォルダ（" + AiGuard.MarkerName + "）なので、会話は利用者のフォルダで始めました。")));
                 folder = null;
             }
-            return folder ?? Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+            return folder ?? AiHomeFolder;
         }
 
-        /// <summary>そのタブのプロジェクトフォルダ（在って、AI に渡さない場所でなければ）。無ければ利用者のフォルダ。共通ターミナルもここで始める。</summary>
-        private string AiTerminalFolder(AiTab tab)
+        /// <summary>利用者のフォルダ。共通ターミナルもここで始める。</summary>
+        private static string AiHomeFolder
         {
-            var project = tab != null ? tab.Project : null;
-            if (!string.IsNullOrEmpty(project) && DirectoryExists(project) && !AiGuard.IsGuarded(project)) return project;
-            return Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+            get { return Environment.GetFolderPath(Environment.SpecialFolder.UserProfile); }
         }
 
         /// <summary>タブの見出し。押すと選ぶ。右の × で閉じる（中の PowerShell も終わる）。</summary>
@@ -312,7 +309,6 @@ namespace AiLink
         {
             _aiTab = tab;
             ShowAiTabs();
-            RefreshAiProjectRow();
             if (tab != null) FocusAiTerminal(tab);
         }
 
@@ -382,7 +378,7 @@ namespace AiLink
             if (_aiStopping) return;
 
             var tabs = _aiTabs.Where(tab => tab.SessionId != null)
-                              .Select(tab => new AiTabState { Session = tab.SessionId, Folder = tab.Folder, Name = tab.Name, Project = tab.Project, Topic = tab.Topic })
+                              .Select(tab => new AiTabState { Session = tab.SessionId, Folder = tab.Folder, Name = tab.Name, Topic = tab.Topic })
                               .ToList();
             _settings.AiTabs = tabs.Count > 0 ? tabs : null;
             _settings.Save();

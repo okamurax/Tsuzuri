@@ -284,6 +284,18 @@
     };
   };
 
+  // ファイルを落とす（AiLink。2026-11-25）。ページが開きに行かないよう、落とすのは全部ここで止め、
+  // ファイルなら、そのパスを AiLink に渡す（postMessageWithAdditionalObjects。AiLink が入力欄に置く）。
+  document.addEventListener('dragover', (event) => {
+    event.preventDefault();
+    if (event.dataTransfer) event.dataTransfer.dropEffect = event.dataTransfer.types && Array.from(event.dataTransfer.types).includes('Files') ? 'copy' : 'none';
+  });
+  document.addEventListener('drop', (event) => {
+    event.preventDefault();
+    const files = event.dataTransfer && event.dataTransfer.files;
+    if (host && files && files.length > 0 && host.postMessageWithAdditionalObjects) host.postMessageWithAdditionalObjects({ type: 'drop' }, files);
+  });
+
   send({ type: 'ready', cols: term.cols, rows: term.rows });
   term.focus();
 </script>

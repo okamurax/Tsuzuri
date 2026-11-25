@@ -89,6 +89,8 @@
       <SubType>Designer</SubType>
     </Page>
     <Compile Include="Agents\AiGuard.cs" />
+    <Compile Include="Agents\CodexAgent.cs" />
+    <Compile Include="Agents\IAgent.cs" />
     <Compile Include="App.xaml.cs">
       <DependentUpon>App.xaml</DependentUpon>
     </Compile>
@@ -97,7 +99,7 @@
     <Compile Include="MainWindow.Ai.cs">
       <DependentUpon>MainWindow.xaml</DependentUpon>
     </Compile>
-    <Compile Include="MainWindow.AiProject.cs">
+    <Compile Include="MainWindow.AiSetup.cs">
       <DependentUpon>MainWindow.xaml</DependentUpon>
     </Compile>
     <Compile Include="MainWindow.AiShell.cs">
@@ -116,7 +118,6 @@
     <Compile Include="Properties\AssemblyInfo.cs" />
     <Compile Include="Views\ExcelListView.cs" />
     <Compile Include="Views\FileIcon.cs" />
-    <Compile Include="Views\FolderPicker.cs" />
     <Compile Include="Views\PseudoConsole.cs" />
     <Compile Include="Views\ScrollThumbLength.cs" />
     <Compile Include="Views\ShellIcons.cs" />

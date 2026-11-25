@@ -40,10 +40,12 @@ namespace AiLink
                 StartAi();
                 RefreshExcelList();
             };
-            // ほかのアプリ（Excel など）から戻ったら、Excel の一覧を読み直す（ブックを開いた・閉じた・保存した）
+            // ほかのアプリ（Excel・AI を入れた PowerShell など）から戻ったら、Excel の一覧を読み直す（ブックを開いた・閉じた・保存した）
             Activated += delegate
             {
-                if (IsLoaded) RefreshExcelList();
+                if (!IsLoaded) return;
+                RefreshExcelList();
+                RecheckAgent();   // AI の入れ方の案内を出していれば、入ったかを探し直す
             };
         }
 

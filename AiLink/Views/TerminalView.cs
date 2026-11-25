@@ -74,8 +74,9 @@ namespace AiLink.Views
             // ページが出るまでの一瞬、白く光らないように、地をエディタの色にしておく。
             _web.DefaultBackgroundColor = System.Drawing.Color.FromArgb(0x10, 0x18, 0x27);
 
-            // ファイルやリンクを落としても、ページがそれを開きに行かないようにする（2026-10-27。落とすと端末のページから離れてしまう）。
-            _web.AllowExternalDrop = false;
+            // ファイルを落とせるようにする（2026-11-25。AiLink。落としたファイルのパスを入力欄に置く。terminal.html の drop）。
+            // ページがファイルやリンクを開きに行かないよう、ページの側で落とすのを全部止め、移る先も OnNavigationStarting で止めている。
+            _web.AllowExternalDrop = true;
 
             Child = _web;
 
@@ -390,6 +391,28 @@ namespace AiLink.Views
                 case "resize":
                     ReadSize(message);
                     if (_console != null) _console.Resize(_columns, _rows);
+                    break;
+
+                case "drop":
+                    // 落としたファイル・フォルダのパスを、打ったのと同じに入力欄に置く（Enter は付けない）。空白を含むパスは "" で囲む
+                    var paths = new List<string>();
+                    if (e.AdditionalObjects != null)
+                    {
+                        foreach (var item in e.AdditionalObjects)
+                        {
+                            var file = item as CoreWebView2File;
+                            if (file != null && !string.IsNullOrEmpty(file.Path)) paths.Add(file.Path.IndexOf(' ') >= 0 ? "\"" + file.Path + "\"" : file.Path);
+                        }
+                    }
+                    if (paths.Count > 0 && IsRunning)
+                    {
+                        var dropped = string.Join(" ", paths) + " ";
+                        SendKeys(dropped);
+                        var droppedInput = UserInput;
+                        if (droppedInput != null) droppedInput(dropped);
+                        var focus = FocusRequested;
+                        if (focus != null) focus();
+                    }
                     break;
 
                 case "input":

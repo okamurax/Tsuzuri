@@ -132,10 +132,6 @@ namespace AiLink
         [DataMember(Name = "name", EmitDefaultValue = false)]
         public string Name { get; set; }
 
-        /// <summary>この会話のプロジェクトフォルダ。無ければ null。</summary>
-        [DataMember(Name = "project", EmitDefaultValue = false)]
-        public string Project { get; set; }
-
         /// <summary>この会話の題。無ければ null。</summary>
         [DataMember(Name = "topic", EmitDefaultValue = false)]
         public string Topic { get; set; }

@@ -152,7 +152,7 @@ namespace AiLink
             var powershell = "\"" + Path.Combine(Environment.SystemDirectory, "WindowsPowerShell", "v1.0", "powershell.exe") + "\" -NoLogo";
             _aiShell = new TerminalView(
                 () => powershell,
-                () => AiTerminalFolder(_aiTab));
+                () => AiHomeFolder);
             _aiShell.UserInput += OnAiShellInput;
             _aiShell.OutputWritten += OnAiShellOutput;
             _aiShell.FocusRequested += delegate { if (_aiShellShown) FocusAiShell(); };

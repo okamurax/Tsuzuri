@@ -52,7 +52,7 @@ namespace AiLink
             "@powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File \"%~dp0ssh-askpass.ps1\"\r\n";
 
         /// <summary>exe の隣の Ai から AI のフォルダへ写す台本。</summary>
-        private static readonly string[] AiScripts = { "ssh-askpass.ps1", "ssh-session.ps1", "terminal.ps1", "excel.ps1", "state.ps1" };
+        private static readonly string[] AiScripts = { "ssh-askpass.ps1", "ssh-session.ps1", "terminal.ps1", "excel.ps1", "state.ps1", "hook-probe.ps1" };
 
         /// <summary>前に落ちた AiLink が残したファイルを片付けたか（最初にタブを開くとき1回だけ）。</summary>
         private bool _aiStaleFilesCleaned;
@@ -471,6 +471,36 @@ namespace AiLink
             var work = AiWorkFolder;
             Directory.CreateDirectory(work);
             WriteIfChanged(Path.Combine(work, "AGENTS.md"), AiInstructionsText(work));
+
+            // 試しのフック（2026-11-25。Codex のフックが Windows でどう動くかを確かめるため。確かめたら本物に置き換える）。
+            // プロジェクトの単位のフック（work\.codex\hooks.json）にする（利用者の ~/.codex には書かない）。利用者が Codex の /hooks で信頼するまでは動かない
+            Directory.CreateDirectory(Path.Combine(work, ".codex"));
+            WriteIfChanged(Path.Combine(work, ".codex", "hooks.json"), HookProbeConfig());
+        }
+
+        /// <summary>試しのフックの設定（hooks.json）。どのイベントでも hook-probe.ps1 を動かす。道具のイベントは全部の道具に当てる。</summary>
+        private static string HookProbeConfig()
+        {
+            var probe = Path.Combine(AiFolder, "hook-probe.ps1");
+            var powershell = Path.Combine(Environment.SystemDirectory, "WindowsPowerShell", "v1.0", "powershell.exe");
+            Func<string, string, string> entry = (name, matcher) =>
+            {
+                var command = "\"" + powershell + "\" -NoProfile -NonInteractive -ExecutionPolicy Bypass -File \"" + probe + "\" " + name;
+                var escaped = command.Replace("\\", "\\\\").Replace("\"", "\\\"");
+                return "\"" + name + "\": [{" + (matcher != null ? "\"matcher\": \"" + matcher + "\", " : string.Empty)
+                       + "\"hooks\": [{\"type\": \"command\", \"command\": \"" + escaped + "\", \"timeout\": " + (name == "SessionEnd" ? "3" : "30") + "}]}]";
+            };
+            return "{\n  \"description\": \"AiLink hook probe (temporary)\",\n  \"hooks\": {\n    "
+                   + string.Join(",\n    ", new[]
+                   {
+                       entry("SessionStart", null),
+                       entry("UserPromptSubmit", null),
+                       entry("PreToolUse", "*"),
+                       entry("PostToolUse", "*"),
+                       entry("Stop", null),
+                       entry("SessionEnd", null),
+                   })
+                   + "\n  }\n}\n";
         }
 
         /// <summary>PowerShell の文字列（'...'）にする。中の ' は2つ重ねる。</summary>

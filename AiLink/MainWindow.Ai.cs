@@ -52,7 +52,7 @@ namespace AiLink
             "@powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File \"%~dp0ssh-askpass.ps1\"\r\n";
 
         /// <summary>exe の隣の Ai から AI のフォルダへ写す台本。</summary>
-        private static readonly string[] AiScripts = { "ssh-askpass.ps1", "ssh-session.ps1", "terminal.ps1", "excel.ps1", "state.ps1", "hook-probe.ps1" };
+        private static readonly string[] AiScripts = { "ssh-askpass.ps1", "ssh-session.ps1", "terminal.ps1", "excel.ps1", "state.ps1", "talk.ps1", "hook-probe.ps1" };
 
         /// <summary>前に落ちた AiLink が残したファイルを片付けたか（最初にタブを開くとき1回だけ）。</summary>
         private bool _aiStaleFilesCleaned;
@@ -90,6 +90,9 @@ namespace AiLink
 
             /// <summary>このタブで AI を一度起動したか（起動するのは最初の1回だけ）。</summary>
             public bool AgentStarted;
+
+            /// <summary>ほかの会話からの伝言の受け箱（まだ入力欄に置いていないもの。見出しに印を出す。MainWindow.AiTalk.cs）。</summary>
+            public readonly List<string> Inbox = new List<string>();
         }
 
         /// <summary>会話のタブ。左から。</summary>
@@ -256,7 +259,8 @@ namespace AiLink
 
         private static string AiTabHeaderText(AiTab tab)
         {
-            return string.IsNullOrWhiteSpace(tab.Topic) ? tab.Name : tab.Name + "  " + tab.Topic;
+            var text = string.IsNullOrWhiteSpace(tab.Topic) ? tab.Name : tab.Name + "  " + tab.Topic;
+            return tab.Inbox.Count > 0 ? text + "  ●伝言" : text;
         }
 
         private static string AiTabToolTip(AiTab tab)
@@ -324,6 +328,7 @@ namespace AiLink
         private void SelectAiTab(AiTab tab)
         {
             _aiTab = tab;
+            ShowAiInbox();
             ShowAiTabs();
             if (tab != null) FocusAiTerminal(tab);
         }
@@ -379,6 +384,7 @@ namespace AiLink
             if (_aiTabs.Count == 0)
             {
                 _aiTab = null;
+                ShowAiInbox();
                 AddAiTab(null);
                 return;
             }
@@ -496,7 +502,7 @@ namespace AiLink
         /// </summary>
         private static string AiRules()
         {
-            var scripts = new[] { "state.ps1", "excel.ps1", "terminal.ps1" }
+            var scripts = new[] { "state.ps1", "excel.ps1", "terminal.ps1", "talk.ps1" }
                 .Select(name => "\"" + Path.Combine(AiFolder, name).Replace("\\", "\\\\").Replace("\"", "\\\"") + "\"");
             return "# AiLink が書くルール（会話を始めるたびに書き直す）。AiLink の台本だけを、確かめずに動かす。\n"
                    + "prefix_rule(\n"
@@ -619,7 +625,11 @@ namespace AiLink
                     var request = reader.ReadLine() ?? string.Empty;
                     string answer;
 
-                    if (request.StartsWith("state\t", StringComparison.Ordinal))
+                    if (request.StartsWith("talk\t", StringComparison.Ordinal))
+                    {
+                        answer = ServeAiTalk(request);
+                    }
+                    else if (request.StartsWith("state\t", StringComparison.Ordinal))
                     {
                         answer = ServeAiState(request.Substring("state\t".Length));
                     }

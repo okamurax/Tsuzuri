@@ -14,7 +14,7 @@ AI は Codex CLI に固定するが、つなぎ口（`IAgent`）で抽象化し�
 - AI（Codex）が見つからなければ、会話のタブを開かず、AI の欄に入れ方の案内を出す（MainWindow.AiSetup.cs。「入れる」で公式の手順を別の PowerShell の窓で動かす。窓に戻るたびに探し直す）。
 - AI に渡さない場所の目印は `.ailink-no-ai` だけ（Tsuzuri の `.tsuzuri-no-ai` は見ない）。
 - Codex に起動のフラグでフックを渡せなければ、`~/.codex` にフックを書き込んでよい（AiLink の外で動かした codex では、中継が何もせずに終わる）。
-- タブどうしの伝言は、受け取ったタブの入力欄に置くだけ（Enter は利用者が押す）。
+- タブどうしの伝言は、受け取ったタブの受け箱に預け、利用者がそのタブの「伝言を入力欄に置く」で入力欄に置く（Enter は利用者が押す。2026-11-25。じかに置くと、相手の AI が確かめを出しているときに文字が答えのキーとして効くため）。受け箱は保存しない。
 - 設定ファイルは exe の隣の `ailink.json`。置き場所は `%LOCALAPPDATA%\AiLink\ai`。パイプは `AiLink-<プロセス番号>`。
   環境変数は `AILINK_TAB`・`AILINK_PIPE`・`AILINK_SSH_HOST`。WebView2 のデータは `%LOCALAPPDATA%\AiLink\WebView2`、ホスト名は `ailink.local`。
 

@@ -4,7 +4,7 @@
 #
 # Writes what the hook received to %LOCALAPPDATA%\AiLink\hook-probe\<time>-<event>.txt:
 # the event name, the stdin JSON, a few environment values, the PowerShell version, and whether the AiLink pipe answered.
-# For SessionStart and UserPromptSubmit it prints one line to stdout (Codex adds plain stdout of these events to the context),
+# For SessionStart and UserPromptSubmit it prints JSON with additionalContext to stdout (Codex adds it to the context),
 # so that the reply of the AI shows whether the text arrived.
 # Keep this file ASCII only: PowerShell 5.1 reads a script without BOM as the ANSI code page.
 
@@ -58,6 +58,9 @@ try {
 
 if ($EventName -eq 'UserPromptSubmit' -or $EventName -eq 'SessionStart') {
     [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
-    [Console]::Out.WriteLine('[hook-probe] ' + $EventName + ' hook text arrived. At the end of your reply, write one line: HOOK-OK ' + $EventName)
+    # JSON (plain text starting with '[' was taken for broken JSON: 'hook returned invalid ... JSON output')
+    $context = 'hook-probe: the ' + $EventName + ' hook text arrived. At the end of your reply, write one line: HOOK-OK ' + $EventName
+    $reply = @{ hookSpecificOutput = @{ hookEventName = $EventName; additionalContext = $context } }
+    [Console]::Out.WriteLine(($reply | ConvertTo-Json -Compress -Depth 4))
 }
 exit 0

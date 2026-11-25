@@ -121,17 +121,21 @@ namespace AiLink.Views
             _canvas.HorizontalAlignment = HorizontalAlignment.Left;
             _canvas.VerticalAlignment = VerticalAlignment.Top;
             _canvas.Background = Brushes.Transparent;
-            _canvas.AllowDrop = true;
-            _canvas.DragOver += OnDragOver;
-            _canvas.DragLeave += delegate
+            // 落とす・右クリックは、マス目（_canvas）だけでなくランチャーの欄全体で受ける。
+            // AiLink のランチャーは左の列の上の低い段なので、マス目は1〜2段しかなく、その下の空きに落としても
+            // 受け手が無かった（Tsuzuri は本文の場所いっぱいに出すので、マス目が欄を埋めていた。2026-11-25）。
+            // マス目の外で受けたときは、一番近いマスに入れる（NearestCell）。
+            AllowDrop = true;
+            DragOver += OnDragOver;
+            DragLeave += delegate
             {
                 ShowDropTarget(null);
                 _autoScroll.Stop();
             };
-            _canvas.Drop += OnDrop;
+            Drop += OnDrop;
 
             // 空いているマスの右クリックで、ダイアログから追加する（登録のあるマスは自分のメニューを出す）。
-            _canvas.MouseRightButtonUp += OnEmptyRightClick;
+            MouseRightButtonUp += OnEmptyRightClick;
 
             _scroll.Content = _canvas;
             _scroll.HorizontalScrollBarVisibility = ScrollBarVisibility.Auto;
@@ -187,6 +191,23 @@ namespace AiLink.Views
 
             if (column < 0 || column >= _columns || row < 0 || row >= _rows) return null;
             return new Cell(column, row);
+        }
+
+        /// <summary>
+        /// 外から落とす・右クリックで登録する先のマス。マス目の外（下や右の空き）なら、一番近いマス。
+        /// スクロールバーの上なら null（スクロールの操作なので受けない）。
+        /// </summary>
+        private Cell? NearestCell(Point inView, Point inCanvas)
+        {
+            if (inView.X < 0 || inView.Y < 0 || inView.X > _scroll.ViewportWidth || inView.Y > _scroll.ViewportHeight) return null;
+            var column = (int)Math.Floor((inCanvas.X - Margin0 + Gap / 2) / (TileWidth + Gap));
+            var row = (int)Math.Floor((inCanvas.Y - Margin0 + Gap / 2) / (TileHeight + Gap));
+            return new Cell(Math.Max(0, Math.Min(_columns - 1, column)), Math.Max(0, Math.Min(_rows - 1, row)));
+        }
+
+        private Cell? NearestCell(DragEventArgs e)
+        {
+            return NearestCell(e.GetPosition(_scroll), e.GetPosition(_canvas));
         }
 
         /// <summary>登録が外で変わったとき（ファイラーで名前を変えて、登録のパスを直したとき）に、マス目を作り直す。</summary>
@@ -504,7 +525,7 @@ namespace AiLink.Views
         private void OnDragOver(object sender, DragEventArgs e)
         {
             var paths = DroppedPaths(e);
-            var cell = CellAt(e.GetPosition(_canvas));
+            var cell = NearestCell(e);
 
             e.Effects = paths.Length > 0 && cell.HasValue ? DragDropEffects.Copy : DragDropEffects.None;
             e.Handled = true;
@@ -536,7 +557,7 @@ namespace AiLink.Views
         {
             e.Handled = true;
 
-            var cell = CellAt(e.GetPosition(_canvas));
+            var cell = NearestCell(e);
             ShowDropTarget(null);
 
             var paths = DroppedPaths(e);
@@ -709,7 +730,7 @@ namespace AiLink.Views
         {
             if (e.Handled || _dragFrom != null) return;
 
-            var cell = CellAt(e.GetPosition(_canvas));
+            var cell = NearestCell(e.GetPosition(_scroll), e.GetPosition(_canvas));
             if (!cell.HasValue || _settings.TileAt(cell.Value.Column, cell.Value.Row) != null) return;
 
             e.Handled = true;

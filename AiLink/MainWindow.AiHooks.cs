@@ -146,10 +146,55 @@ namespace AiLink
                 }
             }
 
+            // AiLink の台本は、ルール（.codex\rules\ailink.rules）で確かめなしに囲いの外で動く。その後ろに別のコマンドをつなげて、
+            // 確かめなしに動かされないよう、引用符の外にコマンドをつなぐ記号があれば断る（2026-11-25 のレビュー）
+            foreach (var item in items)
+            {
+                if (item.Key != "command" || item.Value.IndexOf(AiFolder, StringComparison.OrdinalIgnoreCase) < 0) continue;
+                if (ChainsCommands(item.Value))
+                    return AiGuardDeny("AI連携ツールの台本（state.ps1・excel.ps1・talk.ps1）は、ほかのコマンドとつなげず、1つだけで動かす。引数は引用符で囲み、"
+                                       + "引用符の外には英数字・空白・- : \\ / . _ # , = だけを書く（; | & < > ( ) { } @ $ 改行は書かない）。二重引用符の中にも $ と ` は書かない。全角の引用符（‘ ’ “ ” など）はどこにも書かない。"
+                                       + "伝言に \" $ ` が入るときは -TextFile で渡す。");
+            }
+
             var refusal = AiGuard.Check(tool, cwd, items);
             if (refusal == null) return null;
             Dispatcher.BeginInvoke(new Action(() => Status("AI が AI に渡さない場所（" + AiGuard.MarkerName + "）に触れようとしたので、断りました（" + tool + "）。")));
             return AiGuardDeny(refusal);
+        }
+
+        /// <summary>
+        /// AiLink の台本のコマンドに、ほかのコマンド・式を紛れ込ませる書き方があるか（2026-11-25 のレビュー）。PowerShell は引数の中の式も動かすので、
+        /// 引用符の外は許す文字（英数字・空白・- : \ / . _ # , =・全角などの ASCII でない文字）だけにする。二重引用符の中は $ と ` を許さない（式・読み替えになる）。
+        /// 単引用符の中は文字のまま読まれるので、何でもよい。引用符が閉じていなければ、紛れ込ませているとみなす。
+        /// </summary>
+        private static bool ChainsCommands(string command)
+        {
+            // 全角の引用符（‘ ’ ‚ ‛ “ ” „）は、PowerShell が ' や " と同じに扱うので、どこにあっても断る（引用符の数え違いですり抜けられるため）
+            if (command.IndexOfAny(new[] { '\u2018', '\u2019', '\u201A', '\u201B', '\u201C', '\u201D', '\u201E' }) >= 0) return true;
+            char quote = '\0';
+            foreach (var c in command)
+            {
+                if (quote == '\'')
+                {
+                    if (c == '\'') quote = '\0';
+                    continue;
+                }
+                if (quote == '"')
+                {
+                    if (c == '"') quote = '\0';
+                    else if (c == '$' || c == '`') return true;
+                    continue;
+                }
+                if (c == '"' || c == '\'')
+                {
+                    quote = c;
+                    continue;
+                }
+                if (c > 127 || char.IsLetterOrDigit(c) || c == ' ' || c == '\t' || "-:\\/._#,=".IndexOf(c) >= 0) continue;
+                return true;
+            }
+            return quote != '\0';
         }
 
         private static string AiGuardDeny(string reason)

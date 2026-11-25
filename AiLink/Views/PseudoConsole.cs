@@ -283,6 +283,23 @@ namespace AiLink.Views
             }
         }
 
+        /// <summary>AiLink が終わると中のプロセスも終わるジョブ（アプリに1つ。閉じずに持ち、プロセスが終わると Windows が閉じて中を終わらせる）。</summary>
+        private static IntPtr _appJob;
+        private static readonly object AppJobLock = new object();
+
+        /// <summary>
+        /// プロセスを、AiLink が終わると一緒に終わるジョブに入れる（2026-11-25。Excel の台本を動かす PowerShell が、AiLink を閉じたり落ちたりしても
+        /// Excel をつかんだまま動き続けないように）。入れられなければ false。
+        /// </summary>
+        public static bool AssignToAppJob(IntPtr process)
+        {
+            lock (AppJobLock)
+            {
+                if (_appJob == IntPtr.Zero) _appJob = CreateKillOnCloseJob();
+                return _appJob != IntPtr.Zero && AssignProcessToJobObject(_appJob, process);
+            }
+        }
+
         /// <summary>
         /// 閉じると中のプロセスを全部終わらせるジョブを作る（2026-10-27）。作れなければ IntPtr.Zero。
         /// 中のプログラムが「ジョブから抜けて」起動するもの（CREATE_BREAKAWAY_FROM_JOB）は抜けてよい（BREAKAWAY_OK）。

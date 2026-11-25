@@ -34,6 +34,15 @@ namespace AiLink.Agents
         /// </summary>
         string EmptyInputMarker { get; }
 
+        /// <summary>入力欄の行の頭の印（Codex の「›」）。この行だけを見て、空の印・打った伝言があるかを確かめる。</summary>
+        string InputLinePrefix { get; }
+
+        /// <summary>作業中に画面に出る文字（Codex の「esc to interrupt」）。出ていれば打たない。</summary>
+        string WorkingMarker { get; }
+
+        /// <summary>AI が動いているときのプロセスの名前（タブの PowerShell の下にこれがあるかで、AI が動いているかを見る。例 codex.exe）。</summary>
+        string[] ProcessNames { get; }
+
         /// <summary>会話の番号として正しい形か（起動のコマンドに書くので、ほかのものは使わない）。</summary>
         bool IsValidSessionId(string id);
 

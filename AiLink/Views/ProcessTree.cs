@@ -35,6 +35,49 @@ namespace AiLink.Views
             }
         }
 
+        /// <summary>
+        /// parent の子か孫（2 段まで）に、names のどれかの名前のプロセスがあるか。AI（codex.exe、npm で入れたなら cmd.exe の下の node.exe）が
+        /// タブの PowerShell の下で動いているかを見る（python・ssh など、ほかのプログラムが動いているだけのときに伝言を打たないため）。調べられなければ false。
+        /// </summary>
+        public static bool HasDescendantNamed(int parent, string[] names)
+        {
+            if (parent <= 0 || names == null || names.Length == 0) return false;
+            var snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+            if (snapshot == IntPtr.Zero || snapshot == new IntPtr(-1)) return false;
+            var entries = new System.Collections.Generic.List<PROCESSENTRY32>();
+            try
+            {
+                var entry = new PROCESSENTRY32 { dwSize = (uint)Marshal.SizeOf(typeof(PROCESSENTRY32)) };
+                if (!Process32First(snapshot, ref entry)) return false;
+                do
+                {
+                    entries.Add(entry);
+                }
+                while (Process32Next(snapshot, ref entry));
+            }
+            finally
+            {
+                CloseHandle(snapshot);
+            }
+
+            var level = new System.Collections.Generic.HashSet<uint> { (uint)parent };
+            for (var depth = 0; depth < 2 && level.Count > 0; depth++)
+            {
+                var next = new System.Collections.Generic.HashSet<uint>();
+                foreach (var item in entries)
+                {
+                    if (!level.Contains(item.th32ParentProcessID) || item.th32ProcessID == item.th32ParentProcessID) continue;
+                    foreach (var name in names)
+                    {
+                        if (string.Equals(item.szExeFile, name, StringComparison.OrdinalIgnoreCase)) return true;
+                    }
+                    next.Add(item.th32ProcessID);
+                }
+                level = next;
+            }
+            return false;
+        }
+
         private const uint TH32CS_SNAPPROCESS = 0x00000002;
 
         [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]

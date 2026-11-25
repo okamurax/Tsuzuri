@@ -80,6 +80,8 @@ namespace AiLink
             if (body.Length > AiTalkLimit) return "error\t伝言が長すぎる（" + AiTalkLimit + " 字まで）。長い中身は作業のフォルダのファイルに書き、伝言にはそのファイルの場所と頼みだけを書いて送り直す。";
 
             body = body.Replace("【#", "［#");   // 本文に差出人の見出しの形を書いて、ほかの会話になりすませないように
+            // 入力欄が空の印と同じ文字は本文から外す（画面の確かめを釣らないように）
+            if (_agent.EmptyInputMarker != null) body = body.Replace(_agent.EmptyInputMarker, "(…)");
             target.Inbox.Add("【" + from.Name + " からの伝言】" + body);
             AfterAiInboxChanged(target);
             EnsureAiTalkTimer();
@@ -123,7 +125,7 @@ namespace AiLink
             {
                 tab.Checking = false;
                 if (task.IsFaulted || task.IsCanceled || !CanDeliverAiTalk(tab)) return;
-                if (!ScreenShows(task.Result, marker)) return;
+                if (!InputLineIs(task.Result, marker, true)) return;
                 TypeAiTalk(tab, tab.HooksSeen);
             }, System.Threading.Tasks.TaskScheduler.FromCurrentSynchronizationContext());
         }
@@ -134,14 +136,16 @@ namespace AiLink
             // フックがまだ来ていないタブ（フックを信頼する前に始まった会話など）でも渡す（利用者の判断。ボタンを押さずに届くように）。
             // そのときは作業中かを知れないが、画面の確かめ（入力欄が空の印が出ているか）で、確かめの画面・書きかけには打たない。
             // 打ったあとは、少なくとも 5 秒は次を打たない（受け付けの知らせが来ないので）
-            if (tab.Inbox.Count == 0 || tab.Checking || tab.Busy || tab.AwaitingPrompt || !tab.View.IsRunning || !tab.AgentStarted
+            // 作業の終わりのフックが来ないまま 3 分たった Busy は、画面の確かめ（作業中の表示・入力欄が空の印）に任せる
+            var busy = tab.Busy && now - tab.BusySince < TimeSpan.FromMinutes(3);
+            if (tab.Inbox.Count == 0 || tab.Checking || busy || tab.AwaitingPrompt || !tab.View.IsRunning || !tab.AgentStarted
                 || tab.AutoTalks >= AiAutoTalkLimit || now - tab.ReadySince < TimeSpan.FromSeconds(3) || now - tab.LastUserKey < TimeSpan.FromSeconds(3)
                 || now - tab.TypedAt < TimeSpan.FromSeconds(5))
                 return false;
             if (tab.HooksSeen && !tab.AgentReady) return false;   // フックが来ていて、会話が終わった（SessionEnd）
             // タブの PowerShell の下で AI が動いていなければ打たない（AI が落ちて会話の終わりのフックが来なかったとき、
             // 打った伝言が PowerShell のコマンドとして動いてしまうため。2026-11-25 のレビュー）
-            if (!ProcessTree.HasChild(tab.View.ProcessId))
+            if (!ProcessTree.HasDescendantNamed(tab.View.ProcessId, _agent.ProcessNames))
             {
                 tab.AgentReady = false;
                 return false;
@@ -149,15 +153,24 @@ namespace AiLink
             return true;
         }
 
-        /// <summary>端末の画面（terminal.html の tsuzuriScreen の JSON）の下のほうに、その文字があるか。</summary>
-        private static bool ScreenShows(string json, string marker)
+        /// <summary>
+        /// 端末の画面（terminal.html の tsuzuriScreen の JSON）で、入力欄の行（IAgent.InputLinePrefix で始まる、いちばん下の行）に text があるか。
+        /// idle なら加えて、作業中の表示（IAgent.WorkingMarker）がどこにも出ていないこと。画面の下のどこかに印があるだけでは良しとしない
+        /// （会話の表示に残った文字や、確かめの画面の上に残った文字に釣られないため。2026-11-25 のレビュー）。
+        /// </summary>
+        private bool InputLineIs(string json, string text, bool idle)
         {
             try
             {
                 var value = HookJson.DeserializeObject(json) as System.Collections.Generic.Dictionary<string, object>;
                 object lines;
                 if (value == null || !value.TryGetValue("lines", out lines) || !(lines is object[])) return false;
-                return ((object[])lines).Any(line => line is string && ((string)line).IndexOf(marker, StringComparison.Ordinal) >= 0);
+                var all = ((object[])lines).Select(line => line as string ?? string.Empty).ToList();
+                if (idle && _agent.WorkingMarker != null && all.Any(line => line.IndexOf(_agent.WorkingMarker, StringComparison.OrdinalIgnoreCase) >= 0)) return false;
+                // 入力欄の行は、画面のいちばん下のほう（下に出るのは、モデル・フォルダなどの数行だけ）。上のほうの › の行は、会話に残った前の頼み
+                var index = all.FindLastIndex(line => line.TrimStart().StartsWith(_agent.InputLinePrefix, StringComparison.Ordinal));
+                if (index < 0 || all.Count - index > 6) return false;
+                return all[index].IndexOf(text, StringComparison.Ordinal) >= 0;
             }
             catch (Exception)
             {
@@ -185,12 +198,33 @@ namespace AiLink
             AfterAiInboxChanged(tab);
             Status(tab.Name + " に伝言を渡しました");
 
-            // Enter は少し置いて別に送る（一度に流し込むと、Codex が貼り付けとみなして Enter を改行にすることがあるため）
+            // Enter は少し置いて別に送る（一度に流し込むと、Codex が貼り付けとみなして Enter を改行にすることがあるため）。
+            // 送る直前に画面を読み直し、入力欄の行に打った伝言の頭が入っているときだけ送る（その間に確かめの画面が出ていれば、Enter が答えとして効くため）
+            // 確かめに使うのは見出し（【#n からの伝言】）を除いた本文の頭（見出しは同じ差出人の前の伝言と同じなので、見分けにならない）
+            var bodyStart = message.IndexOf('】');
+            var bodyText = bodyStart >= 0 ? message.Substring(bodyStart + 1) : message;
+            var head = bodyText.Length > 12 ? bodyText.Substring(0, 12) : bodyText;
             var enter = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromMilliseconds(400) };
             enter.Tick += delegate
             {
                 enter.Stop();
-                if (tab.View.IsRunning) tab.View.WriteInput("\r");
+                if (!tab.View.IsRunning) return;
+                System.Threading.Tasks.Task<string> read = null;
+                try
+                {
+                    read = tab.View.RunScriptAsync("tsuzuriScreen(20)");
+                }
+                catch (Exception)
+                {
+                }
+                if (read == null) return;
+                read.ContinueWith(task =>
+                {
+                    if (task.IsFaulted || task.IsCanceled || !tab.View.IsRunning) return;
+                    // 長いと Codex が貼り付けとして畳み「[Pasted Content … chars]」と出すので、それも打った伝言とみなす
+                    if (InputLineIs(task.Result, head, false) || InputLineIs(task.Result, "[Pasted Content", false)) tab.View.WriteInput("\r");
+                    else Status(tab.Name + " の入力欄に伝言を置きましたが、送りませんでした（画面が変わったため。中身を見て Enter を押してください）");
+                }, System.Threading.Tasks.TaskScheduler.FromCurrentSynchronizationContext());
             };
             enter.Start();
             return true;
@@ -286,7 +320,7 @@ namespace AiLink
             button.Click += delegate
             {
                 if (!ReferenceEquals(_aiTab, tab) || tab.Inbox.Count == 0) return;
-                if (!ProcessTree.HasChild(tab.View.ProcessId))
+                if (!ProcessTree.HasDescendantNamed(tab.View.ProcessId, _agent.ProcessNames))
                 {
                     Status(tab.Name + " の AI が動いていないので、渡せません（タブで codex と打って起動すると、渡します）。");
                     return;

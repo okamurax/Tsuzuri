@@ -21,7 +21,9 @@
 #       runs the PowerShell script in excel-script.ps1 next to this script (UTF-8; removed once read) in another PowerShell process,
 #       with $excel = the running Excel.Application. Whatever the script prints is printed here. -File <file> reads another file.
 #       The editor refuses a script that contains save (as part of any word), Close, Quit, ChangeFileAccess, Stop-Process, taskkill,
-#       SendKeys or Kill (the user saves and closes workbooks), or that names a folder the user keeps from the AI. -Timeout: up to 540.
+#       SendKeys, Kill, DisplayAlerts, .Open..., .Run, RunAutoMacros, ExecuteExcel4Macro, Workbooks.Add with a path, FollowHyperlink,
+#       Invoke-Item, Start-Process, or a method called by a quoted or variable name (the user saves, closes and opens workbooks
+#       and runs macros), or that names a folder the user keeps from the AI. -Timeout: up to 540.
 #
 # Reading: the editor reads Excel and writes the cells to a file (tab separated); this prints the path of that file.
 # Writing: this prints what was written.

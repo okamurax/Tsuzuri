@@ -74,8 +74,12 @@ namespace AiLink
             /// <summary>端末のタイトル（ツールチップに出す）。</summary>
             public string TerminalTitle;
 
-            /// <summary>このタブで AI を一度起動したか（起動するのは最初の1回だけ）。</summary>
+            /// <summary>このタブで AI を一度起動したか（起動するのは最初の1回だけ）と、その時刻。</summary>
             public bool AgentStarted;
+            public DateTime AgentStartedAt;
+
+            /// <summary>フックが動いていないことを、欄の下の行で知らせた。</summary>
+            public bool HookWarned;
 
             /// <summary>起動するときに続きとして開く会話の番号（前の起動の会話を戻すとき）。無ければ null（新しい会話）。</summary>
             public string ResumeSession;
@@ -84,7 +88,19 @@ namespace AiLink
             public bool AgentReady;
 
             /// <summary>AI が頼みに取り組んでいる最中（話しかけたフックから、作業の終わりのフックまで。確かめを出している間もこの中）。</summary>
-            public bool Busy;
+            public bool Busy
+            {
+                get { return _busy; }
+                set
+                {
+                    if (value && !_busy) BusySince = DateTime.UtcNow;
+                    _busy = value;
+                }
+            }
+            private bool _busy;
+
+            /// <summary>Busy になった時刻（作業の終わりのフックが来ないまま長く残ったら、画面の確かめに任せる。MainWindow.AiTalk.cs）。</summary>
+            public DateTime BusySince;
 
             /// <summary>利用者が話しかけないまま、伝言を自動で渡した回数（AI どうしがやりとりし続けないための歯止め。MainWindow.AiTalk.cs）。</summary>
             public int AutoTalks;
@@ -460,7 +476,8 @@ namespace AiLink
 
             StartAiListener();
 
-            var command = "$env:AILINK_TAB=" + Quote(tab.Id) + ";$env:AILINK_PIPE=" + Quote(AiPipeName) + ";$env:AILINK_WORK=" + Quote(AiWorkFolder);
+            var command = "$env:AILINK_TAB=" + Quote(tab.Id) + ";$env:AILINK_PIPE=" + Quote(AiPipeName) + ";$env:AILINK_WORK=" + Quote(AiWorkFolder)
+                          + ";$env:AILINK_NAME=" + Quote(AiTabFileName(tab));
 
             // AI を起動する（2026-11-25。第3段の最初。指示・フック・会話の続きはまだ渡さない）。
             // PowerShell の関数 codex を置き、終わったあとに codex と打っても同じ AI が動くようにする。PATH も足す（AiLink を起動したあとに入れた AI でも動くように）。
@@ -475,10 +492,13 @@ namespace AiLink
                            + " -c " + Quote("shell_environment_policy.set.AILINK_TAB=" + tab.Id)
                            + " -c " + Quote("shell_environment_policy.set.AILINK_PIPE=" + AiPipeName)
                            + " -c " + Quote("shell_environment_policy.set.AILINK_WORK=" + AiWorkFolder)
+                           + " -c " + Quote("shell_environment_policy.set.AILINK_NAME=" + AiTabFileName(tab))
                            + " @args }";
                 if (!tab.AgentStarted)
                 {
                     tab.AgentStarted = true;
+                    tab.AgentStartedAt = DateTime.UtcNow;
+                    EnsureAiHookWatch();
                     command += tab.ResumeSession != null ? ";codex resume " + tab.ResumeSession : ";codex";   // 番号は Guid の形のものだけ（AppSettings）
                 }
             }
@@ -516,6 +536,29 @@ namespace AiLink
             // 許したコマンドは囲いの外で動くが、台本はパイプで AiLink に頼むだけで、Excel に触るのは AiLink（台本の中の禁止の語も AiLink が断る）
             Directory.CreateDirectory(Path.Combine(work, ".codex", "rules"));
             WriteIfChanged(Path.Combine(work, ".codex", "rules", "ailink.rules"), AiRules());
+
+            // .codex には AiLink が置いたもの（hooks.json・rules\ailink.rules）だけを残す。ほかのルール・設定（config.toml など）が置かれていたら消す
+            // （AI が「何でも許す」ルールや囲いの設定を置いて、次の起動から確かめなしに動けないように。2026-11-25 のレビュー。Codex は作業のフォルダの .codex を
+            // AI から書けない場所にしているはずだが、念のため）
+            var keep = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+            {
+                Path.Combine(work, ".codex", "hooks.json"),
+                Path.Combine(work, ".codex", "rules", "ailink.rules"),
+            };
+            // 消すのは、Codex の設定・ルール・フックになりうるもの（*.toml・*.rules・*.json）だけ（Codex がほかのものを置く版でも、それは残す）
+            foreach (var file in Directory.GetFiles(Path.Combine(work, ".codex"), "*", SearchOption.AllDirectories))
+            {
+                var extension = Path.GetExtension(file);
+                if (keep.Contains(file) || !(extension.Equals(".toml", StringComparison.OrdinalIgnoreCase) || extension.Equals(".rules", StringComparison.OrdinalIgnoreCase)
+                                             || extension.Equals(".json", StringComparison.OrdinalIgnoreCase))) continue;
+                try
+                {
+                    File.Delete(file);
+                }
+                catch (Exception)
+                {
+                }
+            }
         }
 
         /// <summary>
@@ -532,6 +575,39 @@ namespace AiLink
                    + "    decision = \"allow\",\n"
                    + "    justification = \"AiLink のパイプに頼むだけの台本（Excel に触るのは AiLink）\",\n"
                    + ")\n";
+        }
+
+        /// <summary>
+        /// タブの名前をファイルの名前に使う形（#1 → tab1）。AI が書くファイル（excel-write-tab1.tsv など）をタブごとに分ける
+        /// （タブが2つ以上あると、同じ名前のファイルを取り合い、別の会話の中身を書いてしまうため。2026-11-25 のレビュー）。
+        /// 頭に tab を付けるのは、起動のオプション -c で渡すとき数として読まれないように。
+        /// </summary>
+        private static string AiTabFileName(AiTab tab)
+        {
+            return "tab" + (tab.Name ?? string.Empty).TrimStart('#');
+        }
+
+        /// <summary>フックが動いているかを見張る（5 秒ごと）。</summary>
+        private DispatcherTimer _aiHookWatch;
+
+        private void EnsureAiHookWatch()
+        {
+            if (_aiHookWatch != null) return;
+            _aiHookWatch = new DispatcherTimer { Interval = TimeSpan.FromSeconds(5) };
+            _aiHookWatch.Tick += delegate
+            {
+                foreach (var tab in _aiTabs)
+                {
+                    if (!tab.AgentStarted || tab.HooksSeen || tab.HookWarned || DateTime.UtcNow - tab.AgentStartedAt < TimeSpan.FromSeconds(20)) continue;
+                    // 起動して 20 秒たってもフックが一度も来ない: 信頼していない（Hooks need review で 3 を選んだ・Esc で飛ばした）か、サインインの途中
+                    tab.HookWarned = true;
+                    tab.ContextLine = "⚠ " + tab.Name + " はフックがまだ動いていません。AI に渡さない場所の見張りと、今の状態の受け渡しが効きません。"
+                                      + "サインインの途中ならそのまま進めてください。そうでなければ、このタブで /exit と打ってから codex と打ち、「Hooks need review」で 2 を選んでください";
+                    if (ReferenceEquals(tab, _aiTab)) AiContextText.Text = tab.ContextLine;
+                    tab.Header.ToolTip = AiTabToolTip(tab);
+                }
+            };
+            _aiHookWatch.Start();
         }
 
         /// <summary>PowerShell の文字列（'...'）にする。中の ' は2つ重ねる。</summary>
@@ -687,6 +763,20 @@ namespace AiLink
             try
             {
                 var self = Process.GetCurrentProcess();
+                // 頼みごとの名前で書いた Excel の結果は、半日より古いものを消す（どの起動のものかは名前から分からないので、古さで見る）
+                foreach (var pattern in new[] { "excel-read-*.tsv", "excel-overview-*.txt", "excel-overview-*.png", "excel-script-*.ps1" })
+                {
+                    foreach (var old in Directory.GetFiles(AiFolder, pattern))
+                    {
+                        try
+                        {
+                            if (DateTime.UtcNow - File.GetLastWriteTimeUtc(old) > TimeSpan.FromHours(12)) File.Delete(old);
+                        }
+                        catch (Exception)
+                        {
+                        }
+                    }
+                }
                 foreach (var path in Directory.GetFiles(AiFolder, "sheets-*.txt"))
                 {
                     var name = Path.GetFileNameWithoutExtension(path);

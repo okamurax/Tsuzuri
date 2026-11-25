@@ -99,7 +99,7 @@ excel.ps1 に -Timeout を付けたら、待ち時間は（その秒＋30）秒�
       powershell -NoProfile -ExecutionPolicy Bypass -File ""{excel}"" -Write -Book ""<ブックの名前かフルパス>"" -Sheet ""<シート名>"" -Range ""B3""
 
   **書くときは、-Book と -Sheet を必ず両方付ける**（許可をもらうときに示したブックとシート。省くと断られる。選んでいるシートは、許可をもらったあとに利用者が選び直すことがあるため）。
-  書く中身は、先に ""{excel-write}"" に新しいファイルとして作っておく（UTF-8。excel.ps1 は読んだらすぐ消す（書けなかった・断られたときも）ので、書くたびに、書き直すときも、新しく作る。ほかの場所には作らない）。
+  書く中身は、先に ""{excel-write}"" に新しいファイルとして作っておく（<n> は今の状態の「この会話は #n」の数字。会話ごとに別のファイルにするため、ほかの会話の番号のファイルは作らない・触らない。UTF-8。excel.ps1 は読んだらすぐ消す（書けなかった・断られたときも）ので、書くたびに、書き直すときも、新しく作る。ほかの場所には作らない）。
   中身はタブ区切りで、1行が Excel の1行、タブで次の列。-Range は書き始めの左上のセル（中身と同じ大きさの範囲 B3:D5 でもよい）。
   書く範囲は「行の数 × いちばん長い行の列の数」の四角。列の足りない行・空の行のところは、セルが空になる（右や下にある中身を消さないよう、行の列の数をそろえる）。
   セルの中に改行・タブは書けない（読んだときの ↵・→ は印なので、そのまま書き戻さない）。
@@ -112,7 +112,7 @@ excel.ps1 に -Timeout を付けたら、待ち時間は（その秒＋30）秒�
 
       powershell -NoProfile -ExecutionPolicy Bypass -File ""{excel}"" -Script
 
-  台本は、先に ""{excel-script}"" に新しいファイルとして作っておく（UTF-8。excel.ps1 は読んだらすぐ消すので、動かすたびに新しく作る）。
+  台本は、先に ""{excel-script}"" に新しいファイルとして作っておく（<n> は上と同じ、この会話の数字。UTF-8。excel.ps1 は読んだらすぐ消すので、動かすたびに新しく作る）。
   台本の中では $excel が動いている Excel.Application（例 $excel.Workbooks.Item('見積.xlsx').Worksheets.Item('明細').Range('B3:D3').Font.Bold = $true）。
   ブックは Workbooks.Item('名前')、シートは Worksheets.Item('名前') で指す。前に出ているものを指す ActiveWorkbook・ActiveSheet・ActiveCell・ActiveWindow・Selection・
   $excel.Range(…)・$excel.Cells は使わない（前に出ているものは、扱ってほしいものとは限らない）。Workbooks を全部たどったり、ブックの名前・パスを並べて出したりしない。
@@ -123,10 +123,12 @@ excel.ps1 に -Timeout を付けたら、待ち時間は（その秒＋30）秒�
   excel.ps1 は1つずつ動かす（前のが返ってから次を動かす。並べて同時に動かさない）。
   **Excel を変える台本は、-Write と同じ決まりで、動かす前に何をするか（どのブックのどのシートのどこをどう変えるか、消えるものがあればそれ）を利用者に示して許可をもらう**
   （示す前の頼みは許可にならない・許可は示した分だけ）。読むだけの台本（値・式・書式・名前などを取り出して出力するだけ）は許可が要らない。
-  Activate・Select・Calculate・設定の変更・ブックを開く・新しいブックを作るのは、Excel を変える側に数える。マクロ（VBA）を動かすのは、利用者がそう頼んだときだけ。
-  Application の設定（DisplayAlerts・ScreenUpdating・Calculation・EnableEvents）は、要るときだけ台本の中で変え、try/finally で必ず元に戻す。
-  確かめのダイアログが出る操作（シートの削除など）は、DisplayAlerts を変えないと利用者が答えるまで止まり、時間切れになる。
-  save を含む語（Save・SaveAs・Saved・AutoSave・Unsaved など。名前の一部でも）・Close・Quit・ChangeFileAccess・Stop-Process・taskkill・SendKeys・Kill の語が台本にあると、
+  Activate・Select・Calculate・設定の変更・新しいブックを作るのは、Excel を変える側に数える。ブックやファイルを開く・マクロ（VBA）を動かすのは、台本ではできない（頼まれたら、利用者に Excel で手でしてもらう）。
+  Application の設定（ScreenUpdating・Calculation・EnableEvents）は、要るときだけ台本の中で変え、try/finally で必ず元に戻す。
+  確かめのダイアログが出る操作（シートの削除など）は、台本ではしない（DisplayAlerts は使えないので、利用者が答えるまで止まり、時間切れになる）。頼まれたら、利用者に Excel で手でしてもらう。
+  save を含む語（Save・SaveAs・Saved・AutoSave・Unsaved など。名前の一部でも）・Close・Quit・ChangeFileAccess・Stop-Process・taskkill・SendKeys・Kill・DisplayAlerts・
+  .Open で始まる呼び出し（Workbooks.Open・OpenText など）・.Run・RunAutoMacros・ExecuteExcel4Macro・パスを渡した Workbooks.Add・FollowHyperlink・Invoke-Item・Start-Process の語と、
+  メソッドの名前を文字や変数にした呼び出し（.'Open'(…)・.$m(…)）が台本にあると、
   AI連携ツールは動かさない（コメントや文字の中でも。保存とブックを閉じるのは利用者がする）。この語をセルに書く文字に使うなら、その分は -Write で書く。
   ほかのやり方（語を組み立てるなど）で、保存する・閉じる・Excel を終える・読み込み直すこともしない。
   台本がエラーで止まったら、止まるまでの操作は Excel に残っている。読んで確かめてから、利用者に伝える。直してもう一度動かすときは、
@@ -174,7 +176,7 @@ AI の欄には会話のタブがいくつもあり、タブごとに別の AI �
 ## ファイル
 
 - 利用者がファイルやフォルダを AI の欄に落とすと、そのパスが入力欄に入る。頼みの中のパスは、利用者が渡したもの。
-- 作業のファイル（excel-write.tsv・excel-script.ps1 など）は、この会話を始めたフォルダ（""{work}""）に作る。利用者のほかのフォルダに勝手に書かない。
+- 作業のファイル（excel-write-tab<n>.tsv・excel-script-tab<n>.ps1 など）は、この会話を始めたフォルダ（""{work}""）に作る。利用者のほかのフォルダに勝手に書かない。
 ";
 
         /// <summary>指示の {…} を埋めた文。</summary>
@@ -183,8 +185,8 @@ AI の欄には会話のタブがいくつもあり、タブごとに別の AI �
             return AiInstructions
                 .Replace("{state}", Path.Combine(AiFolder, "state.ps1"))
                 .Replace("{excel}", Path.Combine(AiFolder, "excel.ps1"))
-                .Replace("{excel-write}", Path.Combine(work, "excel-write.tsv"))
-                .Replace("{excel-script}", Path.Combine(work, "excel-script.ps1"))
+                .Replace("{excel-write}", Path.Combine(work, "excel-write-tab<n>.tsv"))
+                .Replace("{excel-script}", Path.Combine(work, "excel-script-tab<n>.ps1"))
                 .Replace("{talk}", Path.Combine(AiFolder, "talk.ps1"))
                 .Replace("{work}", work);
         }

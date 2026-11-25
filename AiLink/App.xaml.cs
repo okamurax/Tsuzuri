@@ -50,13 +50,31 @@ namespace AiLink
             }
             catch (Exception ex)
             {
-                MessageBox.Show(
-                    "設定ファイル（ailink.json）を読めないため、起動しません。" + Environment.NewLine +
-                    "直すか消してから起動してください（消すと初めの状態で始まります）。" + Environment.NewLine + Environment.NewLine +
+                // 読めない設定は消さずに退かし、初めの状態で始めるかを尋ねる（手で直して \ を書き損じたときに、起動できなくならないように。2026-11-25 のレビュー）
+                var answer = MessageBox.Show(
+                    "設定ファイル（ailink.json）を読めません。" + Environment.NewLine +
+                    "「はい」で、このファイルを ailink.json.bad という名前に退かして、初めの状態で起動します（会話のタブなどの覚えは無くなります）。" + Environment.NewLine +
+                    "「いいえ」で、起動しません（ファイルを直してから起動してください。パスの \\ は \\\\ と書きます）。" + Environment.NewLine + Environment.NewLine +
                     AppSettings.StorePath + Environment.NewLine + ex.Message,
-                    DisplayName, MessageBoxButton.OK, MessageBoxImage.Warning);
-                Shutdown();
-                return;
+                    DisplayName, MessageBoxButton.YesNo, MessageBoxImage.Warning);
+                if (answer != MessageBoxResult.Yes)
+                {
+                    Shutdown();
+                    return;
+                }
+                try
+                {
+                    var aside = AppSettings.StorePath + ".bad";
+                    if (File.Exists(aside)) File.Delete(aside);
+                    File.Move(AppSettings.StorePath, aside);
+                }
+                catch (Exception moveError)
+                {
+                    MessageBox.Show("設定ファイルを退かせませんでした: " + moveError.Message, DisplayName, MessageBoxButton.OK, MessageBoxImage.Warning);
+                    Shutdown();
+                    return;
+                }
+                settings = new AppSettings();
             }
 
             // 窓を作る前に決める（作ったあとでは効かない窓がある）

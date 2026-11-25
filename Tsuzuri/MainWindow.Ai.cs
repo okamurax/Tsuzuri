@@ -298,10 +298,12 @@ namespace Tsuzuri
     excel.ps1 は1つずつ動かす（前のが返ってから次を動かす。Bash を並べて同時に呼ばない）。
     **Excel を変える台本は、-Write と同じ決まりで、動かす前に何をするか（どのブックのどのシートのどこをどう変えるか、消えるものがあればそれ）を利用者に示して許可をもらう**
     （示す前の頼みは許可にならない・許可は示した分だけ）。読むだけの台本（値・式・書式・名前などを取り出して出力するだけ）は許可が要らない。
-    Activate・Select・Calculate・設定の変更・ブックを開く・新しいブックを作るのは、Excel を変える側に数える。マクロ（VBA）を動かすのは、利用者がそう頼んだときだけ。
-    Application の設定（DisplayAlerts・ScreenUpdating・Calculation・EnableEvents）は、要るときだけ台本の中で変え、try/finally で必ず元に戻す。
-    確かめのダイアログが出る操作（シートの削除など）は、DisplayAlerts を変えないと利用者が答えるまで止まり、時間切れになる。
-    save を含む語（Save・SaveAs・Saved・AutoSave・Unsaved など。名前の一部でも）・Close・Quit・ChangeFileAccess・Stop-Process・taskkill・SendKeys・Kill の語が台本にあると、
+    Activate・Select・Calculate・設定の変更・新しいブックを作るのは、Excel を変える側に数える。ブックやファイルを開く・マクロ（VBA）を動かすのは、台本ではできない（頼まれたら、利用者に Excel で手でしてもらう）。
+    Application の設定（ScreenUpdating・Calculation・EnableEvents）は、要るときだけ台本の中で変え、try/finally で必ず元に戻す。
+    確かめのダイアログが出る操作（シートの削除など）は、台本ではしない（DisplayAlerts は使えないので、利用者が答えるまで止まり、時間切れになる）。頼まれたら、利用者に Excel で手でしてもらう。
+    save を含む語（Save・SaveAs・Saved・AutoSave・Unsaved など。名前の一部でも）・Close・Quit・ChangeFileAccess・Stop-Process・taskkill・SendKeys・Kill・DisplayAlerts・
+    .Open で始まる呼び出し（Workbooks.Open・OpenText など）・.Run・RunAutoMacros・ExecuteExcel4Macro・パスを渡した Workbooks.Add・FollowHyperlink・Invoke-Item・Start-Process の語と、
+    メソッドの名前を文字や変数にした呼び出し（.'Open'(…)・.$m(…)）が台本にあると、
     Tsuzuri は動かさない（コメントや文字の中でも。保存とブックを閉じるのは利用者がする）。この語をセルに書く文字に使うなら、その分は -Write で書く。
     ほかのやり方（語を組み立てるなど）で、保存する・閉じる・Excel を終える・読み込み直すこともしない。
     台本がエラーで止まったら、止まるまでの操作は Excel に残っている。読んで確かめてから、利用者に伝える。直してもう一度動かすときは、

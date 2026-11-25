@@ -293,7 +293,7 @@ namespace AiLink
                     .Append(grid.ColumnsTruncated ? "左の " + grid.ColumnsRead + " 列" : string.Empty)
                     .Append("だけ。続きは -Range で範囲を絞って読む）\n");
 
-            var file = Path.Combine(AiFolder, "excel-read.tsv");
+            var file = Path.Combine(AiFolder, "excel-read-" + Guid.NewGuid().ToString("N").Substring(0, 12) + ".tsv");   // 頼みごとに別の名前（タブが2つ以上あっても、別の会話の結果で上書きしない）
             try
             {
                 File.WriteAllText(file, output.ToString(), new UTF8Encoding(false));
@@ -329,9 +329,10 @@ namespace AiLink
             if (unresolved != null) return "error\t" + unresolved;
 
             string bookShown, sheetShown, problem;
-            var text = ExcelBridge.Overview(book, sheet, IsGuardedBook, Path.Combine(AiFolder, "excel-overview.png"), 45000, out bookShown, out sheetShown, out problem);
+            var mark = Guid.NewGuid().ToString("N").Substring(0, 12);   // 頼みごとに別の名前（タブが2つ以上あっても、別の会話の結果で上書きしない）
+            var text = ExcelBridge.Overview(book, sheet, IsGuardedBook, Path.Combine(AiFolder, "excel-overview-" + mark + ".png"), 45000, out bookShown, out sheetShown, out problem);
             if (text == null) return "error\t" + (problem ?? "Excel を読めなかった。");
-            var file = Path.Combine(AiFolder, "excel-overview.txt");
+            var file = Path.Combine(AiFolder, "excel-overview-" + mark + ".txt");
             try
             {
                 File.WriteAllText(file, text, new UTF8Encoding(false));
@@ -427,7 +428,11 @@ namespace AiLink
         /// ブックを読み込み直す（保存していない変更が消える）・プロセスを止める・キーを送る（Ctrl+S を送れば保存になる）。
         /// </summary>
         private static readonly System.Text.RegularExpressions.Regex ExcelForbidden = new System.Text.RegularExpressions.Regex(
-            @"save|\bclose\b|\bquit\b|changefileaccess|stop-process|taskkill|sendkeys|\bkill\b",
+            // DisplayAlerts・.Open…・.Run・ExecuteExcel4Macro（2026-11-25。利用者の判断）: 確かめを消して保存していない変更を捨てる・開いているブックを開き直す・
+            // ブックやファイルを開く・マクロを動かすのを、台本でさせない（AI に渡さない場所のブックを開いて読む道にもなるため）
+            @"save|\bclose\b|\bquit\b|changefileaccess|stop-process|taskkill|sendkeys|\bkill\b|displayalerts|\.open|\.run\b|\.runautomacros|executeexcel4macro"
+            // 開く・動かすほかの道（パスを渡した Workbooks.Add・FollowHyperlink・Invoke-Item・Start-Process）と、メソッドの名前を文字や変数にした呼び出し（.'Open'(…)・.$m(…)）
+            + @"|workbooks\s*\.\s*add\s*\(\s*[^)\s]|followhyperlink|invoke-item|start-process|\.\s*['""]\s*\w+\s*['""]\s*\(|\.\s*\$\w+\s*\(",
             System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.CultureInvariant);
 
         /// <summary>台本の出力として返す字数の上限。</summary>
@@ -462,8 +467,10 @@ namespace AiLink
 
             var forbidden = ExcelForbidden.Match(script);
             if (forbidden.Success)
-                return ExcelScriptAnswer(false, "保存・閉じる・Excel を終える・読み込み直す・プロセスを止める・キーを送る呼び出しを含む台本は動かさない（「" + forbidden.Value + "」を含んでいる。"
-                                                + "save を含む語（Saved・AutoSave・Unsaved なども）・Close・Quit・ChangeFileAccess・Stop-Process・taskkill・SendKeys・Kill の語は、"
+                return ExcelScriptAnswer(false, "保存・閉じる・Excel を終える・読み込み直す・プロセスを止める・キーを送る・確かめを消す・開く・マクロを動かす呼び出しを含む台本は動かさない（「" + forbidden.Value + "」を含んでいる。"
+                                                + "save を含む語（Saved・AutoSave・Unsaved なども）・Close・Quit・ChangeFileAccess・Stop-Process・taskkill・SendKeys・Kill・DisplayAlerts・"
+                                                + ".Open で始まる呼び出し（Workbooks.Open・OpenText など）・.Run・RunAutoMacros・ExecuteExcel4Macro・パスを渡した Workbooks.Add・FollowHyperlink・Invoke-Item・Start-Process の語と、"
+                                                + "メソッドの名前を文字や変数にした呼び出し（.'Open'(…)・.$m(…)）は、"
                                                 + "コメントや文字・名前の一部でも使えない）。保存とブックを閉じるのは利用者がする。セルに書く文字にこれらの語が入るなら、excel.ps1 -Write で書く。何もしていない");
             // AI に渡さない場所に触れる台本は動かさない（台本は AI のツールのフックを通らないので、Bash のコマンドと同じ確かめをここでする）
             var guard = AiGuard.Check("Bash", AiFolder, new[] { new KeyValuePair<string, string>("command", script) });
@@ -520,7 +527,7 @@ namespace AiLink
             System.Diagnostics.Process process = null;
             try
             {
-                var info = new System.Diagnostics.ProcessStartInfo("powershell.exe",
+                var info = new System.Diagnostics.ProcessStartInfo(Path.Combine(Environment.SystemDirectory, "WindowsPowerShell", "v1.0", "powershell.exe"),
                     "-NoProfile -NonInteractive -ExecutionPolicy Bypass -File \"" + wrapper + "\"")
                 {
                     UseShellExecute = false,
@@ -534,6 +541,8 @@ namespace AiLink
                 process.OutputDataReceived += (sender, e) => Collect(e.Data, output, gate, outputDone);
                 process.ErrorDataReceived += (sender, e) => Collect(e.Data, output, gate, errorDone);
                 process.Start();
+                // AiLink が終わると一緒に終わるようにする（閉じたり落ちたりしたあとも、Excel をつかんだまま動き続けないように）
+                AiLink.Views.PseudoConsole.AssignToAppJob(process.Handle);
                 process.BeginOutputReadLine();
                 process.BeginErrorReadLine();
 

@@ -63,6 +63,38 @@ namespace AiLink.Agents
                    "Invoke-Expression $installer";
         }
 
+        /// <summary>
+        /// この PC で動く exe か（2026-11-25 のレビュー。x64 の PC で「入れる（ARM64）」を押すと ARM64 の codex.exe が置かれ、
+        /// 見つかったことにして案内が消えたあと、起動できずに入れ直す手段が無くなった）。exe の頭（PE）の CPU の種類を見る。
+        /// ARM64 の PC は x64 の exe も動かせる。exe でないもの（npm の codex.cmd）・読めないものは動くとみなす。
+        /// </summary>
+        private static bool Runnable(string path)
+        {
+            if (!path.EndsWith(".exe", StringComparison.OrdinalIgnoreCase)) return true;
+            ushort machine;
+            try
+            {
+                using (var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete))
+                using (var reader = new BinaryReader(stream))
+                {
+                    if (stream.Length < 0x40 || reader.ReadUInt16() != 0x5A4D) return true;   // MZ でなければ分からない
+                    stream.Position = 0x3C;
+                    var pe = reader.ReadInt32();
+                    if (pe <= 0 || pe + 6 > stream.Length) return true;
+                    stream.Position = pe;
+                    if (reader.ReadUInt32() != 0x00004550) return true;   // "PE\0\0"
+                    machine = reader.ReadUInt16();
+                }
+            }
+            catch (Exception)
+            {
+                return true;
+            }
+            var native = NativeMachine();
+            if (machine == ImageFileMachineArm64) return native == ImageFileMachineArm64;
+            return true;
+        }
+
         private const ushort ImageFileMachineAmd64 = 0x8664;
         private const ushort ImageFileMachineArm64 = 0xAA64;
 
@@ -104,6 +136,24 @@ namespace AiLink.Agents
             }
         }
 
+        /// <summary>codex.exe（公式の入れ方）か、npm で入れたときの node.exe（codex.cmd から cmd.exe の下で動く）。</summary>
+        public string[] ProcessNames
+        {
+            get { return new[] { "codex.exe", "node.exe" }; }
+        }
+
+        /// <summary>入力欄の行の頭の印（2026-11-25 に Windows の Codex v0.172 の画面で確かめた）。</summary>
+        public string InputLinePrefix
+        {
+            get { return "\u203A"; }
+        }
+
+        /// <summary>作業中に画面に出る文字（作業中は打たない）。</summary>
+        public string WorkingMarker
+        {
+            get { return "esc to interrupt"; }
+        }
+
         /// <summary>入力欄が空のときの薄い文字（2026-11-25 に Windows の Codex v0.172 の画面で確かめた）。</summary>
         public string EmptyInputMarker
         {
@@ -143,7 +193,7 @@ namespace AiLink.Agents
             if (!string.IsNullOrWhiteSpace(configured))
             {
                 var expanded = Environment.ExpandEnvironmentVariables(configured.Trim().Trim('"'));
-                if (File.Exists(expanded)) return expanded;
+                if (File.Exists(expanded) && Runnable(expanded)) return expanded;
             }
 
             var candidates = new List<string>();
@@ -186,7 +236,7 @@ namespace AiLink.Agents
             {
                 try
                 {
-                    if (File.Exists(candidate)) return candidate;
+                    if (File.Exists(candidate) && Runnable(candidate)) return candidate;
                 }
                 catch (Exception)
                 {

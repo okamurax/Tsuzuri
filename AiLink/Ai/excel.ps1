@@ -7,7 +7,7 @@
 #   Without -Range: the used range of the sheet. The workbook and sheet in front in Excel are never used.
 #
 #   powershell -NoProfile -ExecutionPolicy Bypass -File excel.ps1 -Write -Book "<book>" -Sheet "<sheet>" -Range "B3"
-#       writes the cells in excel-write.tsv in AILINK_WORK (next to this script without it) (UTF-8, tab separated, one line = one row; removed once read) from B3.
+#       writes the cells in excel-write-<AILINK_NAME>.tsv in AILINK_WORK (next to this script without it) (UTF-8, tab separated, one line = one row; removed once read) from B3.
 #       -File <file> reads another file. Ask the user before writing (the instructions of the AI pane).
 #       Cells are entered as typed: "=" starts a formula (English function names, "," separators).
 #       It does not save the workbook. Excel loses its undo history (Ctrl+Z) when this writes.
@@ -18,10 +18,12 @@
 #       AiLink writes it to a file and this prints the path (-Book and -Sheet as when reading).
 #
 #   powershell -NoProfile -ExecutionPolicy Bypass -File excel.ps1 -Script [-Timeout 60]
-#       runs the PowerShell script in excel-script.ps1 in AILINK_WORK (next to this script without it) (UTF-8; removed once read) in another PowerShell process,
+#       runs the PowerShell script in excel-script-<AILINK_NAME>.ps1 in AILINK_WORK (next to this script without it) (UTF-8; removed once read) in another PowerShell process,
 #       with $excel = the running Excel.Application. Whatever the script prints is printed here. -File <file> reads another file.
 #       AiLink refuses a script that contains save (as part of any word), Close, Quit, ChangeFileAccess, Stop-Process, taskkill,
-#       SendKeys or Kill (the user saves and closes workbooks), or that names a folder the user keeps from the AI. -Timeout: up to 540.
+#       SendKeys, Kill, DisplayAlerts, .Open..., .Run, RunAutoMacros, ExecuteExcel4Macro, Workbooks.Add with a path, FollowHyperlink,
+#       Invoke-Item, Start-Process, or a method called by a quoted or variable name (the user saves, closes and opens workbooks
+#       and runs macros), or that names a folder the user keeps from the AI. -Timeout: up to 540.
 #
 # Reading: AiLink reads Excel and writes the cells to a file (tab separated); this prints the path of that file.
 # Writing: this prints what was written.
@@ -52,9 +54,11 @@ $tab = [char]9
 # the files the AI writes (excel-write.tsv, excel-script.ps1) are in the working folder of the conversation (AILINK_WORK),
 # where the AI may write; next to this script otherwise
 $work = if ($env:AILINK_WORK) { $env:AILINK_WORK } else { $PSScriptRoot }
+# one file per conversation tab (AILINK_NAME, e.g. tab1): two tabs writing at once never swap their cells or scripts
+$suffix = if ($env:AILINK_NAME) { '-' + $env:AILINK_NAME } else { '' }
 if ($Script) {
     $default = -not $File
-    if ($default) { $File = Join-Path $work 'excel-script.ps1' }
+    if ($default) { $File = Join-Path $work ('excel-script' + $suffix + '.ps1') }
     if (-not (Test-Path -LiteralPath $File)) { Fail ('file not found: ' + $File + ' (write the script to it first)') }
     $content = [System.IO.File]::ReadAllText($File, [System.Text.Encoding]::UTF8)
     if ($default) { Remove-Item -LiteralPath $File -ErrorAction SilentlyContinue }
@@ -63,7 +67,7 @@ if ($Script) {
     $request = 'excel-overview' + $tab + (B64 $Book) + $tab + (B64 $Sheet)
 } elseif ($Write) {
     $default = -not $File
-    if ($default) { $File = Join-Path $work 'excel-write.tsv' }
+    if ($default) { $File = Join-Path $work ('excel-write' + $suffix + '.tsv') }
     if (-not (Test-Path -LiteralPath $File)) { Fail ('file not found: ' + $File + ' (write the cells to it first)') }
     $content = [System.IO.File]::ReadAllText($File, [System.Text.Encoding]::UTF8)
     # the default file is removed once read, so an old content is never written again and the next Write creates it anew

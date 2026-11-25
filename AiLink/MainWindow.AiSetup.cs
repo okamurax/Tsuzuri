@@ -25,6 +25,9 @@ namespace AiLink
         /// <summary>入っていないときの案内。出していなければ null。</summary>
         private Border _agentSetup;
 
+        /// <summary>「入れる」で開いた PowerShell の窓（閉じるまで探し直さない）。</summary>
+        private Process _agentInstaller;
+
         /// <summary>案内を出している間、入ったかを3秒ごとに探し直す（窓に戻ったこと（Activated）を取りこぼしても切り替わるように）。</summary>
         private System.Windows.Threading.DispatcherTimer _agentPoll;
 
@@ -45,6 +48,18 @@ namespace AiLink
         private void RecheckAgent()
         {
             if (_agentSetup == null) return;
+            // 入れる窓が開いている間は探し直さない（入れる手順は途中で codex.exe を置いてから確かめるので、確かめる前に見つけてしまう）
+            if (_agentInstaller != null)
+            {
+                try
+                {
+                    if (!_agentInstaller.HasExited) return;
+                }
+                catch (Exception)
+                {
+                }
+                _agentInstaller = null;
+            }
             if (!EnsureAgent()) return;
             Status(_agent.DisplayName + " が見つかりました: " + _agentExecutable);
             StartAi();
@@ -137,7 +152,7 @@ namespace AiLink
             });
             panel.Children.Add(new TextBlock
             {
-                Text = "入れる場所を変えている場合は、ailink.json の agentExecutable に codex.exe の場所を書いてください。",
+                Text = "入れる場所を変えている場合は、ailink.json の agentExecutable に codex.exe の場所を書いてください（パスの \\ は \\\\ と書きます。例 \"C:\\\\Tools\\\\codex.exe\"）。",
                 FontSize = 12,
                 Foreground = muted,
                 TextWrapping = TextWrapping.Wrap,
@@ -176,9 +191,13 @@ namespace AiLink
         {
             try
             {
+                // 入れる手順は一時ファイルに書き、& で動かす（手順の中の exit が、窓ごと閉じずにその台本だけを終えるように。失敗のわけを読めるように）
+                var file = Path.Combine(Path.GetTempPath(), "ailink-install-" + Guid.NewGuid().ToString("N").Substring(0, 12) + ".ps1");
+                File.WriteAllText(file, choice.Script + "\r\n", new UTF8Encoding(true));
                 var script = "Write-Host '" + _agent.DisplayName + " の " + choice.Label + " の版を入れます（OpenAI の入れる手順）。' -ForegroundColor Cyan;"
-                             + choice.Script + ";"
-                             + "Write-Host '';Write-Host '終わりました。この窓を閉じて、AI連携ツールに戻ってください。' -ForegroundColor Green";
+                             + "& " + Quote(file) + ";"
+                             + "Remove-Item -LiteralPath " + Quote(file) + " -ErrorAction SilentlyContinue;"
+                             + "Write-Host '';Write-Host '手順が終わりました（赤い文字が出ていれば、うまく入っていません）。この窓を閉じて、AI連携ツールに戻ってください。' -ForegroundColor Green";
                 var powershell = Path.Combine(Environment.SystemDirectory, "WindowsPowerShell", "v1.0", "powershell.exe");
                 var start = new ProcessStartInfo(powershell,
                     "-NoLogo -NoExit -ExecutionPolicy Bypass -EncodedCommand " + Convert.ToBase64String(Encoding.Unicode.GetBytes(script)))
@@ -186,8 +205,8 @@ namespace AiLink
                     UseShellExecute = true,
                     WorkingDirectory = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
                 };
-                Process.Start(start);
-                Status("別の窓で " + _agent.DisplayName + " を入れています。終わったら、この窓に戻ってください。");
+                _agentInstaller = Process.Start(start);
+                Status("別の窓で " + _agent.DisplayName + " を入れています。終わったら、入れる窓を閉じてください（閉じると、入ったかを確かめます）。");
             }
             catch (Exception ex)
             {

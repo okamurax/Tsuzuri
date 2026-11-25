@@ -427,7 +427,11 @@ namespace Tsuzuri
         /// ブックを読み込み直す（保存していない変更が消える）・プロセスを止める・キーを送る（Ctrl+S を送れば保存になる）。
         /// </summary>
         private static readonly System.Text.RegularExpressions.Regex ExcelForbidden = new System.Text.RegularExpressions.Regex(
-            @"save|\bclose\b|\bquit\b|changefileaccess|stop-process|taskkill|sendkeys|\bkill\b",
+            // DisplayAlerts・.Open…・.Run・ExecuteExcel4Macro（2026-11-25。利用者の判断）: 確かめを消して保存していない変更を捨てる・開いているブックを開き直す・
+            // ブックやファイルを開く・マクロを動かすのを、台本でさせない（AI に渡さない場所のブックを開いて読む道にもなるため）
+            @"save|\bclose\b|\bquit\b|changefileaccess|stop-process|taskkill|sendkeys|\bkill\b|displayalerts|\.open|\.run\b|\.runautomacros|executeexcel4macro"
+            // 開く・動かすほかの道（パスを渡した Workbooks.Add・FollowHyperlink・Invoke-Item・Start-Process）と、メソッドの名前を文字や変数にした呼び出し（.'Open'(…)・.$m(…)）
+            + @"|workbooks\s*\.\s*add\s*\(\s*[^)\s]|followhyperlink|invoke-item|start-process|\.\s*['""]\s*\w+\s*['""]\s*\(|\.\s*\$\w+\s*\(",
             System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.CultureInvariant);
 
         /// <summary>台本の出力として返す字数の上限。</summary>
@@ -462,8 +466,10 @@ namespace Tsuzuri
 
             var forbidden = ExcelForbidden.Match(script);
             if (forbidden.Success)
-                return ExcelScriptAnswer(false, "保存・閉じる・Excel を終える・読み込み直す・プロセスを止める・キーを送る呼び出しを含む台本は動かさない（「" + forbidden.Value + "」を含んでいる。"
-                                                + "save を含む語（Saved・AutoSave・Unsaved なども）・Close・Quit・ChangeFileAccess・Stop-Process・taskkill・SendKeys・Kill の語は、"
+                return ExcelScriptAnswer(false, "保存・閉じる・Excel を終える・読み込み直す・プロセスを止める・キーを送る・確かめを消す・開く・マクロを動かす呼び出しを含む台本は動かさない（「" + forbidden.Value + "」を含んでいる。"
+                                                + "save を含む語（Saved・AutoSave・Unsaved なども）・Close・Quit・ChangeFileAccess・Stop-Process・taskkill・SendKeys・Kill・DisplayAlerts・"
+                                                + ".Open で始まる呼び出し（Workbooks.Open・OpenText など）・.Run・RunAutoMacros・ExecuteExcel4Macro・パスを渡した Workbooks.Add・FollowHyperlink・Invoke-Item・Start-Process の語と、"
+                                                + "メソッドの名前を文字や変数にした呼び出し（.'Open'(…)・.$m(…)）は、"
                                                 + "コメントや文字・名前の一部でも使えない）。保存とブックを閉じるのは利用者がする。セルに書く文字にこれらの語が入るなら、excel.ps1 -Write で書く。何もしていない");
             // AI に渡さない場所に触れる台本は動かさない（台本は Claude のツールのフックを通らないので、Bash のコマンドと同じ確かめをここでする）
             var guard = AiGuard.Check("Bash", AiFolder, new[] { new KeyValuePair<string, string>("command", script) });

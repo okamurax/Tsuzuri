@@ -2311,7 +2311,7 @@ WPF 標準のコントロールはそのままだと明るい前提の見た目�
       既定 60 秒・540 秒まで（Claude の Bash ツールの上限 600 秒より短く）。過ぎたらプロセスを止め、途中まで操作されているかもしれないと返す。
       台本がほかのプログラムを起こして出力をつないだままでも、出力を待つのは 5 秒で打ち切る。「Excel が動いていない」は包みだけが使う終わりの番号（87）で見分ける。
       動かしている間は、Excel を呼ぶほかの処理（一覧・読む・書く）を待たせる（`ExcelBridge.RunExclusive`。同じ Gate）。終わったら一覧を読み直す（「※」）。
-      **保存・閉じる・Excel を終える・読み込み直す・プロセスを止める・キーを送る語（save を含む語（Saved・AutoSave・Unsaved も）・Close・Quit・ChangeFileAccess・Stop-Process・taskkill・SendKeys・Kill）を含む台本は動かさない**
+      **保存・閉じる・Excel を終える・読み込み直す・プロセスを止める・キーを送る・確かめを消す・開く・マクロを動かす語（save を含む語（Saved・AutoSave・Unsaved も）・Close・Quit・ChangeFileAccess・Stop-Process・taskkill・SendKeys・Kill・DisplayAlerts・.Open で始まる呼び出し・.Run・RunAutoMacros・ExecuteExcel4Macro・パスを渡した Workbooks.Add・FollowHyperlink・Invoke-Item・Start-Process、メソッドの名前を文字や変数にした呼び出し）を含む台本は動かさない**（DisplayAlerts 以下は 2026-11-25 に足した。利用者の判断。確かめを消して保存していない変更を捨てる・開いているブックを開き直す・AI に渡さない場所のブックを開いて読む・マクロを動かすのを防ぐ。確かめの出る操作（シートの削除など）とマクロは、利用者が Excel で手でする）
       （大文字・小文字を問わず、コメントや文字・名前の一部でも）。台本は Claude のツールのフックを通らないので、AI に渡さない場所のフォルダに触れる台本も、Bash のコマンドと同じ確かめ（AiGuard.Check）で断る。
       保存は利用者がする（Claude が保存しなければ、利用者は保存せずに閉じて元に戻せる）。閉じると利用者の保存していない作業まで消える。Saved を真にすると閉じるときの確かめが出なくなる。
       語で見るだけなので、書き方を変えれば抜けられる（誤って保存するのを防ぐためのもの。利用者の判断で、Excel の保存を取り消す仕組みまでは作らない）。

@@ -85,9 +85,19 @@ namespace AiLink
                 buttons.Children.Add(created);
                 return created;
             };
-            var install = button("入れる", "別の PowerShell の窓で、OpenAI の入れる手順を動かす", RunAgentInstaller);
-            install.Background = TryFindResource("AccentFill") as Brush ?? install.Background;
-            install.Foreground = TryFindResource("AccentText") as Brush ?? text;
+            // 版ごとに「入れる（…）」。この PC に合うと見たものを青くする（利用者が選ぶ。見当が外れていても選び直せる）
+            var likely = _agent.LikelyInstallChoice;
+            foreach (var choice in _agent.InstallChoices)
+            {
+                var chosen = choice;
+                var isLikely = likely != null && likely.Label == choice.Label;
+                var install = button("入れる（" + choice.Label + "）",
+                    choice.Description + (isLikely ? "。この PC はたぶんこちら" : string.Empty) + "。別の PowerShell の窓で、OpenAI の入れる手順を動かす",
+                    () => RunAgentInstaller(chosen));
+                if (!isLikely) continue;
+                install.Background = TryFindResource("AccentFill") as Brush ?? install.Background;
+                install.Foreground = TryFindResource("AccentText") as Brush ?? text;
+            }
             button("もう一度確かめる", "入ったかどうかを探し直す", () =>
             {
                 if (EnsureAgent())
@@ -148,15 +158,15 @@ namespace AiLink
         }
 
         /// <summary>
-        /// 「入れる」: 別の PowerShell の窓で入れるコマンドを動かす。終わっても窓は閉じずに残す（結果を読めるように）。
+        /// 「入れる（…）」: 選んだ版を、別の PowerShell の窓で入れる。終わっても窓は閉じずに残す（結果を読めるように）。
         /// 入れる手順が尋ねてくることがあるので（前の版を退かすかなど）、窓は利用者が操作できる普通の窓にする。
         /// </summary>
-        private void RunAgentInstaller()
+        private void RunAgentInstaller(AgentInstallChoice choice)
         {
             try
             {
-                var script = "Write-Host '" + _agent.DisplayName + " を入れます（OpenAI の入れる手順）。' -ForegroundColor Cyan;"
-                             + _agent.InstallScript + ";"
+                var script = "Write-Host '" + _agent.DisplayName + " の " + choice.Label + " の版を入れます（OpenAI の入れる手順）。' -ForegroundColor Cyan;"
+                             + choice.Script + ";"
                              + "Write-Host '';Write-Host '終わりました。この窓を閉じて、AI連携ツールに戻ってください。' -ForegroundColor Green";
                 var powershell = Path.Combine(Environment.SystemDirectory, "WindowsPowerShell", "v1.0", "powershell.exe");
                 var start = new ProcessStartInfo(powershell,

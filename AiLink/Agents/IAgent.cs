@@ -22,13 +22,26 @@ namespace AiLink.Agents
         /// <summary>入れるコマンド（公式の PowerShell の1行）。案内に出し、「コマンドをコピー」で写す。</summary>
         string InstallCommand { get; }
 
-        /// <summary>
-        /// 案内の「入れる」で、別の PowerShell（Windows PowerShell 5.1）の窓で動かす台本。
-        /// ふつうは InstallCommand と同じでよいが、公式の手順が 5.1 で動かないところを補うときはここで補う。
-        /// </summary>
-        string InstallScript { get; }
+        /// <summary>入れる版の選び（例 x64・ARM64）。案内に1つずつ「入れる（…）」のボタンを出す。</summary>
+        AgentInstallChoice[] InstallChoices { get; }
+
+        /// <summary>この PC に合う版と見たもの（InstallChoices のどれか）。分からなければ null。案内でそのボタンを目立たせる。</summary>
+        AgentInstallChoice LikelyInstallChoice { get; }
 
         /// <summary>入れ方を説明している公式のページ。</summary>
         string InstallPage { get; }
+    }
+
+    /// <summary>入れる版の選び1つ。</summary>
+    public sealed class AgentInstallChoice
+    {
+        /// <summary>ボタンに出す名前（例 "x64"）。</summary>
+        public string Label;
+
+        /// <summary>どんな PC 向けか（ツールチップに出す）。</summary>
+        public string Description;
+
+        /// <summary>別の PowerShell（Windows PowerShell 5.1）の窓で動かす台本。</summary>
+        public string Script;
     }
 }

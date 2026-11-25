@@ -26,6 +26,9 @@ namespace Tsuzuri.Views
         /// <summary>シートを押した: ブック（フルパスか、保存していなければ名前）とシート。</summary>
         public event Action<string, string> SheetClicked;
 
+        /// <summary>ブックの行を押した: ブック（フルパスか、保存していなければ名前）。そのブックのシートを全部選ぶか、全部外す（2026-11-25）。</summary>
+        public event Action<string> BookClicked;
+
         /// <summary>「更新」を押した。</summary>
         public event Action RefreshRequested;
 
@@ -91,10 +94,11 @@ namespace Tsuzuri.Views
             {
                 var key = book.Path ?? book.Name;
                 var hidden = guarded != null && guarded(book.Path);
-                _list.Children.Add(CreateRow(key, null, book.Name + (book.Path == null ? "（未保存）" : string.Empty) + (book.Unsaved ? " ※" : string.Empty), 12, true, false,
+                _list.Children.Add(CreateRow(hidden ? null : key, null, book.Name + (book.Path == null ? "（未保存）" : string.Empty) + (book.Unsaved ? " ※" : string.Empty), 12, true, false,
                                              (book.Path ?? book.Name + "（まだ保存していない新しいブック）")
                                              + (book.Unsaved ? "\n※ 保存していない変更がある（Claude の分も、手で直した分も。保存せずに閉じれば、最後に保存したときに戻る。NOW・RAND などの式があると、開いただけでも付く）" : string.Empty)
-                                             + (hidden ? "\nAI に渡さない場所（か、確かめられないネットの場所）のブック。シートを選べない" : string.Empty)));
+                                             + (hidden ? "\nAI に渡さない場所（か、確かめられないネットの場所）のブック。シートを選べない"
+                                                : "\n押すと、このブックのシートを全部選ぶ（1枚でも選んでいれば、全部外す）")));
                 foreach (var sheet in book.Sheets)
                 {
                     var chosen = chosenOf != null && chosenOf(book, sheet);
@@ -149,7 +153,8 @@ namespace Tsuzuri.Views
                 Background = normal,
                 ToolTip = tip,
             };
-            if (isBook || sheet == null) return row;   // ブックの行と、選べないシートは押せない
+            // 選べないシート・AI に渡さない場所のブックの行は押せない（ブックの行の sheet は null なので、ブックは isBook で見る）
+            if (isBook ? book == null : sheet == null) return row;
 
             row.Cursor = Cursors.Hand;
             row.MouseEnter += delegate { if (!chosen) row.Background = Brush("HoverFill"); };
@@ -158,6 +163,12 @@ namespace Tsuzuri.Views
             {
                 e.Handled = true;
                 if (e.ClickCount > 1) return;
+                if (isBook)
+                {
+                    var bookClicked = BookClicked;
+                    if (bookClicked != null) bookClicked(book);
+                    return;
+                }
                 var clicked = SheetClicked;
                 if (clicked != null) clicked(book, sheet);
             };

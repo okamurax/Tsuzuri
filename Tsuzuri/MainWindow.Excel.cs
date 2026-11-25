@@ -530,6 +530,7 @@ namespace Tsuzuri
                 _excelList = new ExcelListView();
                 _excelList.RefreshRequested += RefreshExcelList;
                 _excelList.SheetClicked += ChooseExcelSheet;
+                _excelList.BookClicked += ChooseExcelBook;
                 ExcelListHost.Child = _excelList;
             }
             if (_excelListing)
@@ -612,6 +613,32 @@ namespace Tsuzuri
                 var listed = _lastExcelBooks != null ? _lastExcelBooks.FirstOrDefault(item => SameExcelBook(item.Path ?? item.Name, book)) : null;
                 _excelChoices = choices.Concat(new[] { new ExcelChoice(book, sheet, listed != null ? listed.Instance : 0) }).ToArray();
                 Status("Excel のシートを選びました: " + Path.GetFileName(book) + " › " + sheet + "（選んでいるのは " + _excelChoices.Length + " 枚。話しかけると、名前を Claude に渡します）");
+            }
+            ShowExcelList(_lastExcelBooks);
+        }
+    
+        /// <summary>
+        /// ブックの行を押した（2026-11-25。利用者の考え。シートがとても多いブックを、1枚ずつ押さずに渡すため）。
+        /// そのブックのシートを1枚でも選んでいれば全部外し、1枚も選んでいなければ全部選ぶ。AI に渡さない場所のブックは選ばない。
+        /// </summary>
+        private void ChooseExcelBook(string book)
+        {
+            var listed = _lastExcelBooks != null ? _lastExcelBooks.FirstOrDefault(item => SameExcelBook(item.Path ?? item.Name, book)) : null;
+            if (listed == null) return;
+            var guarded = _excelGuarded;
+            if (listed.Path != null && guarded != null && guarded.Contains(listed.Path)) return;
+
+            var choices = _excelChoices;
+            var inBook = choices.Where(choice => SameExcelBook(choice.Book, book)).ToArray();
+            if (inBook.Length > 0)
+            {
+                _excelChoices = choices.Except(inBook).ToArray();
+                Status("Excel のブックのシートを全部外しました: " + Path.GetFileName(book) + "（" + inBook.Length + " 枚）");
+            }
+            else
+            {
+                _excelChoices = choices.Concat(listed.Sheets.Select(sheet => new ExcelChoice(book, sheet, listed.Instance))).ToArray();
+                Status("Excel のブックのシートを全部選びました: " + Path.GetFileName(book) + "（" + listed.Sheets.Count + " 枚。選んでいるのは全部で " + _excelChoices.Length + " 枚。話しかけると、名前を Claude に渡します）");
             }
             ShowExcelList(_lastExcelBooks);
         }

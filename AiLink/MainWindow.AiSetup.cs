@@ -13,7 +13,7 @@ namespace AiLink
     //
     // 起動したとき AI の実行ファイルが見つからなければ、会話のタブを開かず、AI の欄に案内を出す。
     // 「入れる」で別の PowerShell の窓を開いて公式の入れる手順を動かす（利用者が押したときだけ。勝手には入れない）。
-    // 窓に戻るたびに（Activated）探し直し、見つかれば案内を消して会話のタブを開く。
+    // 窓に戻るたびに（Activated）と、案内を出している間は3秒ごとに探し直し、見つかれば案内を消して会話のタブを開く。
     public partial class MainWindow
     {
         /// <summary>AI のつなぎ口。AiLink は Codex に固定する（PORTING.md）。</summary>
@@ -24,6 +24,9 @@ namespace AiLink
 
         /// <summary>入っていないときの案内。出していなければ null。</summary>
         private Border _agentSetup;
+
+        /// <summary>案内を出している間、入ったかを3秒ごとに探し直す（窓に戻ったこと（Activated）を取りこぼしても切り替わるように）。</summary>
+        private System.Windows.Threading.DispatcherTimer _agentPoll;
 
         /// <summary>AI を探す。見つかれば true。見つからなければ案内を出して false。</summary>
         private bool EnsureAgent()
@@ -148,10 +151,18 @@ namespace AiLink
             };
             Panel.SetZIndex(_agentSetup, 10);
             AiTerminals.Children.Add(_agentSetup);
+
+            if (_agentPoll == null)
+            {
+                _agentPoll = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromSeconds(3) };
+                _agentPoll.Tick += delegate { RecheckAgent(); };
+            }
+            _agentPoll.Start();
         }
 
         private void HideAgentSetup()
         {
+            if (_agentPoll != null) _agentPoll.Stop();
             if (_agentSetup == null) return;
             AiTerminals.Children.Remove(_agentSetup);
             _agentSetup = null;

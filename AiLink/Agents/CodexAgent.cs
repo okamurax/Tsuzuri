@@ -26,6 +26,7 @@ namespace AiLink.Agents
         /// 公式の手順は [System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture で調べるが、Windows の PowerShell 5.1 ではこれが無く、
         /// Set-StrictMode の下で「プロパティ 'OSArchitecture' が見つかりません」で止まる（PowerShell 7 では動く。Windows で試して分かった）。
         /// 公式の手順がこの書き方をやめていれば、差し替えずにそのまま動かす（そのときは公式の手順が自分で調べる）。
+        /// 入れ終わったあとに Codex をその窓で起動するかの問いも、出さないように差し替える。
         /// </summary>
         public AgentInstallChoice[] InstallChoices
         {
@@ -55,6 +56,9 @@ namespace AiLink.Agents
         {
             return "$installer = Invoke-RestMethod 'https://chatgpt.com/codex/install.ps1';" +
                    "$installer = $installer.Replace('[System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture', \"'" + architecture + "'\");" +
+                   // 入れ終わったあとの「Start Codex now?」は聞かない（2026-11-25。答えると Codex がこの窓の中で、AiLink の外で起動してしまう。
+                   // AiLink は戻ってきたら自分のタブで起動する）。ほかの問い（前の版を退かすかなど）は残す
+                   "$installer = $installer.Replace('Prompt-YesNo \"Start Codex now?\"', '$false');" +
                    "Invoke-Expression $installer";
         }
 

@@ -11,15 +11,15 @@ namespace Tsuzuri.Office
     /// <summary>
     /// 開いている Excel（Windows のデスクトップ版）を読み書きする（2026-11-24。利用者の考え。SPEC 19章）。
     /// 開いているブックのどのシートにも書ける（AI に渡さない場所・ネットの場所・隠れたブックは除く。書く前に Claude が利用者の許可を取る）。保存はしない。
-    /// 書く前の中身を控えて返し、戻せるようにする（外から書いた分は Excel の Ctrl+Z では戻らないため。書く途中で失敗したときも控えを返す）。
+    /// Claude の COM の台本（excel.ps1 -Script）は、別のプロセスで動かす。ここでは、Excel を呼ぶほかの処理と重ならないように順番を守る（RunExclusive）。
     ///
-    /// Office のアプリとのやり取りは、この Office フォルダの中だけで行う（COM を使うのはここだけ）。
+    /// Office のアプリとのやり取りは、この Office フォルダの中だけで行う（Tsuzuri の中で COM を使うのはここだけ。Claude の台本は別のプロセス）。
     /// いつか COM が使えなくなっても、ここを差し替えれば、AI に渡す今の状態の形はそのまま残せるように。
     /// 型の参照（Interop）は使わず、名前で呼ぶ（Excel の版に縛られない）。
     /// 呼ぶたびに自分の STA のスレッドで読み、時間を切る（Excel が応答しない・セルを編集中でも、こちらを止めない）。
     /// 受け取った COM の参照はその場で全部手放す（持ち続けると、利用者が Excel を閉じても EXCEL.EXE が残る）。
     /// </summary>
-    public static class ExcelBridge
+    public static partial class ExcelBridge
     {
         /// <summary>excel.ps1 で読むときの上限（セルの数）。</summary>
         public const int DumpCells = 20000;
@@ -87,7 +87,7 @@ namespace Tsuzuri.Office
             return done ? grid : null;
         }
 
-        /// <summary>書いた範囲と、戻すための控え。</summary>
+        /// <summary>書いた範囲（Excel から読んだ本当のブック（保存していればフルパス、まだなら名前）とシートの名前）。</summary>
         public sealed class Written
         {
             public string Book;
@@ -95,113 +95,28 @@ namespace Tsuzuri.Office
             public string Address;
             public int Rows;
             public int Columns;
-            /// <summary>書く前の中身（Formula2 の形。1つのセルなら object、ほかは object[,]）。</summary>
-            public object Before;
-            /// <summary>書いた直後の中身（戻す前に、利用者がそのあと手で直していないかを見るため）。読めなければ null。</summary>
-            public object After;
             /// <summary>書く途中で失敗した（途中まで書けているかもしれない）。</summary>
             public bool Failed;
-            /// <summary>書いたときの Excel のプロセスの番号（InstanceOf）。</summary>
-            public long Instance;
         }
 
         /// <summary>
         /// 指定したブックのシートに書く。at は書き始めの左上のセル（B3）か、中身と同じ大きさの範囲（B3:D5）。cells は行ごと・列ごとの文字で、
         /// セルに手で打ったときと同じに入る（「=」で始まれば式。式は英語の関数名と「,」の区切り）。書けなければ problem にわけを入れて null。
-        /// 書く途中で失敗したときは、problem にわけを入れ、控え（Failed）を返す（途中まで書けているかもしれないので、戻せるように）。
+        /// 書く途中で失敗したときは、problem にわけを入れ、Failed を立てて返す（途中まで書けているかもしれない）。
         /// instance は選んだときの Excel のプロセスの番号（0 なら見ない）。保存していない新しいブックは、これが違えば書かない。
-        /// 時間切れのときは null。そのあと、書き始める前なら書かない。書き始めていて遅れて書けたら、その控えを late に渡す（裏のスレッドから）。
+        /// 時間切れのときは null。そのあと、書き始める前なら書かない。書き始めていて遅れて書けたら、それを late に渡す（裏のスレッドから）。
         /// </summary>
-        public static Written Write(string book, string sheet, string at, List<string[]> cells, long instance, Func<string, bool> guarded, Func<bool> cancelled, int timeout, Action<Written> late, out string problem)
+        public static Written Write(string book, string sheet, string at, List<string[]> cells, long instance, Func<string, bool> guarded, int timeout, Action<Written> late, out string problem)
         {
             Written written = null;
             string why = null;
-            var outcome = RunSta(job => written = WriteCore(book, sheet, at, cells, instance, guarded, cancelled, job, out why), timeout,
+            var outcome = RunSta(job => written = WriteCore(book, sheet, at, cells, instance, guarded, job, out why), timeout,
                                  () => { if (written != null && late != null) late(written); });
             if (outcome == Outcome.Previous) problem = StillBusy;
             else if (outcome == Outcome.TimedOut)
-                problem = NotAnswering + "。まだ書き始めていなければ、書かない。書き始めていたら、Excel が応えたときに書き終わるか、途中で失敗する（どちらも利用者に知らせが出て、「戻す」で戻せる）";
+                problem = NotAnswering + "。まだ書き始めていなければ、書かない。書き始めていたら、Excel が応えたときに書き終わるか、途中で失敗する（どちらも利用者に知らせが出る）";
             else problem = why;
             return outcome == Outcome.Done ? written : null;
-        }
-
-        public enum UndoKind
-        {
-            /// <summary>戻した。</summary>
-            Done,
-            /// <summary>書いたあとにセルが変わっている（戻していない）。Differ・Cells に数。</summary>
-            Changed,
-            /// <summary>ブック・シートが無い、別の Excel（戻せない。記録を捨てるかを尋ねる）。</summary>
-            Gone,
-            /// <summary>戻そうとして失敗した（シートの保護など。途中まで戻ったかもしれない）。</summary>
-            Failed,
-            /// <summary>Excel が今は応えない・前の頼みに応えていない（何もしていない）。</summary>
-            Busy,
-            /// <summary>時間切れ（終わったら late で知らせる）。</summary>
-            NotAnswering,
-        }
-
-        public sealed class UndoResult
-        {
-            public UndoKind Kind;
-            public string Problem;
-            /// <summary>Changed のとき: 変わっているセルの数と、範囲のセルの数。</summary>
-            public int Differ;
-            public int Cells;
-        }
-
-        /// <summary>
-        /// 書いた分を、書く前の中身に戻す。force でなければ、書いたあとに変わったセルがあると戻さずに Changed。
-        /// 時間切れのときは NotAnswering を返し、終わったときに結果を late に渡す（裏のスレッドから。必ず1回）。
-        /// </summary>
-        public static UndoResult Undo(Written written, bool force, int timeout, Action<UndoResult> late)
-        {
-            UndoResult result = null;
-            var outcome = RunSta(job => result = UndoCore(written, force, job), timeout,
-                                 () => { if (late != null) late(result ?? new UndoResult { Kind = UndoKind.Failed, Problem = "戻せなかった" }); });
-            if (outcome == Outcome.Previous) return new UndoResult { Kind = UndoKind.Busy, Problem = StillBusy };
-            if (outcome == Outcome.TimedOut) return new UndoResult { Kind = UndoKind.NotAnswering, Problem = NotAnswering };
-            return result ?? new UndoResult { Kind = UndoKind.Failed, Problem = "戻せなかった" };
-        }
-
-        private static UndoResult UndoCore(Written written, bool force, Job job)
-        {
-            using (var scope = new Scope())
-            {
-                var app = ActiveExcel(scope);
-                if (app == null) return new UndoResult { Kind = UndoKind.Gone, Problem = "Excel が動いていない" };
-                try
-                {
-                    string problem;
-                    var sheet = FindSheet(scope, app, written.Book, written.Sheet, written.Instance, null, out problem);
-                    if (sheet == null) return new UndoResult { Kind = UndoKind.Gone, Problem = problem };
-                    var target = scope.Get(sheet, "Range", written.Address);
-                    if (!force)
-                    {
-                        var cells = written.Rows * written.Columns;
-                        var differ = -1;   // 書いた直後を読めていなければ、確かめられない
-                        if (written.After != null) differ = Differ(Snapshot(scope, target), written.After, out cells);
-                        if (differ != 0)
-                            return new UndoResult { Kind = UndoKind.Changed, Problem = "書いたあとに、その範囲のセルが変わっている（" + written.Address + "）", Differ = differ, Cells = cells };
-                    }
-                    if (job.Abandoned) return new UndoResult { Kind = UndoKind.Busy, Problem = "Excel が応えるのが遅れたので、戻さなかった" };
-                    try
-                    {
-                        SetFormula(target, written.Before);
-                    }
-                    catch (Exception ex)
-                    {
-                        if (IsBusy(ex)) return new UndoResult { Kind = UndoKind.Busy, Problem = Busy(ex) };
-                        return new UndoResult { Kind = UndoKind.Failed, Problem = "戻せなかった（途中まで戻ったかもしれない）: " + (ex.InnerException ?? ex).Message };
-                    }
-                    return new UndoResult { Kind = UndoKind.Done };
-                }
-                catch (Exception ex)
-                {
-                    if (IsBusy(ex)) return new UndoResult { Kind = UndoKind.Busy, Problem = Busy(ex) };
-                    return new UndoResult { Kind = UndoKind.Failed, Problem = "戻せなかった（何も戻していない）: " + (ex.InnerException ?? ex).Message };
-                }
-            }
         }
 
         /// <summary>
@@ -231,57 +146,6 @@ namespace Tsuzuri.Office
             {
                 return scope.Get(target, "Formula");
             }
-        }
-
-        /// <summary>
-        /// 戻すための控え: 手で打ったときの形（Formula2）で、文字のセルには頭に ' を付ける。
-        /// ' を付けて入れた文字（'001 など）は Formula2 で読むと ' が落ち、そのまま入れ直すと数・日付・式に化けるため。
-        /// 1つのセルなら string、ほかは object[,]（COM から来たままの 1 始まり）。
-        /// </summary>
-        private static object Snapshot(Scope scope, object target)
-        {
-            var formulas = GetFormula(scope, target);
-            var values = scope.Get(target, "Value2");
-            var array = formulas as object[,];
-            if (array == null) return Texted(formulas, values);
-
-            var copy = (object[,])array.Clone();
-            var valueArray = values as object[,];
-            for (var r = copy.GetLowerBound(0); r <= copy.GetUpperBound(0); r++)
-                for (var c = copy.GetLowerBound(1); c <= copy.GetUpperBound(1); c++)
-                    copy[r, c] = Texted(copy[r, c], valueArray != null ? valueArray[r, c] : null);
-            return copy;
-        }
-
-        private static object Texted(object formula, object value)
-        {
-            var text = formula as string;
-            if (string.IsNullOrEmpty(text) || !(value is string)) return formula;
-            // 「=」で始まっても、値がその文字のままなら式ではなく文字（' を付けて入れた =abc）
-            if (text.StartsWith("=", StringComparison.Ordinal) && !string.Equals(text, (string)value, StringComparison.Ordinal)) return formula;
-            return "'" + text;
-        }
-
-        /// <summary>2つの控えで、違うセルの数（cells に全部のセルの数）。形が違えば全部違うとする。</summary>
-        private static int Differ(object a, object b, out int cells)
-        {
-            var x = a as object[,];
-            var y = b as object[,];
-            if (x == null || y == null)
-            {
-                cells = x != null ? x.Length : y != null ? y.Length : 1;
-                if (x != null || y != null) return cells;
-                return string.Equals(Convert.ToString(a, CultureInfo.InvariantCulture), Convert.ToString(b, CultureInfo.InvariantCulture), StringComparison.Ordinal) ? 0 : 1;
-            }
-            cells = x.Length;
-            if (x.GetLength(0) != y.GetLength(0) || x.GetLength(1) != y.GetLength(1)) return cells;
-            var differ = 0;
-            for (var r = 0; r < x.GetLength(0); r++)
-                for (var c = 0; c < x.GetLength(1); c++)
-                    if (!string.Equals(Convert.ToString(x[x.GetLowerBound(0) + r, x.GetLowerBound(1) + c], CultureInfo.InvariantCulture),
-                                       Convert.ToString(y[y.GetLowerBound(0) + r, y.GetLowerBound(1) + c], CultureInfo.InvariantCulture), StringComparison.Ordinal))
-                        differ++;
-            return differ;
         }
 
         private static object FindSheet(Scope scope, object app, string bookName, string sheetName, long instance, Func<string, bool> guarded, out string problem)
@@ -318,14 +182,14 @@ namespace Tsuzuri.Office
             {
                 return scope.Get(scope.Get(book, "Sheets"), "Item", sheetName);
             }
-            catch (Exception ex) when (!IsBusy(ex))   // 応えないときは外で「今は応えない」として返す（戻す記録を、無いものとして捨てさせない）
+            catch (Exception ex) when (!IsBusy(ex))   // 応えないときは外で「今は応えない」として返す（「無い」と取り違えない）
             {
                 problem = "そのシートは無い: " + sheetName;
                 return null;
             }
         }
 
-        private static Written WriteCore(string bookName, string sheetName, string at, List<string[]> cells, long instance, Func<string, bool> guarded, Func<bool> cancelled, Job job, out string problem)
+        private static Written WriteCore(string bookName, string sheetName, string at, List<string[]> cells, long instance, Func<string, bool> guarded, Job job, out string problem)
         {
             problem = null;
             var rows = cells.Count;
@@ -355,7 +219,7 @@ namespace Tsuzuri.Office
                     var sheet = FindSheet(scope, app, bookName, sheetName, instance, guarded, out problem);
                     if (sheet == null) return null;
 
-                    // 記録には、Excel の本当のブック（保存していればフルパス、まだなら名前）とシートの名前を残す（一覧の印・「戻す」と突き合わせるため）
+                    // 記録には、Excel の本当のブック（保存していればフルパス、まだなら名前）とシートの名前を残す（一覧の選択・ステータスバーの知らせと突き合わせるため）
                     var foundBook = scope.Get(sheet, "Parent");
                     var foundFull = Text(scope.Get(foundBook, "FullName"));
                     var bookKey = Text(scope.Get(foundBook, "Path")).Length > 0 ? foundFull : Text(scope.Get(foundBook, "Name"));
@@ -405,22 +269,16 @@ namespace Tsuzuri.Office
                         return null;
                     }
                     var address = Address(scope, target);
-                    var before = Snapshot(scope, target);   // 戻すための控え
 
                     var data = new object[rows, columns];
                     for (var r = 0; r < rows; r++)
                         for (var c = 0; c < columns; c++)
                             data[r, c] = c < cells[r].Length ? cells[r][c] : string.Empty;
                     object value = rows == 1 && columns == 1 ? data[0, 0] : (object)data;
-                    var written = new Written { Book = bookKey, Sheet = sheetKey, Address = address, Rows = rows, Columns = columns, Before = before, Instance = InstanceOf(scope, app) };
+                    var written = new Written { Book = bookKey, Sheet = sheetKey, Address = address, Rows = rows, Columns = columns };
                     if (job.Abandoned)
                     {
                         problem = "Excel が応えるのが遅れたので、書かなかった";   // 呼んだ側はもう待っていない。あとから勝手に書かない
-                        return null;
-                    }
-                    if (cancelled != null && cancelled())
-                    {
-                        problem = "利用者がランチャーの Excel の一覧の「戻す」で戻している途中なので、書かない。何も書いていない。終わってから、書いてよいかを利用者に確かめる";
                         return null;
                     }
                     try
@@ -434,21 +292,12 @@ namespace Tsuzuri.Office
                             problem = Busy(ex);   // 呼び出しを断られた（何も書いていない）
                             return null;
                         }
-                        // 途中まで書けているかもしれないので、控えは返す（戻せるように）
-                        written.Failed = true;
+                        written.Failed = true;   // 途中まで書けているかもしれない
                         problem = "書けなかった（式の書き間違い（英語の関数名・「,」の区切り）・シートの保護・結合したセル・配列の式など）: " + (ex.InnerException ?? ex).Message
                                   + "。途中まで書けているかもしれない";
                         return written;
                     }
 
-                    // 書いた直後の中身（戻すときに、手で直していないかを見る）。読めなくても、書けたことは変わらない
-                    try
-                    {
-                        written.After = Snapshot(scope, target);
-                    }
-                    catch (Exception)
-                    {
-                    }
                     return written;
                 }
                 catch (Exception ex)
@@ -468,6 +317,8 @@ namespace Tsuzuri.Office
             public List<string> Sheets = new List<string>();
             /// <summary>Excel のプロセスの番号（Excel を開き直すと変わる）。読めなければ 0。</summary>
             public long Instance;
+            /// <summary>保存していない変更がある（Workbook.Saved が偽。Claude の分も、手で直した分も）。</summary>
+            public bool Unsaved;
         }
 
         /// <summary>開いているブックとシートの一覧。Excel が動いていなければ空。読めなければ null で、problem にわけ。</summary>
@@ -517,6 +368,7 @@ namespace Tsuzuri.Office
                     {
                         Name = Text(scope.Get(book, "Name")),
                         Path = Text(scope.Get(book, "Path")).Length > 0 ? full : null,
+                        Unsaved = scope.Get(book, "Saved") as bool? == false,
                     };
                     var sheets = scope.Get(book, "Sheets");
                     var sheetCount = Convert.ToInt32(scope.Get(sheets, "Count"), CultureInfo.InvariantCulture);
@@ -548,7 +400,7 @@ namespace Tsuzuri.Office
         {
             public int State;
 
-            /// <summary>呼んだ側が待つのをやめた（書く・戻す直前に見て、やめる。あとから勝手に書かないように）。</summary>
+            /// <summary>呼んだ側が待つのをやめた（書く直前に見て、やめる。あとから勝手に書かないように）。</summary>
             public bool Abandoned
             {
                 get { return Volatile.Read(ref State) == 2; }
@@ -560,16 +412,16 @@ namespace Tsuzuri.Office
         /// <summary>
         /// Excel を呼ぶのは一度に1つだけ（2026-11-25。レビューの指摘）。時間切れになっても、Excel の中に入った呼び出しを抱えた裏のスレッドは止められない。
         /// そのスレッドが終わるまで次を始めないことで、Excel が止まっている間にスレッドと COM の参照が積み上がらず、
-        /// 書く・戻すの手順（控えを取る→書く）がほかの呼び出しと混ざらない。
+        /// 書く手順（確かめる→書く）や Claude の台本が、ほかの呼び出しと混ざらない。
         /// </summary>
         private static readonly SemaphoreSlim Gate = new SemaphoreSlim(1, 1);
 
         private const string NotAnswering = "Excel が応答しない（セルを編集中か、ダイアログを出しているか、重い計算・マクロの途中）";
-        private const string StillBusy = "Excel がまだ前の頼みに応えていない（セルを編集中か、ダイアログを出しているか、重い計算・マクロの途中）。今回は何もしていない";
+        private const string StillBusy = "Excel がまだ前の頼みに応えていない（セルを編集中か、ダイアログを出しているか、重い計算・マクロの途中か、Claude の台本を動かしている途中）。今回は何もしていない";
 
         /// <summary>
         /// 自分の STA のスレッドで work を呼び、timeout まで待つ。前の呼び出しのスレッドが timeout のうちに終わらなければ、始めずに Previous。
-        /// 時間切れ（TimedOut）のときは、スレッドが終わったときにそのスレッドで late を呼ぶ（遅れて書けた分を控えに残すため）。
+        /// 時間切れ（TimedOut）のときは、スレッドが終わったときにそのスレッドで late を呼ぶ（遅れて書けた分を知らせるため）。
         /// </summary>
         private static Outcome RunSta(Action<Job> work, int timeout, Action late)
         {
@@ -589,7 +441,7 @@ namespace Tsuzuri.Office
                     }
                     finally
                     {
-                        // late（遅れて書けた分を記録に足す）を、次の呼び出しより先に出す（記録の順を、Excel に書いた順に揃える）。late は知らせを出すだけで、すぐ返る
+                        // late（遅れて書けた分を知らせる）を、次の呼び出しより先に出す（知らせの順を、Excel に書いた順に揃える）。late は知らせを出すだけで、すぐ返る
                         if (Interlocked.CompareExchange(ref job.State, 1, 0) == 2 && late != null)
                         {
                             try
@@ -615,6 +467,25 @@ namespace Tsuzuri.Office
             if (thread.Join(timeout)) return Outcome.Done;
             // 待つのをやめる。その直前に終えていれば、終えたものとして結果を使う（late は呼ばれない）
             return Interlocked.CompareExchange(ref job.State, 2, 0) == 0 ? Outcome.TimedOut : Outcome.Done;
+        }
+
+        /// <summary>
+        /// Excel を呼ぶほかの処理と重ならないように、work を呼ぶ（Claude の台本を別のプロセスで動かす間。2026-11-25）。
+        /// 前の呼び出しが wait のうちに終わらなければ、呼ばずに StillBusy を返す（started は偽）。work はこのスレッドで動く。
+        /// </summary>
+        public static string RunExclusive(Func<string> work, int wait, out bool started)
+        {
+            started = false;
+            if (!Gate.Wait(wait)) return StillBusy;
+            started = true;
+            try
+            {
+                return work();
+            }
+            finally
+            {
+                Gate.Release();
+            }
         }
 
         /// <summary>
@@ -666,6 +537,13 @@ namespace Tsuzuri.Office
             {
                 if (target == null) return null;
                 return Keep(target.GetType().InvokeMember(name, BindingFlags.GetProperty, null, target, args, Automation));
+            }
+
+            /// <summary>メソッドでもプロパティでも呼ぶ（Item・Text など。VB の遅い結び付けと同じく、どちらの形でも受け付けさせる）。</summary>
+            public object Pick(object target, string name, params object[] args)
+            {
+                if (target == null) return null;
+                return Keep(target.GetType().InvokeMember(name, BindingFlags.InvokeMethod | BindingFlags.GetProperty, null, target, args, Automation));
             }
 
             public object Call(object target, string name, params object[] args)

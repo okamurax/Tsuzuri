@@ -1,18 +1,17 @@
-# Tsuzuri: read the Excel workbooks the user has open, and write to the sheet the user chose (SPEC 19).
+# Tsuzuri: read and write the Excel workbooks the user has open (SPEC 19).
 #
-#   powershell -NoProfile -ExecutionPolicy Bypass -File excel.ps1
-#       the used range of the sheet the user chose in the Excel list of the launcher
-#   powershell -NoProfile -ExecutionPolicy Bypass -File excel.ps1 -Range "A1:H200"
-#   powershell -NoProfile -ExecutionPolicy Bypass -File excel.ps1 -Sheet "<sheet>" -Range "B3:F20"   (another sheet of the chosen workbook)
-#   powershell -NoProfile -ExecutionPolicy Bypass -File excel.ps1 -Book "<name or full path>" -Sheet "<sheet>"
-# The workbook and sheet in front in Excel are never used.
+#   powershell -NoProfile -ExecutionPolicy Bypass -File excel.ps1 -Book "<name or full path>" -Sheet "<sheet>" -Range "B3:F20"
+#       any sheet of any open workbook (not the ones the user keeps from the AI, on the web, or hidden)
+#   When reading, -Book and -Sheet may be left out only when the user chose exactly one sheet in the Excel list of the launcher.
+#   When writing, both are required.
+#   Without -Range: the used range of the sheet. The workbook and sheet in front in Excel are never used.
 #
-#   powershell -NoProfile -ExecutionPolicy Bypass -File excel.ps1 -Write -Range "B3"
-#       writes the cells in excel-write.tsv next to this script (UTF-8, tab separated, one line = one row; removed once read) from B3,
-#       into the sheet the user chose (only that sheet can be written). -File <file> reads another file.
+#   powershell -NoProfile -ExecutionPolicy Bypass -File excel.ps1 -Write -Book "<book>" -Sheet "<sheet>" -Range "B3"
+#       writes the cells in excel-write.tsv next to this script (UTF-8, tab separated, one line = one row; removed once read) from B3.
+#       -File <file> reads another file. Ask the user before writing (the instructions of the AI pane).
 #       Cells are entered as typed: "=" starts a formula (English function names, "," separators).
 #       It does not save the workbook. Excel loses its undo history (Ctrl+Z) when this writes;
-#       the user can undo the writes with the button of the Excel list in the launcher.
+#       the user can undo the writes per sheet with the button of the Excel list in the launcher.
 #
 # Reading: the editor reads Excel and writes the cells to a file (tab separated); this prints the path of that file.
 # Writing: this prints what was written.

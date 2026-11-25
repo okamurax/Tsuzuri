@@ -10,7 +10,7 @@ namespace Tsuzuri.Office
 {
     /// <summary>
     /// 開いている Excel（Windows のデスクトップ版）を読み書きする（2026-11-24。利用者の考え。SPEC 19章）。
-    /// 書くのは、利用者がランチャーの Excel の一覧で選んだシートだけ（呼ぶ側の MainWindow.Excel.cs が決める）。保存はしない。
+    /// 開いているブックのどのシートにも書ける（AI に渡さない場所・ネットの場所・隠れたブックは除く。書く前に Claude が利用者の許可を取る）。保存はしない。
     /// 書く前の中身を控えて返し、戻せるようにする（外から書いた分は Excel の Ctrl+Z では戻らないため。書く途中で失敗したときも控えを返す）。
     ///
     /// Office のアプリとのやり取りは、この Office フォルダの中だけで行う（COM を使うのはここだけ）。
@@ -106,17 +106,17 @@ namespace Tsuzuri.Office
         }
 
         /// <summary>
-        /// 選んだシートに書く。at は書き始めの左上のセル（B3）か、中身と同じ大きさの範囲（B3:D5）。cells は行ごと・列ごとの文字で、
+        /// 指定したブックのシートに書く。at は書き始めの左上のセル（B3）か、中身と同じ大きさの範囲（B3:D5）。cells は行ごと・列ごとの文字で、
         /// セルに手で打ったときと同じに入る（「=」で始まれば式。式は英語の関数名と「,」の区切り）。書けなければ problem にわけを入れて null。
         /// 書く途中で失敗したときは、problem にわけを入れ、控え（Failed）を返す（途中まで書けているかもしれないので、戻せるように）。
         /// instance は選んだときの Excel のプロセスの番号（0 なら見ない）。保存していない新しいブックは、これが違えば書かない。
         /// 時間切れのときは null。そのあと、書き始める前なら書かない。書き始めていて遅れて書けたら、その控えを late に渡す（裏のスレッドから）。
         /// </summary>
-        public static Written Write(string book, string sheet, string at, List<string[]> cells, long instance, int timeout, Action<Written> late, out string problem)
+        public static Written Write(string book, string sheet, string at, List<string[]> cells, long instance, Func<string, bool> guarded, Func<bool> cancelled, int timeout, Action<Written> late, out string problem)
         {
             Written written = null;
             string why = null;
-            var outcome = RunSta(job => written = WriteCore(book, sheet, at, cells, instance, job, out why), timeout,
+            var outcome = RunSta(job => written = WriteCore(book, sheet, at, cells, instance, guarded, cancelled, job, out why), timeout,
                                  () => { if (written != null && late != null) late(written); });
             if (outcome == Outcome.Previous) problem = StillBusy;
             else if (outcome == Outcome.TimedOut)
@@ -173,7 +173,7 @@ namespace Tsuzuri.Office
                 try
                 {
                     string problem;
-                    var sheet = FindSheet(scope, app, written.Book, written.Sheet, written.Instance, out problem);
+                    var sheet = FindSheet(scope, app, written.Book, written.Sheet, written.Instance, null, out problem);
                     if (sheet == null) return new UndoResult { Kind = UndoKind.Gone, Problem = problem };
                     var target = scope.Get(sheet, "Range", written.Address);
                     if (!force)
@@ -284,7 +284,7 @@ namespace Tsuzuri.Office
             return differ;
         }
 
-        private static object FindSheet(Scope scope, object app, string bookName, string sheetName, long instance, out string problem)
+        private static object FindSheet(Scope scope, object app, string bookName, string sheetName, long instance, Func<string, bool> guarded, out string problem)
         {
             problem = null;
             if (instance != 0 && Unsaved(bookName) && InstanceOf(scope, app) != instance)
@@ -308,6 +308,12 @@ namespace Tsuzuri.Office
                 problem = "そのブックは Excel で開いていない: " + bookName;
                 return null;
             }
+            // AI に渡さない場所かは、シートを探す前に確かめる（そのブックにどんなシートがあるかを、返すわけから漏らさない）
+            if (guarded != null && Text(scope.Get(book, "Path")).Length > 0 && guarded(Text(scope.Get(book, "FullName"))))
+            {
+                problem = "このブックは、AI に渡さない場所（利用者が決めた場所か、OneDrive・SharePoint などネットの場所）にある。何もしていない";
+                return null;
+            }
             try
             {
                 return scope.Get(scope.Get(book, "Sheets"), "Item", sheetName);
@@ -319,7 +325,7 @@ namespace Tsuzuri.Office
             }
         }
 
-        private static Written WriteCore(string bookName, string sheetName, string at, List<string[]> cells, long instance, Job job, out string problem)
+        private static Written WriteCore(string bookName, string sheetName, string at, List<string[]> cells, long instance, Func<string, bool> guarded, Func<bool> cancelled, Job job, out string problem)
         {
             problem = null;
             var rows = cells.Count;
@@ -346,8 +352,14 @@ namespace Tsuzuri.Office
                 }
                 try
                 {
-                    var sheet = FindSheet(scope, app, bookName, sheetName, instance, out problem);
+                    var sheet = FindSheet(scope, app, bookName, sheetName, instance, guarded, out problem);
                     if (sheet == null) return null;
+
+                    // 記録には、Excel の本当のブック（保存していればフルパス、まだなら名前）とシートの名前を残す（一覧の印・「戻す」と突き合わせるため）
+                    var foundBook = scope.Get(sheet, "Parent");
+                    var foundFull = Text(scope.Get(foundBook, "FullName"));
+                    var bookKey = Text(scope.Get(foundBook, "Path")).Length > 0 ? foundFull : Text(scope.Get(foundBook, "Name"));
+                    var sheetKey = Text(scope.Get(sheet, "Name"));
 
                     object given;
                     try
@@ -386,9 +398,8 @@ namespace Tsuzuri.Office
                     // 名前の定義などで、ほかのシート・ほかのブックを指していないか（シートの名前は大文字・小文字を区別しない）
                     var targetSheet = scope.Get(target, "Worksheet");
                     var sheetBook = scope.Get(targetSheet, "Parent");
-                    var bookFull = Text(scope.Get(scope.Get(sheet, "Parent"), "FullName"));
-                    if (!string.Equals(Text(scope.Get(targetSheet, "Name")), sheetName, StringComparison.OrdinalIgnoreCase)
-                        || !string.Equals(Text(scope.Get(sheetBook, "FullName")), bookFull, StringComparison.OrdinalIgnoreCase))
+                    if (!string.Equals(Text(scope.Get(targetSheet, "Name")), sheetKey, StringComparison.OrdinalIgnoreCase)
+                        || !string.Equals(Text(scope.Get(sheetBook, "FullName")), foundFull, StringComparison.OrdinalIgnoreCase))
                     {
                         problem = "書く場所がほかのシートを指している（B3 の形で、シートの名前を付けない）。何も書いていない: " + at;
                         return null;
@@ -401,10 +412,15 @@ namespace Tsuzuri.Office
                         for (var c = 0; c < columns; c++)
                             data[r, c] = c < cells[r].Length ? cells[r][c] : string.Empty;
                     object value = rows == 1 && columns == 1 ? data[0, 0] : (object)data;
-                    var written = new Written { Book = bookName, Sheet = sheetName, Address = address, Rows = rows, Columns = columns, Before = before, Instance = InstanceOf(scope, app) };
+                    var written = new Written { Book = bookKey, Sheet = sheetKey, Address = address, Rows = rows, Columns = columns, Before = before, Instance = InstanceOf(scope, app) };
                     if (job.Abandoned)
                     {
                         problem = "Excel が応えるのが遅れたので、書かなかった";   // 呼んだ側はもう待っていない。あとから勝手に書かない
+                        return null;
+                    }
+                    if (cancelled != null && cancelled())
+                    {
+                        problem = "利用者がランチャーの Excel の一覧の「戻す」で戻している途中なので、書かない。何も書いていない。終わってから、書いてよいかを利用者に確かめる";
                         return null;
                     }
                     try

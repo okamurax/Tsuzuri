@@ -11,9 +11,10 @@ namespace Tsuzuri.Views
 {
     /// <summary>
     /// ランチャーのファイラーの下の段の、開いている Excel の一覧（2026-11-24。利用者の考え。SPEC 4章・19章）。
-    /// ブックを並べ、その下に字下げしてシートを並べる。シートを押すと選び（選んだ色の地）、もう一度押すと外す。初めは何も選んでいない。
-    /// 選んだブックとシート（名前だけ。中身は渡さない）が AI の欄の Claude に渡る（MainWindow.Excel.cs）。Excel の側は何も切り替えない。
-    /// 選ぶのは1つだけ。Excel でどのブック・シートが前に出ているかは使わない（手で作業しているシートが、AI に扱ってほしいシートとは限らないため。利用者の判断）。
+    /// ブックを並べ、その下に字下げしてシートを並べる。シートを押すと選び（選んだ色の地）、もう一度押すと外す。いくつでも選べる。初めは何も選んでいない。
+    /// 選んだブックとシート（名前だけ。中身は渡さない）が AI の欄の Claude に渡り、AI への「このシート」になる（MainWindow.Excel.cs）。Excel の側は何も切り替えない。
+    /// Excel でどのブック・シートが前に出ているかは使わない（手で作業しているシートが、AI に扱ってほしいシートとは限らないため。利用者の判断）。
+    /// Claude が書いて戻していないシートは、名前の右に「※」（2026-11-25。利用者の考え）。上の「戻す」は、選んでいるシートだけを戻す。
     /// 一覧は MainWindow.Excel.cs が読み直して Show に渡す（ランチャーを出したとき・窓に戻ったとき・話しかけたとき・「更新」）。
     /// </summary>
     public sealed class ExcelListView : DockPanel
@@ -104,7 +105,7 @@ namespace Tsuzuri.Views
         }
 
         /// <summary>一覧を出し直す。null なら読めなかった（problem にわけ）。</summary>
-        public void Show(List<ExcelBridge.Book> books, Func<string, bool> guarded, string selectedBook, string selectedSheet, string problem)
+        public void Show(List<ExcelBridge.Book> books, Func<string, bool> guarded, Func<ExcelBridge.Book, string, bool> chosenOf, Func<ExcelBridge.Book, string, bool> writtenOf, string problem)
         {
             _list.Children.Clear();
             if (books == null)
@@ -127,11 +128,13 @@ namespace Tsuzuri.Views
                                              + (hidden ? "\nAI に渡さない場所（か、確かめられないネットの場所）のブック。シートを選べない" : string.Empty)));
                 foreach (var sheet in book.Sheets)
                 {
-                    var chosen = string.Equals(key, selectedBook, StringComparison.OrdinalIgnoreCase) && string.Equals(sheet, selectedSheet, StringComparison.Ordinal);
-                    _list.Children.Add(CreateRow(key, hidden ? null : sheet, sheet, 34, false, chosen,
-                                                 hidden ? "AI に渡さない場所のブックなので、選べない"
-                                                 : chosen ? "Claude に渡しているシート（ブックとシートの名前だけ。中身は渡さない）。もう一度押すと外す"
-                                                 : "押すと選んで、ブックとシートの名前を Claude に渡す（中身は渡さない。読むところは話しかけて指定する）"));
+                    var chosen = chosenOf != null && chosenOf(book, sheet);
+                    var written = writtenOf != null && writtenOf(book, sheet);
+                    _list.Children.Add(CreateRow(key, hidden ? null : sheet, sheet + (written ? " ※" : string.Empty), 34, false, chosen,
+                                                 (hidden ? "AI に渡さない場所のブックなので、選べない"
+                                                  : chosen ? "選んでいるシート（Claude への「このシート」。ブックとシートの名前だけを渡し、中身は渡さない）。もう一度押すと外す"
+                                                  : "押すと選んで、ブックとシートの名前を Claude に渡す（「このシート」になる。いくつでも選べる。中身は渡さない）")
+                                                 + (written ? "\n※ Claude が書いて、まだ戻していない（選んで上の「戻す」で戻せる）" : string.Empty)));
                 }
             }
         }

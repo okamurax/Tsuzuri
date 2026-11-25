@@ -11,7 +11,8 @@ namespace AiLink.Views
 {
     /// <summary>
     /// 左の列の、開いている Excel の一覧（Tsuzuri の Views/ExcelListView.cs から写したもの）。
-    /// ブックを並べ、その下に字下げしてシートを並べる。シートを押すと選び（選んだ色の地）、もう一度押すと外す。いくつでも選べる。初めは何も選んでいない。
+    /// ブックを並べ、その下に字下げしてシートを並べる。選び方はエクスプローラーと同じ（2026-11-26。利用者の判断）: 押すとそれだけを選び（ほかは外れる）、
+    /// Ctrl を押しながらだと足す・外す、Shift を押しながらだと前に押した所からの範囲。ブックの行は、そのブックのシート全部として扱う。何もない所を押すと全部外す。初めは何も選んでいない。
     /// 選んだブックとシート（名前だけ。中身は渡さない）が AI の欄の AI に渡り、AI への「このシート」になる（MainWindow.Excel.cs）。Excel の側は何も切り替えない。
     /// Excel でどのブック・シートが前に出ているかは使わない（手で作業しているシートが、AI に扱ってほしいシートとは限らないため。利用者の判断）。
     /// 保存していない変更があるブックは、名前の右に「※」（2026-11-25。利用者の判断。AI の分も、手で直した分も。保存した直後は付かない。
@@ -23,11 +24,11 @@ namespace AiLink.Views
         private readonly StackPanel _list = new StackPanel();
         private readonly ScrollViewer _scroll = new ScrollViewer();
 
-        /// <summary>シートを押した: ブック（フルパスか、保存していなければ名前）とシート。</summary>
-        public event Action<string, string> SheetClicked;
+        /// <summary>シートかブックの行を押した: ブック（フルパスか、保存していなければ名前）、シート（ブックの行なら null）、Excel のプロセスの番号（同じ名前の未保存のブックを見分ける）、Ctrl を押していたか、Shift を押していたか。</summary>
+        public event Action<string, string, long, bool, bool> RowClicked;
 
-        /// <summary>ブックの行を押した: ブック（フルパスか、保存していなければ名前）。そのブックのシートを全部選ぶか、全部外す（2026-11-25）。</summary>
-        public event Action<string> BookClicked;
+        /// <summary>一覧の何もない所を押した（選んでいるシートを全部外す）。</summary>
+        public event Action EmptyClicked;
 
         /// <summary>「更新」を押した。</summary>
         public event Action RefreshRequested;
@@ -70,6 +71,16 @@ namespace AiLink.Views
             _scroll.Content = _list;
             _scroll.VerticalScrollBarVisibility = ScrollBarVisibility.Auto;
             _scroll.HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled;
+            // 何もない所でも押せるように地を塗る（行は押されたことを自分で止めるので、ここに来るのは行の外を押したときだけ）。
+            // ScrollViewer はフォーカスを取れると、押されたことを自分で止めてしまう（+= の受け手に来ない）ので、フォーカスを取らせない
+            _scroll.Background = Brushes.Transparent;
+            _scroll.Focusable = false;
+            _scroll.MouseLeftButtonDown += (sender, e) =>
+            {
+                if (e.ClickCount > 1) return;
+                var empty = EmptyClicked;
+                if (empty != null) empty();
+            };
             Children.Add(_scroll);
 
             ShowNote("読んでいます…");
@@ -94,18 +105,18 @@ namespace AiLink.Views
             {
                 var key = book.Path ?? book.Name;
                 var hidden = guarded != null && guarded(book.Path);
-                _list.Children.Add(CreateRow(hidden ? null : key, null, book.Name + (book.Path == null ? "（未保存）" : string.Empty) + (book.Unsaved ? " ※" : string.Empty), 12, true, false,
+                _list.Children.Add(CreateRow(hidden ? null : key, null, book.Instance, book.Name + (book.Path == null ? "（未保存）" : string.Empty) + (book.Unsaved ? " ※" : string.Empty), 12, true, false,
                                              (book.Path ?? book.Name + "（まだ保存していない新しいブック）")
                                              + (book.Unsaved ? "\n※ 保存していない変更がある（AI の分も、手で直した分も。保存せずに閉じれば、最後に保存したときに戻る。NOW・RAND などの式があると、開いただけでも付く）" : string.Empty)
                                              + (hidden ? "\nAI に渡さない場所（か、確かめられないネットの場所）のブック。シートを選べない"
-                                                : "\n押すと、このブックのシートを全部選ぶ（1枚でも選んでいれば、全部外す）")));
+                                                : "\n押すと、このブックのシートを全部選ぶ（ほかは外れる）。Ctrl を押しながらだと足す（全部選んでいれば外す）。Shift を押しながらだと範囲。何もない所を押すと全部外す")));
                 foreach (var sheet in book.Sheets)
                 {
                     var chosen = chosenOf != null && chosenOf(book, sheet);
-                    _list.Children.Add(CreateRow(key, hidden ? null : sheet, sheet, 34, false, chosen,
+                    _list.Children.Add(CreateRow(key, hidden ? null : sheet, book.Instance, sheet, 34, false, chosen,
                                                  (hidden ? "AI に渡さない場所のブックなので、選べない"
-                                                  : chosen ? "選んでいるシート（AI への「このシート」。ブックとシートの名前だけを渡し、中身は渡さない）。もう一度押すと外す"
-                                                  : "押すと選んで、ブックとシートの名前を AI に渡す（「このシート」になる。いくつでも選べる。中身は渡さない）")));
+                                                  : chosen ? "選んでいるシート（AI への「このシート」。ブックとシートの名前だけを渡し、中身は渡さない）。Ctrl を押しながら押すと外す"
+                                                  : "押すとこのシートだけを選んで、ブックとシートの名前を AI に渡す（「このシート」になる。中身は渡さない）。Ctrl を押しながらだと足す。Shift を押しながらだと範囲")));
                 }
             }
         }
@@ -123,7 +134,7 @@ namespace AiLink.Views
             });
         }
 
-        private Border CreateRow(string book, string sheet, string label, double indent, bool isBook, bool chosen, string tip)
+        private Border CreateRow(string book, string sheet, long instance, string label, double indent, bool isBook, bool chosen, string tip)
         {
             var text = new TextBlock
             {
@@ -163,14 +174,9 @@ namespace AiLink.Views
             {
                 e.Handled = true;
                 if (e.ClickCount > 1) return;
-                if (isBook)
-                {
-                    var bookClicked = BookClicked;
-                    if (bookClicked != null) bookClicked(book);
-                    return;
-                }
-                var clicked = SheetClicked;
-                if (clicked != null) clicked(book, sheet);
+                var modifiers = Keyboard.Modifiers;
+                var clicked = RowClicked;
+                if (clicked != null) clicked(book, isBook ? null : sheet, instance, (modifiers & ModifierKeys.Control) != 0, (modifiers & ModifierKeys.Shift) != 0);
             };
             return row;
         }

@@ -14,7 +14,7 @@ namespace Tsuzuri
     // MainWindow の一部: 開いている Excel を読み書きする（2026-11-24。利用者の考え。SPEC 19章・4章）。
     // ・Claude は、開いているブックのどのシートも読める・書ける（2026-11-25。利用者の判断。前は一覧で選んだ1つのシートだけ書けた）。
     //   AI に渡さない場所・ネットの場所・隠れたブックは扱わない。書く前に、Claude が利用者の許可を取る（AI に渡す文で指示する）。保存は利用者がする。
-    // ・ランチャーのファイラーの下の段に、開いているブックとシートの一覧。シートを押すと選び、もう一度押すと外す。いくつでも選べる（初めは何も選んでいない）。
+    // ・ランチャーのファイラーの下の段に、開いているブックとシートの一覧。選び方はエクスプローラーと同じ（押すとそれだけ・Ctrl で足す外す・Shift で範囲。ブックの行はシート全部。初めは何も選んでいない）。
     //   選んだシートが、AI への「このシート」になる。話しかけるたびの今の状態に、選んだブックとシートの名前だけを書く（中身・Excel で前に出ているもの・保存したかは渡さない）。
     // ・Claude が範囲を指定して読む（excel.ps1 → パイプの excel-read）・書く（excel.ps1 -Write → パイプの excel-write）・COM の台本を動かす（excel.ps1 -Script → excel-script）。
     //   読むときは、ブック・シートを付けなければ、選んだシートが1つのときだけそのシート（2つ以上なら付けさせる）。書くときは、どちらも付けさせる
@@ -662,8 +662,8 @@ namespace Tsuzuri
             {
                 _excelList = new ExcelListView();
                 _excelList.RefreshRequested += RefreshExcelList;
-                _excelList.SheetClicked += ChooseExcelSheet;
-                _excelList.BookClicked += ChooseExcelBook;
+                _excelList.RowClicked += ChooseExcelRow;
+                _excelList.EmptyClicked += ClearExcelChoices;
                 ExcelListHost.Child = _excelList;
             }
             if (_excelListing)
@@ -727,53 +727,147 @@ namespace Tsuzuri
             var guarded = _excelGuarded;
             var choices = _excelChoices;
             _excelList.Show(books, path => path != null && guarded != null && guarded.Contains(path),
-                            (book, sheet) => choices.Any(choice => SameExcelBook(choice.Book, book.Path ?? book.Name) && string.Equals(choice.Sheet, sheet, StringComparison.OrdinalIgnoreCase)),
+                            (book, sheet) => choices.Any(choice => SameExcelBook(choice.Book, book.Path ?? book.Name) && string.Equals(choice.Sheet, sheet, StringComparison.OrdinalIgnoreCase)
+                                                                 && (book.Path != null || SameExcelInstance(choice.Book, choice.Instance, book.Instance))),
                             _excelListProblem);
         }
 
-        /// <summary>シートを押した: 選ぶ（選んでいたシートなら外す）。いくつでも選べる。Excel の側は何も切り替えない。</summary>
-        private void ChooseExcelSheet(string book, string sheet)
+        /// <summary>Shift で範囲を選ぶときの起点: 最後に Shift なしで押した行のブック。null なら起点なし。</summary>
+        private string _excelAnchorBook;
+
+        /// <summary>起点のシート。null ならブックの行（そのブックのシート全部）。</summary>
+        private string _excelAnchorSheet;
+
+        /// <summary>起点のブックの Excel のプロセスの番号。</summary>
+        private long _excelAnchorInstance;
+
+        /// <summary>一覧の並びの、選べるシート（AI に渡さない場所のブックを除く）。</summary>
+        private List<ExcelChoice> SelectableExcelSheets()
         {
-            var choices = _excelChoices;
-            var chosen = choices.FirstOrDefault(choice => SameExcelBook(choice.Book, book) && string.Equals(choice.Sheet, sheet, StringComparison.OrdinalIgnoreCase));
-            if (chosen != null)
-            {
-                _excelChoices = choices.Where(choice => choice != chosen).ToArray();
-                Status("Excel のシートを外しました: " + Path.GetFileName(book) + " › " + sheet);
-            }
-            else
-            {
-                var listed = _lastExcelBooks != null ? _lastExcelBooks.FirstOrDefault(item => SameExcelBook(item.Path ?? item.Name, book)) : null;
-                _excelChoices = choices.Concat(new[] { new ExcelChoice(book, sheet, listed != null ? listed.Instance : 0) }).ToArray();
-                Status("Excel のシートを選びました: " + Path.GetFileName(book) + " › " + sheet + "（選んでいるのは " + _excelChoices.Length + " 枚。話しかけると、名前を Claude に渡します）");
-            }
-            ShowExcelList(_lastExcelBooks);
-        }
-    
-        /// <summary>
-        /// ブックの行を押した（2026-11-25。利用者の考え。シートがとても多いブックを、1枚ずつ押さずに渡すため）。
-        /// そのブックのシートを1枚でも選んでいれば全部外し、1枚も選んでいなければ全部選ぶ。AI に渡さない場所のブックは選ばない。
-        /// </summary>
-        private void ChooseExcelBook(string book)
-        {
-            var listed = _lastExcelBooks != null ? _lastExcelBooks.FirstOrDefault(item => SameExcelBook(item.Path ?? item.Name, book)) : null;
-            if (listed == null) return;
+            var all = new List<ExcelChoice>();
+            var books = _lastExcelBooks;
             var guarded = _excelGuarded;
-            if (listed.Path != null && guarded != null && guarded.Contains(listed.Path)) return;
+            if (books == null) return all;
+            foreach (var book in books)
+            {
+                if (book.Path != null && guarded != null && guarded.Contains(book.Path)) continue;
+                foreach (var sheet in book.Sheets) all.Add(new ExcelChoice(book.Path ?? book.Name, sheet, book.Instance));
+            }
+            return all;
+        }
+
+        /// <summary>行が並びのどこからどこまでか（シートなら1枚、ブックならそのシート全部）。無ければ false。</summary>
+        private static bool ExcelRowSpan(List<ExcelChoice> all, string book, string sheet, long instance, out int first, out int last)
+        {
+            first = -1;
+            last = -1;
+            if (book == null) return false;
+            for (var i = 0; i < all.Count; i++)
+            {
+                // 番号も比べる（別々の Excel に同じ名前の未保存のブックがあると、名前だけでは2冊にまたがり、間のブックまで範囲に入る）
+                if (!SameExcelBook(all[i].Book, book) || all[i].Instance != instance) continue;
+                if (sheet != null && !string.Equals(all[i].Sheet, sheet, StringComparison.OrdinalIgnoreCase)) continue;
+                if (first < 0) first = i;
+                last = i;
+            }
+            return first >= 0;
+        }
+
+        private static bool SameExcelChoice(ExcelChoice left, ExcelChoice right)
+        {
+            return SameExcelBook(left.Book, right.Book) && string.Equals(left.Sheet, right.Sheet, StringComparison.OrdinalIgnoreCase)
+                   && SameExcelInstance(left.Book, left.Instance, right.Instance);
+        }
+
+        /// <summary>
+        /// 同じ Excel のブックか（保存していない新しいブックだけ番号を比べる。別々の Excel に同じ名前の Book1 があっても取り違えないように。
+        /// 保存したブックはフルパスで決まり、Excel を開き直して番号が変わっても同じブック）。番号が分からない（0）ときは同じとみなす。
+        /// </summary>
+        private static bool SameExcelInstance(string book, long left, long right)
+        {
+            if (left == 0 || right == 0 || left == right) return true;
+            return book != null && (book.IndexOf('\\') >= 0 || book.IndexOf('/') >= 0);
+        }
+
+        /// <summary>
+        /// シートかブックの行を押した（2026-11-26。利用者の判断。選び方はエクスプローラーと同じ）。sheet が null ならブックの行で、そのブックのシート全部として扱う
+        /// （2026-11-25。シートがとても多いブックを、1枚ずつ押さずに渡すため）。
+        /// そのまま押す: それだけを選ぶ（ほかは外れる）。Ctrl: 足す（全部選んでいれば外す）。Shift: 起点からの範囲だけを選ぶ。Ctrl＋Shift: 起点からの範囲を足す。
+        /// 起点は Shift なしで最後に押した行（起点が一覧に無ければ、押した行を起点にする。Shift ならその行だけ、Ctrl＋Shift ならその行を足す）。AI に渡さない場所のブックは選ばない（範囲にも入れない）。Excel の側は何も切り替えない。
+        /// </summary>
+        private void ChooseExcelRow(string book, string sheet, long instance, bool control, bool shift)
+        {
+            var all = SelectableExcelSheets();
+            int first, last;
+            if (!ExcelRowSpan(all, book, sheet, instance, out first, out last)) return;
 
             var choices = _excelChoices;
-            var inBook = choices.Where(choice => SameExcelBook(choice.Book, book)).ToArray();
-            if (inBook.Length > 0)
+            int anchorFirst, anchorLast;
+            List<ExcelChoice> picked;
+            if (shift)
             {
-                _excelChoices = choices.Except(inBook).ToArray();
-                Status("Excel のブックのシートを全部外しました: " + Path.GetFileName(book) + "（" + inBook.Length + " 枚）");
+                // 起点が一覧に無ければ、押した行を起点にする（その行だけの範囲）
+                if (!ExcelRowSpan(all, _excelAnchorBook, _excelAnchorSheet, _excelAnchorInstance, out anchorFirst, out anchorLast))
+                {
+                    anchorFirst = first;
+                    anchorLast = last;
+                    _excelAnchorBook = book;
+                    _excelAnchorSheet = sheet;
+                    _excelAnchorInstance = instance;
+                }
+                var from = Math.Min(first, anchorFirst);
+                var to = Math.Max(last, anchorLast);
+                var range = all.GetRange(from, to - from + 1);
+                picked = control ? choices.ToList() : new List<ExcelChoice>();
+                picked.AddRange(range.Where(item => !picked.Any(choice => SameExcelChoice(choice, item))));
             }
             else
             {
-                _excelChoices = choices.Concat(listed.Sheets.Select(sheet => new ExcelChoice(book, sheet, listed.Instance))).ToArray();
-                Status("Excel のブックのシートを全部選びました: " + Path.GetFileName(book) + "（" + listed.Sheets.Count + " 枚。選んでいるのは全部で " + _excelChoices.Length + " 枚。話しかけると、名前を Claude に渡します）");
+                var target = all.GetRange(first, last - first + 1);
+                if (control)
+                {
+                    var allChosen = target.All(item => choices.Any(choice => SameExcelChoice(choice, item)));
+                    picked = allChosen
+                        ? choices.Where(choice => !target.Any(item => SameExcelChoice(choice, item))).ToList()
+                        : choices.Concat(target.Where(item => !choices.Any(choice => SameExcelChoice(choice, item)))).ToList();
+                }
+                else
+                {
+                    picked = target;
+                }
+                _excelAnchorBook = book;
+                _excelAnchorSheet = sheet;
+                _excelAnchorInstance = instance;
             }
+
+            _excelChoices = picked.ToArray();
+            ShowExcelChoiceStatus();
             ShowExcelList(_lastExcelBooks);
+        }
+
+        /// <summary>一覧の何もない所を押した: 選んでいるシートを全部外す。</summary>
+        private void ClearExcelChoices()
+        {
+            _excelAnchorBook = null;
+            _excelAnchorSheet = null;
+            if (_excelChoices.Length == 0) return;
+            _excelChoices = NoExcelChoices;
+            Status("Excel のシートを全部外しました。");
+            ShowExcelList(_lastExcelBooks);
+        }
+
+        private void ShowExcelChoiceStatus()
+        {
+            var choices = _excelChoices;
+            if (choices.Length == 0)
+            {
+                Status("Excel のシートを全部外しました。");
+                return;
+            }
+            var books = choices.Select(choice => choice.Book).Distinct(StringComparer.OrdinalIgnoreCase).Count();
+            Status("Excel のシートを選んでいます: "
+                   + (choices.Length == 1 ? Path.GetFileName(choices[0].Book) + " › " + choices[0].Sheet : books + " 冊の " + choices.Length + " 枚")
+                   + "（話しかけると、名前を Claude に渡します）");
         }
     }
 }

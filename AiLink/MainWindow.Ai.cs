@@ -24,7 +24,7 @@ namespace AiLink
     //
     // 欄はいつも出しておく。会話のタブごとに別の PowerShell が動く（端末は Views/TerminalView。WebView2 の xterm.js と ConPTY）。
     // タブを開くと PowerShell の中で AI（Codex）を起動する。指示・フック・会話の続きを渡すのは、これから第3段で足す（PORTING.md）。
-    // 中の PowerShell には環境変数でタブの番号（AILINK_TAB）とパイプの名前（AILINK_PIPE）を渡す。台本（excel.ps1・terminal.ps1）はこのパイプで頼んでくる。
+    // 中の PowerShell には環境変数でタブの番号（AILINK_TAB）とパイプの名前（AILINK_PIPE）を渡す。台本（state.ps1・excel.ps1・talk.ps1）はこのパイプで頼んでくる。
     public partial class MainWindow
     {
         /// <summary>AI に渡す台本・書き出したファイルを置くところ。Dropbox などの同期の外。</summary>
@@ -37,22 +37,8 @@ namespace AiLink
         /// <summary>台本が頼んでくるパイプの名前。</summary>
         private static readonly string AiPipeName = "AiLink-" + AiProcessId;
 
-        /// <summary>AI の欄から SSH でつなぐときの鍵・設定を置くフォルダ。exe の隣の ssh（Tsuzuri と同じ）。</summary>
-        private static readonly string AiSshFolder = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "ssh");
-
-        /// <summary>
-        /// ssh フォルダを写す先。exe が Mac の共有フォルダなどにあると Windows の権限を付けられず、Windows の ssh が鍵を使ってくれないため、
-        /// 会話を始めるたびにここへ写し、本人だけが触れる権限にする。known_hosts はここで育てる（元から写さない・消さない）。
-        /// </summary>
-        private static readonly string AiSshLocal = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "AiLink", "ssh");
-
-        /// <summary>パスワードでつなぐ接続先のとき、ssh にパスワードを返す askpass。中身は隣の ssh-askpass.ps1（AILINK_SSH_HOST の名称の行の passwd を返す）。</summary>
-        private const string AiSshAskpass =
-            "@powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File \"%~dp0ssh-askpass.ps1\"\r\n";
-
         /// <summary>exe の隣の Ai から AI のフォルダへ写す台本。</summary>
-        private static readonly string[] AiScripts = { "ssh-askpass.ps1", "ssh-session.ps1", "terminal.ps1", "excel.ps1", "state.ps1", "talk.ps1", "hook-probe.ps1" };
+        private static readonly string[] AiScripts = { "excel.ps1", "state.ps1", "talk.ps1", "hook-probe.ps1" };
 
         /// <summary>前に落ちた AiLink が残したファイルを片付けたか（最初にタブを開くとき1回だけ）。</summary>
         private bool _aiStaleFilesCleaned;
@@ -190,7 +176,7 @@ namespace AiLink
             get { return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "AiLink", "work"); }
         }
 
-        /// <summary>利用者のフォルダ。共通ターミナルもここで始める。</summary>
+        /// <summary>利用者のフォルダ。</summary>
         private static string AiHomeFolder
         {
             get { return Environment.GetFolderPath(Environment.SpecialFolder.UserProfile); }
@@ -296,7 +282,7 @@ namespace AiLink
             }
         }
 
-        /// <summary>タブの段を並べ直す（タブ、その右に「＋」と共通ターミナルのボタン）。</summary>
+        /// <summary>タブの段を並べ直す（タブ、その右に「＋」）。</summary>
         private void RebuildAiTabStrip()
         {
             if (_aiAddButton == null)
@@ -321,7 +307,6 @@ namespace AiLink
             AiTabs.Children.Clear();
             foreach (var tab in _aiTabs) AiTabs.Children.Add(tab.Header);
             AiTabs.Children.Add(_aiAddButton);
-            AiTabs.Children.Add(AiShellButton());
         }
 
         /// <summary>タブを選ぶ。そのタブの端末を出し、ほかは隠す。</summary>
@@ -471,13 +456,11 @@ namespace AiLink
                 DeleteStaleAiFiles();
             }
 
-            WriteIfChanged(Path.Combine(AiFolder, "ssh-askpass.cmd"), AiSshAskpass);
             foreach (var script in AiScripts)
             {
                 var source = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Ai", script);
                 if (File.Exists(source)) WriteIfChanged(Path.Combine(AiFolder, script), File.ReadAllText(source, Encoding.UTF8));
             }
-            CopySshFolder();
 
             // 指示は会話を始めるフォルダの AGENTS.md に書く（Codex が自分で読む。MainWindow.AiInstructions.cs）
             var work = AiWorkFolder;
@@ -489,7 +472,7 @@ namespace AiLink
             Directory.CreateDirectory(Path.Combine(work, ".codex"));
             WriteIfChanged(Path.Combine(work, ".codex", "hooks.json"), HookProbeConfig());
 
-            // AiLink の台本（state.ps1・excel.ps1・terminal.ps1）は、Codex に毎回は確かめさせない（2026-11-25。excel.ps1 のたびに
+            // AiLink の台本（state.ps1・excel.ps1・talk.ps1）は、Codex に毎回は確かめさせない（2026-11-25。excel.ps1 のたびに
             // 「囲いの外で動かしてよいか」と聞かれた）。プロジェクトの単位のルール（work\.codex\rules）で、この形のコマンドだけを許す。
             // 許したコマンドは囲いの外で動くが、台本はパイプで AiLink に頼むだけで、Excel に触るのは AiLink（台本の中の禁止の語も AiLink が断る）
             Directory.CreateDirectory(Path.Combine(work, ".codex", "rules"));
@@ -502,7 +485,7 @@ namespace AiLink
         /// </summary>
         private static string AiRules()
         {
-            var scripts = new[] { "state.ps1", "excel.ps1", "terminal.ps1", "talk.ps1" }
+            var scripts = new[] { "state.ps1", "excel.ps1", "talk.ps1" }
                 .Select(name => "\"" + Path.Combine(AiFolder, name).Replace("\\", "\\\\").Replace("\"", "\\\"") + "\"");
             return "# AiLink が書くルール（会話を始めるたびに書き直す）。AiLink の台本だけを、確かめずに動かす。\n"
                    + "prefix_rule(\n"
@@ -542,20 +525,6 @@ namespace AiLink
         private static string Quote(string text)
         {
             return "'" + text.Replace("'", "''") + "'";
-        }
-
-        /// <summary>中に ``` があっても囲みが切れないように、それより長い ``` で囲む。</summary>
-        private static string Fenced(string content)
-        {
-            var longest = 0;
-            var run = 0;
-            foreach (var c in content)
-            {
-                run = c == '`' ? run + 1 : 0;
-                if (run > longest) longest = run;
-            }
-            var fence = new string('`', Math.Max(3, longest + 1));
-            return fence + "\n" + content + "\n" + fence + "\n";
         }
 
         // =====================================================================
@@ -633,29 +602,6 @@ namespace AiLink
                     {
                         answer = ServeAiState(request.Substring("state\t".Length));
                     }
-                    else if (request == "shell-open")
-                    {
-                        answer = OpenAiShellForAi();
-                    }
-                    else if (request == "shell-dump")
-                    {
-                        answer = DumpAiShell();
-                    }
-                    else if (request.StartsWith("shell-type\t", StringComparison.Ordinal))
-                    {
-                        string text = null;
-                        try
-                        {
-                            text = Encoding.UTF8.GetString(Convert.FromBase64String(request.Substring("shell-type\t".Length)));
-                        }
-                        catch (FormatException)
-                        {
-                        }
-                        var screen = ReadAiShellScreen(1, 2000);
-                        answer = text == null
-                            ? "error\t置く文字を読めなかった。"
-                            : Dispatcher.Invoke(new Func<string>(() => TypeIntoAiShell(text, screen != null && screen.Bracketed)));
-                    }
                     else if (request.StartsWith("excel-read\t", StringComparison.Ordinal))
                     {
                         answer = ServeExcelRead(request);
@@ -711,24 +657,12 @@ namespace AiLink
             }
 
             foreach (var tab in _aiTabs) tab.View.Dispose();
-            CloseAiShell();
 
             DeleteExcelSheets();
-            foreach (var path in new[] { AiShellDumpPath })
-            {
-                try
-                {
-                    File.Delete(path);
-                }
-                catch (Exception)
-                {
-                    // 消せなくても閉じるのは止めない。次に起動したとき DeleteStaleAiFiles が片付ける
-                }
-            }
         }
 
         /// <summary>
-        /// 前に落ちた AiLink が残したファイル（terminal-番号.txt・sheets-番号.txt）を消す。番号のプロセスがもう動いていないか、
+        /// 前に落ちた AiLink が残したファイル（sheets-番号-中身の印.txt）を消す。番号のプロセスがもう動いていないか、
         /// 別のプログラムに番号が使い回されていれば消す。できる範囲で。
         /// </summary>
         private static void DeleteStaleAiFiles()
@@ -736,11 +670,11 @@ namespace AiLink
             try
             {
                 var self = Process.GetCurrentProcess();
-                foreach (var path in Directory.GetFiles(AiFolder, "terminal-*.txt").Concat(Directory.GetFiles(AiFolder, "sheets-*.txt")))
+                foreach (var path in Directory.GetFiles(AiFolder, "sheets-*.txt"))
                 {
                     var name = Path.GetFileNameWithoutExtension(path);
                     int id;
-                    // 名前は terminal-番号・sheets-番号-中身の印。番号で見る
+                    // 名前は sheets-番号-中身の印。番号で見る
                     var number = name.Substring(name.IndexOf('-') + 1);
                     if (number.IndexOf('-') >= 0) number = number.Substring(0, number.IndexOf('-'));
                     if (!int.TryParse(number, out id) || id == self.Id) continue;
@@ -772,70 +706,6 @@ namespace AiLink
             catch (Exception)
             {
                 return false;
-            }
-        }
-
-        /// <summary>
-        /// exe の隣の ssh フォルダを AiSshLocal へ写し、本人だけが触れる権限にする。
-        /// 元で消したファイルは写した先からも消す（known_hosts は除く）。失敗しても起動は止めない。
-        /// </summary>
-        private void CopySshFolder()
-        {
-            try
-            {
-                if (!Directory.Exists(AiSshFolder)) return;
-
-                Directory.CreateDirectory(AiSshLocal);
-                var folderSecurity = new DirectorySecurity();
-                folderSecurity.SetAccessRuleProtection(true, false);
-                folderSecurity.AddAccessRule(new FileSystemAccessRule(WindowsIdentity.GetCurrent().User, FileSystemRights.FullControl,
-                    InheritanceFlags.ContainerInherit | InheritanceFlags.ObjectInherit, PropagationFlags.None, AccessControlType.Allow));
-                Directory.SetAccessControl(AiSshLocal, folderSecurity);
-
-                var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-                foreach (var source in Directory.GetFiles(AiSshFolder))
-                {
-                    var name = Path.GetFileName(source);
-                    if (string.Equals(name, "known_hosts", StringComparison.OrdinalIgnoreCase)) continue;
-                    if (string.Equals(name, "Thumbs.db", StringComparison.OrdinalIgnoreCase) || name.StartsWith("._", StringComparison.Ordinal)) continue;
-
-                    names.Add(name);
-                    var target = Path.Combine(AiSshLocal, name);
-                    var bytes = File.ReadAllBytes(source);
-                    // config.txt は UTF-8 にして写す（メモ帳などで Shift_JIS で保存されていると、日本語の名称が一致しないため）
-                    if (string.Equals(name, "config.txt", StringComparison.OrdinalIgnoreCase)) bytes = ToUtf8(bytes);
-                    File.WriteAllBytes(target, bytes);
-
-                    var fileSecurity = new FileSecurity();
-                    fileSecurity.SetAccessRuleProtection(true, false);
-                    fileSecurity.AddAccessRule(new FileSystemAccessRule(WindowsIdentity.GetCurrent().User, FileSystemRights.FullControl, AccessControlType.Allow));
-                    File.SetAccessControl(target, fileSecurity);
-                }
-
-                foreach (var target in Directory.GetFiles(AiSshLocal))
-                {
-                    var name = Path.GetFileName(target);
-                    if (string.Equals(name, "known_hosts", StringComparison.OrdinalIgnoreCase) || names.Contains(name)) continue;
-                    File.Delete(target);
-                }
-            }
-            catch (Exception ex)
-            {
-                Status("SSH の鍵を写せませんでした: " + ex.Message);
-            }
-        }
-
-        /// <summary>UTF-8 として読めればそのまま。読めなければ ANSI（日本語の Windows なら Shift_JIS）として読み、BOM 無しの UTF-8 にする。</summary>
-        private static byte[] ToUtf8(byte[] bytes)
-        {
-            try
-            {
-                new UTF8Encoding(false, true).GetString(bytes);
-                return bytes;
-            }
-            catch (DecoderFallbackException)
-            {
-                return new UTF8Encoding(false).GetBytes(Encoding.Default.GetString(bytes));
             }
         }
 

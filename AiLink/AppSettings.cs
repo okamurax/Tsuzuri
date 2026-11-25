@@ -16,10 +16,6 @@ namespace AiLink
         [DataMember(Name = "sidebarWidth")]
         public double SidebarWidth { get; set; }
 
-        /// <summary>AI の欄の共通ターミナルを出したときの、上の段（会話）の高さの割合。</summary>
-        [DataMember(Name = "aiShellSplit", EmitDefaultValue = false)]
-        public double AiShellSplit { get; set; }
-
         /// <summary>ウィンドウの位置と大きさ（最大化する前のもの）。幅が 0 なら未保存で、既定の位置に出す。</summary>
         [DataMember(Name = "windowLeft")]
         public double WindowLeft { get; set; }
@@ -63,7 +59,6 @@ namespace AiLink
             if (AiTabs != null) AiTabs.RemoveAll(tab => tab == null || !Guid.TryParse(tab.Session, out _));
 
             if (!(SidebarWidth >= 180 && SidebarWidth <= 3000)) SidebarWidth = 300;   // NaN もここで直す
-            if (!(AiShellSplit >= 0.15 && AiShellSplit <= 0.85)) AiShellSplit = 0.6;
 
             var sane = WindowWidth >= 640 && WindowHeight >= 400 && WindowWidth <= 20000 && WindowHeight <= 20000
                 && !double.IsNaN(WindowLeft) && !double.IsNaN(WindowTop)

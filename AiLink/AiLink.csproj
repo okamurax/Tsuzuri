@@ -61,12 +61,9 @@
   </ItemGroup>
   <ItemGroup>
     <Content Include="Ai\excel.ps1"><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory></Content>
-    <Content Include="Ai\ssh-askpass.ps1"><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory></Content>
-    <Content Include="Ai\ssh-session.ps1"><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory></Content>
     <Content Include="Ai\hook-probe.ps1"><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory></Content>
     <Content Include="Ai\talk.ps1"><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory></Content>
     <Content Include="Ai\state.ps1"><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory></Content>
-    <Content Include="Ai\terminal.ps1"><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory></Content>
     <Content Include="Terminal\LICENSE-xterm.txt"><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory></Content>
     <Content Include="Terminal\addon-fit.js"><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory></Content>
     <Content Include="Terminal\addon-unicode11.js"><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory></Content>
@@ -109,9 +106,6 @@
       <DependentUpon>MainWindow.xaml</DependentUpon>
     </Compile>
     <Compile Include="MainWindow.AiSetup.cs">
-      <DependentUpon>MainWindow.xaml</DependentUpon>
-    </Compile>
-    <Compile Include="MainWindow.AiShell.cs">
       <DependentUpon>MainWindow.xaml</DependentUpon>
     </Compile>
     <Compile Include="MainWindow.Excel.cs">

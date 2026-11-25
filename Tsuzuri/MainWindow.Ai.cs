@@ -151,7 +151,7 @@ namespace Tsuzuri
   - 「選んでいる文字」: 利用者がエディタで選んでいる文字。
   - ふだん（カーソルを固定していないとき）は、これらはエディタの画面の位置そのもの。
   - 今の状態の頭に「（前に書いた状態を渡す: …）」とあれば、エディタが今回の状態を書けず、ほかの会話のためか前の時点に書いたものを渡している。
-    その中の「この会話は〜」「プロジェクトフォルダ」「ファイル」「見ているページ」「カーソル」「まず読む範囲」「図エディタ」「Excel」の段（とそれを指す図の念押し）は信じず、読む・書く前に、どの文書のどこの話かを利用者に確かめる。
+    その中の「この会話は〜」「プロジェクトフォルダ」「ファイル」「見ているページ」「カーソル」「まず読む範囲」「図エディタ」「Excel」「Excel の作業ファイル」の段（とそれを指す図の念押し）は信じず、読む・書く前に、どの文書のどこの話かを利用者に確かめる。
   - 今の状態に「この会話はカーソルを固定していない」とあれば、前の頼みで固定していても今は解除されている。今の状態の「ファイル」「見ているページ」「カーソル」に従う。
     「どの会話からの頼みか分からなかった」とあれば、固定とプロジェクトフォルダは渡っていない。前の頼みで固定やプロジェクトフォルダがあったなら、読む・書く前に利用者に確かめる。
   - **カーソルを固定しているとき**: 今の状態に「この会話は、利用者がカーソルの位置を固定している」とある。利用者が、同じ文書の別々のページの話を別々の会話で同時に進めるために、
@@ -276,7 +276,8 @@ namespace Tsuzuri
     許可をもらう前に、書く範囲を excel.ps1 で読み（-Range に書く範囲を付ける）、上書き・消すことになる中身があるかを確かめる。許可をもらったら、次で書く:
       powershell -NoProfile -ExecutionPolicy Bypass -File ""{excel}"" -Write -Book ""<ブックの名前かフルパス>"" -Sheet ""<シート名>"" -Range ""B3""
     **書くときは、-Book と -Sheet を必ず両方付ける**（許可をもらうときに示したブックとシート。省くと断られる。選んでいるシートは、許可をもらったあとに利用者が選び直すことがあるため）。
-    書く中身は、先に Write ツールで ""{excel-write}"" に新しく作っておく（UTF-8。excel.ps1 は読んだらすぐ消す（書けなかった・断られたときも）ので、書くたびに、書き直すときも、新しく作る。ほかの場所・ほかのやり方では作らない）。
+    書く中身は、先に Write ツールで、今の状態の「Excel の作業ファイル」の段の「書く中身」のファイルに新しく作っておく（ほかの会話のファイルは作らない・触らない。
+    その段が「渡せていない」とき・今の状態が「前に書いた状態」のときは、書かずに利用者に伝える。UTF-8。excel.ps1 は読んだらすぐ消す（書けなかった・断られたときも）ので、書くたびに、書き直すときも、新しく作る。ほかの場所・ほかのやり方では作らない）。
     中身はタブ区切りで、1行が Excel の1行、タブで次の列。-Range は書き始めの左上のセル（中身と同じ大きさの範囲 B3:D5 でもよい）。
     書く範囲は「行の数 × いちばん長い行の列の数」の四角。列の足りない行・空の行のところは、セルが空になる（右や下にある中身を消さないよう、行の列の数をそろえる）。
     セルの中に改行・タブは書けない（読んだときの ↵・→ は印なので、そのまま書き戻さない）。
@@ -287,7 +288,7 @@ namespace Tsuzuri
   - **COM の台本**: 値を書くほかの操作（書式・色・罫線・行や列の挿入と削除・並べ替え・フィルター・シートの追加や名前の変更・グラフ・ピボットテーブルなど）や、
     -Write では書けない読み方は、Excel の COM を使う PowerShell の台本を書いて、次で動かす。Tsuzuri が別の PowerShell で動かし、台本の出力を返す:
       powershell -NoProfile -ExecutionPolicy Bypass -File ""{excel}"" -Script
-    台本は、先に Write ツールで ""{excel-script}"" に新しく作っておく（UTF-8。excel.ps1 は読んだらすぐ消すので、動かすたびに新しく作る）。
+    台本は、先に Write ツールで、今の状態の「Excel の作業ファイル」の段の「台本」のファイルに新しく作っておく（その段が「渡せていない」とき・今の状態が「前に書いた状態」のときは、動かさずに利用者に伝える。UTF-8。excel.ps1 は読んだらすぐ消すので、動かすたびに新しく作る）。
     台本の中では $excel が動いている Excel.Application（例 $excel.Workbooks.Item('見積.xlsx').Worksheets.Item('明細').Range('B3:D3').Font.Bold = $true）。
     ブックは Workbooks.Item('名前')、シートは Worksheets.Item('名前') で指す。前に出ているものを指す ActiveWorkbook・ActiveSheet・ActiveCell・ActiveWindow・Selection・
     $excel.Range(…)・$excel.Cells は使わない（前に出ているものは、扱ってほしいものとは限らない）。Workbooks を全部たどったり、ブックの名前・パスを並べて出したりしない。
@@ -948,8 +949,6 @@ namespace Tsuzuri
                     .Replace("{ssh-session}", Path.Combine(AiFolder, "ssh-session.ps1"))
                     .Replace("{terminal}", Path.Combine(AiFolder, "terminal.ps1"))
                     .Replace("{excel}", Path.Combine(AiFolder, "excel.ps1"))
-                    .Replace("{excel-write}", Path.Combine(AiFolder, "excel-write.tsv"))
-                    .Replace("{excel-script}", Path.Combine(AiFolder, "excel-script.ps1"))
                     .Replace("{schedule-file}", ScheduleFilePath));
                 File.WriteAllText(settings, AiSettings(_aiContextPath, AiPipeName, StartAiHttp()), new UTF8Encoding(false));
                 WriteAiContext(null);
@@ -966,7 +965,9 @@ namespace Tsuzuri
             // 引数は -EncodedCommand にまとめる（引用符や $ を気にしなくて済む）。
             // 起動したときに出していた claude の使い方の1行は外した（2026-10-30。タブが戻るので「続き」の案内は要らず、履歴は claude --resume）。
             // TSUZURI_AI_PIPE は、Claude が共通ターミナルに文字を置く・画面を読む台本（terminal.ps1）が使う（2026-11-08）。
+            // TSUZURI_AI_NAME（tab1 など）: excel.ps1 が、この会話の作業ファイル（excel-write-tab1.tsv など）を選ぶのに使う（2026-11-25。MainWindow.Excel.cs の AiExcelFileSuffix）
             var command = "$env:MDEDITOR_AI_TAB=" + Quote(tabId) + ";$env:TSUZURI_AI_PIPE=" + Quote(AiPipeName) + ";"
+                         + (string.IsNullOrEmpty(name) ? string.Empty : "$env:TSUZURI_AI_NAME=" + Quote(AiExcelFileSuffix(name)) + ";")
                          + "function claude { & " + Quote(claude) + " --settings " + Quote(settings)
                          + " --append-system-prompt-file " + Quote(instructions)
                          + (string.IsNullOrEmpty(name) ? string.Empty : " --name " + Quote(name)) + " @args }";
@@ -1102,6 +1103,22 @@ namespace Tsuzuri
             try
             {
                 var self = Process.GetCurrentProcess();
+
+                // 頼みごとの名前で書いた Excel の結果・台本は、半日より古いものを消す（どの起動のものかは名前から分からないので、古さで見る。2026-11-25）
+                foreach (var pattern in new[] { "excel-read-*.tsv", "excel-overview-*.txt", "excel-overview-*.png", "excel-script-*.ps1", "excel-write-*.tsv",
+                                                "excel-write.tsv", "excel-script.ps1" })   // 終わりの2つは、会話ごとの名前にする前の名前（2026-11-25 まで）
+                {
+                    foreach (var old in Directory.GetFiles(AiFolder, pattern))
+                    {
+                        try
+                        {
+                            if (DateTime.UtcNow - File.GetLastWriteTimeUtc(old) > TimeSpan.FromHours(12)) File.Delete(old);
+                        }
+                        catch (Exception)
+                        {
+                        }
+                    }
+                }
 
                 foreach (var pattern in new[] { "settings-*.json", "context-*.md", "terminal-*.txt", "sheets-*.txt" })
                 {
@@ -1867,7 +1884,7 @@ namespace Tsuzuri
         /// </summary>
         private const string AiStaleNote =
             "（前に書いた状態を渡す: エディタが今回の状態を書けなかったので、前に書いたものを渡す。ほかの会話のため、または前の時点のものかもしれない。"
-            + "中の「この会話は〜」「プロジェクトフォルダ」「ファイル」「見ているページ」「カーソル」「まず読む範囲」「図エディタ」「Excel」の段を信じず、読む・書く前に利用者に確かめる）\n";
+            + "中の「この会話は〜」「プロジェクトフォルダ」「ファイル」「見ているページ」「カーソル」「まず読む範囲」「図エディタ」「Excel」「Excel の作業ファイル」の段を信じず、読む・書く前に利用者に確かめる）\n";
 
         /// <summary>タブごとの今の状態のファイル（パイプのフックが読む。2026-11-22）。claude を起動する前は null。</summary>
         private string AiTabContextPath(AiTab tab)
@@ -2167,6 +2184,7 @@ namespace Tsuzuri
             AppendCalendarContext(text);  // カレンダーを開いていれば、出している週・選んでいる日（2026-11-21）
             AppendDrawingContext(text, pin != null, tab == null);   // 図エディタを出していれば、図のファイル・選んでいる図形（2026-11-23。MainWindow.Drawing.cs）
             AppendExcelContext(text);   // ランチャーの Excel の一覧で選んだブックとシートの名前（2026-11-24。MainWindow.Excel.cs）
+            AppendExcelFiles(text, tab);   // この会話の Excel の作業ファイル（2026-11-25）
             AppendAiShellContext(text);   // 共通ターミナルの画面（2026-11-08）
 
             // 図の頼みは、最初の指示に書くだけでは罫線で描かれた（2026-11-01）。話しかけるたびに1行だけ念を押す（書き方そのものは渡さない）。

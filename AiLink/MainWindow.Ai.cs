@@ -584,7 +584,8 @@ namespace AiLink
         /// </summary>
         private static string AiTabFileName(AiTab tab)
         {
-            return "tab" + (tab.Name ?? string.Empty).TrimStart('#');
+            // 数字だけを使う（ailink.json から戻した名前に \ や .. が入っていても、作業のフォルダの外を指さないように）
+            return "tab" + new string((tab.Name ?? string.Empty).Where(char.IsDigit).ToArray());
         }
 
         /// <summary>フックが動いているかを見張る（5 秒ごと）。</summary>

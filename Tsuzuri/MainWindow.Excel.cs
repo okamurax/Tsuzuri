@@ -192,6 +192,32 @@ namespace Tsuzuri
             text.Append('\n');
         }
 
+        /// <summary>
+        /// 会話の名前（#1）から、Excel の作業ファイルの名前に付ける形（tab1）を作る（2026-11-25）。会話の名前はアプリの中で重ならないので、
+        /// 会話ごと（窓をまたいでも）に別のファイルになる。会話が2つ以上あると、同じ名前のファイルを取り合い、別の会話の中身を書いてしまったため。
+        /// </summary>
+        private static string AiExcelFileSuffix(string name)
+        {
+            // 数字だけを使う（app.json から戻した名前に \ や .. が入っていても、AI の置き場所の外を指さないように）
+            return "tab" + new string((name ?? string.Empty).Where(char.IsDigit).ToArray());
+        }
+
+        /// <summary>
+        /// 今の状態に「Excel の作業ファイル」の段を書く（この会話が書く中身・台本を作るファイル。excel.ps1 は環境変数 TSUZURI_AI_NAME で同じ名前を選ぶ）。
+        /// どの会話か分からなければ、書く・台本を動かすのはやめるよう書く。
+        /// </summary>
+        private void AppendExcelFiles(StringBuilder text, AiTab tab)
+        {
+            if (tab == null || string.IsNullOrEmpty(tab.Name))
+            {
+                text.Append("Excel の作業ファイル: どの会話からの頼みか分からなかったので渡せていない（Excel に書く・台本を動かすのはやめ、利用者に伝える。読むのはよい）\n");
+                return;
+            }
+            var suffix = AiExcelFileSuffix(tab.Name);
+            text.Append("Excel の作業ファイル（この会話専用）: 書く中身は「").Append(Path.Combine(AiFolder, "excel-write-" + suffix + ".tsv"))
+                .Append("」、台本は「").Append(Path.Combine(AiFolder, "excel-script-" + suffix + ".ps1")).Append("」\n");
+        }
+
         /// <summary>AI の欄の下端の行に足す、Excel の分（「  ・Excel 見積.xlsx › 明細」。2つ以上なら枚数）。</summary>
         private string ExcelSummaryPart()
         {
@@ -293,7 +319,7 @@ namespace Tsuzuri
                     .Append(grid.ColumnsTruncated ? "左の " + grid.ColumnsRead + " 列" : string.Empty)
                     .Append("だけ。続きは -Range で範囲を絞って読む）\n");
 
-            var file = Path.Combine(AiFolder, "excel-read.tsv");
+            var file = Path.Combine(AiFolder, "excel-read-" + Guid.NewGuid().ToString("N").Substring(0, 12) + ".tsv");   // 頼みごとに別の名前（会話が2つ以上あっても、別の会話の結果で上書きしない。2026-11-25）
             try
             {
                 File.WriteAllText(file, output.ToString(), new UTF8Encoding(false));
@@ -329,9 +355,10 @@ namespace Tsuzuri
             if (unresolved != null) return "error\t" + unresolved;
 
             string bookShown, sheetShown, problem;
-            var text = ExcelBridge.Overview(book, sheet, IsGuardedBook, Path.Combine(AiFolder, "excel-overview.png"), 45000, out bookShown, out sheetShown, out problem);
+            var mark = Guid.NewGuid().ToString("N").Substring(0, 12);   // 頼みごとに別の名前（会話が2つ以上あっても、別の会話の結果で上書きしない。2026-11-25）
+            var text = ExcelBridge.Overview(book, sheet, IsGuardedBook, Path.Combine(AiFolder, "excel-overview-" + mark + ".png"), 45000, out bookShown, out sheetShown, out problem);
             if (text == null) return "error\t" + (problem ?? "Excel を読めなかった。");
-            var file = Path.Combine(AiFolder, "excel-overview.txt");
+            var file = Path.Combine(AiFolder, "excel-overview-" + mark + ".txt");
             try
             {
                 File.WriteAllText(file, text, new UTF8Encoding(false));
@@ -526,7 +553,7 @@ namespace Tsuzuri
             System.Diagnostics.Process process = null;
             try
             {
-                var info = new System.Diagnostics.ProcessStartInfo("powershell.exe",
+                var info = new System.Diagnostics.ProcessStartInfo(Path.Combine(Environment.SystemDirectory, "WindowsPowerShell", "v1.0", "powershell.exe"),
                     "-NoProfile -NonInteractive -ExecutionPolicy Bypass -File \"" + wrapper + "\"")
                 {
                     UseShellExecute = false,
@@ -540,6 +567,8 @@ namespace Tsuzuri
                 process.OutputDataReceived += (sender, e) => Collect(e.Data, output, gate, outputDone);
                 process.ErrorDataReceived += (sender, e) => Collect(e.Data, output, gate, errorDone);
                 process.Start();
+                // Tsuzuri が終わると一緒に終わるようにする（閉じたり落ちたりしたあとも、Excel をつかんだまま動き続けないように。2026-11-25）
+                Tsuzuri.Views.PseudoConsole.AssignToAppJob(process.Handle);
                 process.BeginOutputReadLine();
                 process.BeginErrorReadLine();
 

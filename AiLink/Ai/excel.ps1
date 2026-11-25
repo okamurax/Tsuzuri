@@ -55,10 +55,13 @@ $tab = [char]9
 # where the AI may write; next to this script otherwise
 $work = if ($env:AILINK_WORK) { $env:AILINK_WORK } else { $PSScriptRoot }
 # one file per conversation tab (AILINK_NAME, e.g. tab1): two tabs writing at once never swap their cells or scripts
-$suffix = if ($env:AILINK_NAME) { '-' + $env:AILINK_NAME } else { '' }
+$suffix = if ($env:AILINK_NAME) { '-' + $env:AILINK_NAME } else { $null }
 if ($Script) {
     $default = -not $File
-    if ($default) { $File = Join-Path $work ('excel-script' + $suffix + '.ps1') }
+    if ($default) {
+        if ($null -eq $suffix) { Fail 'AILINK_NAME is not set: open a new conversation tab in AiLink, or give -File' }
+        $File = Join-Path $work ('excel-script' + $suffix + '.ps1')
+    }
     if (-not (Test-Path -LiteralPath $File)) { Fail ('file not found: ' + $File + ' (write the script to it first)') }
     $content = [System.IO.File]::ReadAllText($File, [System.Text.Encoding]::UTF8)
     if ($default) { Remove-Item -LiteralPath $File -ErrorAction SilentlyContinue }
@@ -67,7 +70,10 @@ if ($Script) {
     $request = 'excel-overview' + $tab + (B64 $Book) + $tab + (B64 $Sheet)
 } elseif ($Write) {
     $default = -not $File
-    if ($default) { $File = Join-Path $work ('excel-write' + $suffix + '.tsv') }
+    if ($default) {
+        if ($null -eq $suffix) { Fail 'AILINK_NAME is not set: open a new conversation tab in AiLink, or give -File' }
+        $File = Join-Path $work ('excel-write' + $suffix + '.tsv')
+    }
     if (-not (Test-Path -LiteralPath $File)) { Fail ('file not found: ' + $File + ' (write the cells to it first)') }
     $content = [System.IO.File]::ReadAllText($File, [System.Text.Encoding]::UTF8)
     # the default file is removed once read, so an old content is never written again and the next Write creates it anew

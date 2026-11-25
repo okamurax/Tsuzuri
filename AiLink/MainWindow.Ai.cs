@@ -73,7 +73,7 @@ namespace AiLink
             public TextBlock Title;
 
             /// <summary>タブを見分ける番号。中の PowerShell に環境変数 AILINK_TAB で渡す。</summary>
-            public readonly string Id = Guid.NewGuid().ToString("N");
+            public readonly string Id = "t" + Guid.NewGuid().ToString("N");   // 頭に t（AI の起動のオプション -c で渡すとき、数字だけの番号が数として読まれないように）
 
             /// <summary>中で動いている AI の会話の番号と、そのフォルダ。AI を起動していなければ null（次の起動で戻さない）。</summary>
             public string SessionId;
@@ -439,7 +439,13 @@ namespace AiLink
             if (agent != null)
             {
                 command += ";$env:PATH=" + Quote(Path.GetDirectoryName(agent) + ";") + "+$env:PATH"
-                           + ";function codex { & " + Quote(agent) + " @args }";
+                           + ";function codex { & " + Quote(agent)
+                           // AI が動かすコマンドにも、タブ・パイプ・作業フォルダを渡す（Codex はタブの PowerShell の環境変数を、AI のコマンドに引き継がなかった。
+                           // 2026-11-25 に Windows で試して分かった。state.ps1 が「AILINK_PIPE is not set」になった）。値は Codex が TOML として読めなければ文字のまま使う
+                           + " -c " + Quote("shell_environment_policy.set.AILINK_TAB=" + tab.Id)
+                           + " -c " + Quote("shell_environment_policy.set.AILINK_PIPE=" + AiPipeName)
+                           + " -c " + Quote("shell_environment_policy.set.AILINK_WORK=" + AiWorkFolder)
+                           + " @args }";
                 if (!tab.AgentStarted)
                 {
                     tab.AgentStarted = true;
@@ -482,10 +488,11 @@ namespace AiLink
         private static string HookProbeConfig()
         {
             var probe = Path.Combine(AiFolder, "hook-probe.ps1");
-            var powershell = Path.Combine(Environment.SystemDirectory, "WindowsPowerShell", "v1.0", "powershell.exe");
             Func<string, string, string> entry = (name, matcher) =>
             {
-                var command = "\"" + powershell + "\" -NoProfile -NonInteractive -ExecutionPolicy Bypass -File \"" + probe + "\" " + name;
+                // exe はパスを書かず powershell（Codex がフックのコマンドを PowerShell で動かすと、"…\powershell.exe" -NoProfile は
+                // 文字列のあとに引数が続く文法の誤りになり、code 1 で終わった。2026-11-25 に Windows で試して分かった。Tsuzuri のフックと同じ形）
+                var command = "powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File \"" + probe + "\" " + name;
                 var escaped = command.Replace("\\", "\\\\").Replace("\"", "\\\"");
                 return "\"" + name + "\": [{" + (matcher != null ? "\"matcher\": \"" + matcher + "\", " : string.Empty)
                        + "\"hooks\": [{\"type\": \"command\", \"command\": \"" + escaped + "\", \"timeout\": " + (name == "SessionEnd" ? "3" : "30") + "}]}]";

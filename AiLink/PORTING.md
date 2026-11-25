@@ -75,5 +75,5 @@ Codex で最初に現物で確かめること:
 ## 作業の順番
 
 1. 骨組み: AiLink.csproj（古い形・net48・C# 7.3・WebView2）、写すファイル、AppSettings、App.xaml、空の MainWindow（3列）、`tools/check-build-ailink.sh`。
-2. 端末とランチャー: タブは PowerShell だけで起動。ランチャー・ファイラー・プロジェクトフォルダの段・共通ターミナル・パイプ・Excel の一覧と excel.ps1。
+2. 端末とランチャー: タブは PowerShell だけで起動。ランチャー・ファイラー・プロジェクトフォルダの段・共通ターミナル・パイプ・Excel の一覧と excel.ps1。（2026-11-25 に作った。Windows での確かめはまだ。AI に返す文（Excel・共通ターミナルの答え）は Claude を AI に置き換えただけなので、第3段の指示と一緒にレビューを通す）
 3. Codex: 中継の exe、ServeAiRequest の hook、IAgent と CodexAgent、指示の雛形と AiContext（別のエージェントのレビューを通す）、会話を戻す・題・下端のファイル、talk.ps1 とタブどうしの伝言、README と SPEC。

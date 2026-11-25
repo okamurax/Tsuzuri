@@ -97,6 +97,15 @@
     <Compile Include="MainWindow.Ai.cs">
       <DependentUpon>MainWindow.xaml</DependentUpon>
     </Compile>
+    <Compile Include="MainWindow.AiProject.cs">
+      <DependentUpon>MainWindow.xaml</DependentUpon>
+    </Compile>
+    <Compile Include="MainWindow.AiShell.cs">
+      <DependentUpon>MainWindow.xaml</DependentUpon>
+    </Compile>
+    <Compile Include="MainWindow.Excel.cs">
+      <DependentUpon>MainWindow.xaml</DependentUpon>
+    </Compile>
     <Compile Include="MainWindow.Launcher.cs">
       <DependentUpon>MainWindow.xaml</DependentUpon>
     </Compile>

@@ -37,6 +37,20 @@ namespace AiLink
             CreateLauncher();
             CreateFiler();
             Closing += OnClosing;
+
+            // 会話のタブは窓が出てから開く（端末（WebView2）は窓ができてから動く）。Excel の一覧も読む
+            Loaded += delegate
+            {
+                StartAi();
+                RefreshExcelList();
+            };
+            // ほかのアプリ（Excel など）から戻ったら、Excel の一覧とファイラーを読み直す（ブックを開いた・閉じた・保存した）
+            Activated += delegate
+            {
+                if (!IsLoaded) return;
+                RefreshExcelList();
+                if (_filer != null) _filer.ReloadIfChanged();
+            };
         }
 
         private void OnClosing(object sender, CancelEventArgs e)
@@ -45,6 +59,7 @@ namespace AiLink
             StoreLayout();
             _settings.Save();
             if (_filer != null) _filer.Stop();
+            StopAi();
         }
 
         /// <summary>ステータスバーに知らせを出す（しばらくすると消える）。</summary>

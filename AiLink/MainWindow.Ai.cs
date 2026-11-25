@@ -778,6 +778,20 @@ namespace AiLink
                         }
                     }
                 }
+                // 会話の作業フォルダの、excel.ps1 が送る途中で落ちて残したファイル（excel-write-tab1-sending-….tsv など）も、半日より古ければ消す
+                if (Directory.Exists(AiWorkFolder))
+                {
+                    foreach (var old in Directory.GetFiles(AiWorkFolder, "excel-*-sending-*"))
+                    {
+                        try
+                        {
+                            if (DateTime.UtcNow - File.GetLastWriteTimeUtc(old) > TimeSpan.FromHours(12)) File.Delete(old);
+                        }
+                        catch (Exception)
+                        {
+                        }
+                    }
+                }
                 foreach (var path in Directory.GetFiles(AiFolder, "sheets-*.txt"))
                 {
                     var name = Path.GetFileNameWithoutExtension(path);

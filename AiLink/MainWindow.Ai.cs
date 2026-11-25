@@ -482,6 +482,28 @@ namespace AiLink
             // プロジェクトの単位のフック（work\.codex\hooks.json）にする（利用者の ~/.codex には書かない）。利用者が Codex の /hooks で信頼するまでは動かない
             Directory.CreateDirectory(Path.Combine(work, ".codex"));
             WriteIfChanged(Path.Combine(work, ".codex", "hooks.json"), HookProbeConfig());
+
+            // AiLink の台本（state.ps1・excel.ps1・terminal.ps1）は、Codex に毎回は確かめさせない（2026-11-25。excel.ps1 のたびに
+            // 「囲いの外で動かしてよいか」と聞かれた）。プロジェクトの単位のルール（work\.codex\rules）で、この形のコマンドだけを許す。
+            // 許したコマンドは囲いの外で動くが、台本はパイプで AiLink に頼むだけで、Excel に触るのは AiLink（台本の中の禁止の語も AiLink が断る）
+            Directory.CreateDirectory(Path.Combine(work, ".codex", "rules"));
+            WriteIfChanged(Path.Combine(work, ".codex", "rules", "ailink.rules"), AiRules());
+        }
+
+        /// <summary>
+        /// Codex のルール（Starlark の prefix_rule）。指示に書いた形「powershell -NoProfile -ExecutionPolicy Bypass -File "台本"」で AiLink の台本を動かすときは、確かめずに動かす。
+        /// ほかのコマンドはふだんどおり（Codex が確かめる）。
+        /// </summary>
+        private static string AiRules()
+        {
+            var scripts = new[] { "state.ps1", "excel.ps1", "terminal.ps1" }
+                .Select(name => "\"" + Path.Combine(AiFolder, name).Replace("\\", "\\\\").Replace("\"", "\\\"") + "\"");
+            return "# AiLink が書くルール（会話を始めるたびに書き直す）。AiLink の台本だけを、確かめずに動かす。\n"
+                   + "prefix_rule(\n"
+                   + "    pattern = [[\"powershell\", \"powershell.exe\"], \"-NoProfile\", \"-ExecutionPolicy\", \"Bypass\", \"-File\", [" + string.Join(", ", scripts) + "]],\n"
+                   + "    decision = \"allow\",\n"
+                   + "    justification = \"AiLink のパイプに頼むだけの台本（Excel に触るのは AiLink）\",\n"
+                   + ")\n";
         }
 
         /// <summary>試しのフックの設定（hooks.json）。どのイベントでも hook-probe.ps1 を動かす。道具のイベントは全部の道具に当てる。</summary>

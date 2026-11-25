@@ -102,6 +102,15 @@ namespace AiLink
             /// <summary>利用者がこのタブで最後にキーを打った時刻。</summary>
             public DateTime LastUserKey;
 
+            /// <summary>
+            /// このタブの AI からフックが一度でも来たか。来ていなければ（フックを信頼する前に始まった会話など）、頼みを受け付けたかが分からないので、
+            /// 伝言は自動では渡さず、ボタンで渡す（MainWindow.AiTalk.cs）。
+            /// </summary>
+            public bool HooksSeen;
+
+            /// <summary>このタブに最後に今の状態を渡したときの、欄の下の行の文。</summary>
+            public string ContextLine;
+
             /// <summary>ほかの会話からの伝言の受け箱（まだ入力欄に置いていないもの。見出しに印を出す。MainWindow.AiTalk.cs）。</summary>
             public readonly List<string> Inbox = new List<string>();
         }
@@ -280,6 +289,7 @@ namespace AiLink
         {
             var text = new StringBuilder("会話の名前: ").Append(tab.Name);
             if (!string.IsNullOrEmpty(tab.Topic)) text.Append(Environment.NewLine).Append("題: ").Append(tab.Topic);
+            text.Append(Environment.NewLine).Append(tab.HooksSeen ? "フック: 動いている" : "フック: まだ来ていない（Codex を開き直し、「Hooks need review」で信頼すると動く）");
             if (!string.IsNullOrEmpty(tab.TerminalTitle)) text.Append(Environment.NewLine).Append(tab.TerminalTitle);
             return text.ToString();
         }
@@ -341,6 +351,7 @@ namespace AiLink
         {
             _aiTab = tab;
             ShowAiInbox();
+            AiContextText.Text = tab != null ? tab.ContextLine ?? string.Empty : string.Empty;
             ShowAiTabs();
             if (tab != null) FocusAiTerminal(tab);
         }
@@ -397,6 +408,7 @@ namespace AiLink
             {
                 _aiTab = null;
                 ShowAiInbox();
+            AiContextText.Text = tab != null ? tab.ContextLine ?? string.Empty : string.Empty;
                 AddAiTab(null);
                 return;
             }

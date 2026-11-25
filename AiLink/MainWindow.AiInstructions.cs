@@ -219,7 +219,9 @@ AI の欄には会話のタブがいくつもあり、タブごとに別の AI �
             text.Append("ほかの会話: ").Append(others.Count > 0 ? string.Join("、", others) : "無し").Append("（伝言は talk.ps1 で送る）\n");
             AppendExcelContext(text);
 
-            AiContextText.Text = (tab != null ? tab.Name + " に" : string.Empty) + "今の状態を渡した" + ExcelSummaryPart() + "  " + DateTime.Now.ToString("HH:mm:ss");
+            var line = "今の状態を渡した" + ExcelSummaryPart() + "  " + DateTime.Now.ToString("HH:mm:ss");
+            if (tab != null) tab.ContextLine = line;
+            if (tab == null || ReferenceEquals(tab, _aiTab)) AiContextText.Text = line;   // 欄の下の行は、選んでいるタブの分を出す
             return text.ToString();
         }
     }

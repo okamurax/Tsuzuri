@@ -100,6 +100,11 @@ namespace AiLink
                     if (working == null) return;
                     working.Busy = true;
                     working.AgentReady = true;
+                    if (!working.HooksSeen)
+                    {
+                        working.HooksSeen = true;
+                        working.Header.ToolTip = AiTabToolTip(working);
+                    }
                 }));
             return "ok\t" + (string.IsNullOrEmpty(output) ? string.Empty : Convert.ToBase64String(Encoding.UTF8.GetBytes(output)));
         }
@@ -165,6 +170,11 @@ namespace AiLink
 
             // どのフックが来ても、そのタブの AI は動いていて、この会話の番号だと分かる（会話の始まりのフックは、フックを信頼する前に過ぎていることがある。
             // 2026-11-25 に Windows で、フックを信頼し直したタブが「AI が動いていない」になった）
+            if (!tab.HooksSeen)
+            {
+                tab.HooksSeen = true;
+                tab.Header.ToolTip = AiTabToolTip(tab);
+            }
             if (eventName != "SessionEnd")
             {
                 tab.AgentReady = true;

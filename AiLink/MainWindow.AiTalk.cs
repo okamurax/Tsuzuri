@@ -88,13 +88,14 @@ namespace AiLink
                 Status(from.Name + " から " + target.Name + " へ伝言を渡しました");
                 return "ok\t" + target.Name + " に渡した（" + target.Name + " の AI が読んで取り組む。返事を頼んでいれば、伝言としてこちらに届く）。";
             }
-            if (target.AgentReady && target.AutoTalks < AiAutoTalkLimit)
+            if (target.HooksSeen && target.AgentReady && target.AutoTalks < AiAutoTalkLimit)
             {
                 Status(from.Name + " から " + target.Name + " へ伝言を預けました（" + target.Name + " の手が空いたら渡します）");
                 return "ok\t" + target.Name + " は作業中か、利用者が入力欄を使っているので預けた（手が空くと自動で渡る）。";
             }
             Status(from.Name + " から " + target.Name + " へ伝言が来ました（" + target.Name + " のタブの下の「伝言を渡す」で渡せます）");
-            return "ok\t" + target.Name + " の受け箱に預けた（" + (target.AgentReady ? "利用者が話しかけないまま自動で渡せる回数を超えた" : target.Name + " の AI が動いていない")
+            return "ok\t" + target.Name + " の受け箱に預けた（" + (!target.HooksSeen ? target.Name + " の AI が動いていないか、AI連携ツールがその AI の様子を知れない"
+                       : target.AgentReady ? "利用者が話しかけないまま自動で渡せる回数を超えた" : target.Name + " の AI が動いていない")
                    + "。利用者が " + target.Name + " のタブで「伝言を渡す」を押すと渡る）。";
         }
 
@@ -107,7 +108,7 @@ namespace AiLink
         private bool DeliverAiTalk(AiTab tab)
         {
             var now = DateTime.UtcNow;
-            if (tab.Inbox.Count == 0 || !tab.AgentReady || tab.Busy || tab.AwaitingPrompt || tab.InputPending || !tab.View.IsRunning
+            if (tab.Inbox.Count == 0 || !tab.HooksSeen || !tab.AgentReady || tab.Busy || tab.AwaitingPrompt || tab.InputPending || !tab.View.IsRunning
                 || tab.AutoTalks >= AiAutoTalkLimit || now - tab.ReadySince < TimeSpan.FromSeconds(3) || now - tab.LastUserKey < TimeSpan.FromSeconds(3))
                 return false;
             // タブの PowerShell の下で AI が動いていなければ打たない（AI が落ちて会話の終わりのフックが来なかったとき、
@@ -158,7 +159,7 @@ namespace AiLink
             var waiting = false;
             foreach (var tab in _aiTabs.ToList())
             {
-                if (tab.AwaitingPrompt && DateTime.UtcNow - tab.TypedAt > TimeSpan.FromSeconds(15))
+                if (tab.AwaitingPrompt && tab.HooksSeen && DateTime.UtcNow - tab.TypedAt > TimeSpan.FromSeconds(15))
                 {
                     tab.AwaitingPrompt = false;
                     tab.Busy = false;
@@ -178,6 +179,13 @@ namespace AiLink
         /// </summary>
         private void OnAiTabInput(AiTab tab, string data)
         {
+            // 制御の並び（ESC で始まるもの）は打った字に数えない。Codex は端末にフォーカスの知らせ（ESC [ I・ESC [ O）を送らせるので、
+            // タブを選ぶだけで「書きかけ」になっていた（2026-11-25 に Windows で、伝言が止まった）。矢印キー・マウスの知らせも同じ
+            if (data != "\x1b")
+            {
+                data = System.Text.RegularExpressions.Regex.Replace(data, @"\x1b(\[[0-9;?<>=]*[ -/]*[@-~]|O.|.)", string.Empty);
+                if (data.Length == 0) return;
+            }
             tab.LastUserKey = DateTime.UtcNow;
             if (data == "\r")
             {
@@ -242,6 +250,26 @@ namespace AiLink
                     return;
                 }
                 tab.AgentReady = true;   // AI は動いている（フックを信頼する前に始まった会話では、フックがまだ来ていないことがある）
+                if (!tab.HooksSeen)
+                {
+                    // フックが動いていないタブ: 作業中かが分からないので、利用者が押したときだけ、受け付けの知らせを待たずに渡す
+                    if (tab.View.WriteInput(tab.Inbox[0]))
+                    {
+                        var typed = tab.Inbox[0];
+                        tab.Inbox.RemoveAt(0);
+                        AfterAiInboxChanged(tab);
+                        var enter = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromMilliseconds(400) };
+                        enter.Tick += delegate
+                        {
+                            enter.Stop();
+                            if (tab.View.IsRunning) tab.View.WriteInput("\r");
+                        };
+                        enter.Start();
+                        Status(tab.Name + " に伝言を渡しました（このタブはフックが動いていないので、自動では渡せません。Codex を開き直して「Hooks need review」で信頼すると、自動で渡るようになります）");
+                    }
+                    FocusAiTerminal(tab);
+                    return;
+                }
                 tab.AutoTalks = 0;   // 利用者が渡すと決めた
                 tab.LastUserKey = DateTime.MinValue;
                 tab.ReadySince = DateTime.MinValue;

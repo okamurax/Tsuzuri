@@ -14,6 +14,9 @@ namespace Tsuzuri.Office
     /// 書式は、素のシートか書式を整えたシートかの大まかな判断と、使っているフォント・色・表示形式を並べるだけにする（2026-11-25。利用者の判断）。
     /// どれが「ふだん」かを決めて違いを並べると、見出しの太字・数字のフォント・印刷に合わせた調整を、例外や崩れと取り違えるおそれがあるため。
     /// 細かいところ（どのセルがどの書式か）は、Claude が要るときに台本で調べる。
+    /// あわせて、使っている範囲を画面の見た目のまま画像にする（2026-11-25。利用者の考え。どういうファイルか（書類の様式・一覧・集計など）を、
+    /// 文字の並びから組み立てるより、見た目でつかむほうが早く確かなため）。Range.CopyPicture でクリップボードを通すので、利用者がコピーしていたものは消える
+    /// （戻さない。利用者の判断）。
     /// </summary>
     public static partial class ExcelBridge
     {
@@ -23,17 +26,36 @@ namespace Tsuzuri.Office
         /// <summary>書式・行の高さを調べるのに使う時間の上限（過ぎたら途中までにして、ほかの段は続ける）。</summary>
         private const int OverviewWalkMillis = 15000;
 
+        /// <summary>A4 の紙で印刷できる広さ（ポイント。余白を引いたおよその値）。シートの大きさを何枚分かで見積もるのに使う。</summary>
+        private const double PageShort = 520;
+        private const double PageLong = 760;
+
+        /// <summary>これより行が多ければ、大きなデータの一覧と見込み、画像は上の DataPictureRows 行だけにする（見出しとデータの並び方が分かれば足りる）。</summary>
+        private const int DataRows = 1000;
+        private const int DataPictureRows = 60;
+
+        /// <summary>画像にする範囲の上限（行・列）と、画像の長い辺の上限（ピクセル。超えたら縮める）。</summary>
+        private const int PictureRows = 300;
+        private const int PictureColumns = 60;
+        private const int PictureSide = 2400;
+
+        /// <summary>画像にする範囲の幅・高さの上限（ポイント）。大きすぎると Excel が「図が大きすぎる」のダイアログを出して止まるうえ、縮めると字は読めないため。</summary>
+        private const double PicturePoints = 3000;
+
+        /// <summary>画像を撮るのに使う時間の上限（ほかのアプリがクリップボードを開いたままでも、概要全体を時間切れにしない）。</summary>
+        private const int PictureMillis = 10000;
+
         /// <summary>図形・コメントなど、種類ごとに並べる数の上限。</summary>
         private const int OverviewItems = 50;
 
         /// <summary>1つの書式に並べる範囲の数の上限。</summary>
         private const int OverviewRanges = 40;
 
-        /// <summary>シートの概要を文字で返す。読めなければ problem にわけを入れて null。</summary>
-        public static string Overview(string book, string sheet, Func<string, bool> guarded, int timeout, out string bookShown, out string sheetShown, out string problem)
+        /// <summary>シートの概要を文字で返し、シートの画像を picture に書く。読めなければ problem にわけを入れて null。</summary>
+        public static string Overview(string book, string sheet, Func<string, bool> guarded, string picture, int timeout, out string bookShown, out string sheetShown, out string problem)
         {
             string text = null, why = null, shownBook = null, shownSheet = null;
-            var outcome = RunSta(job => text = OverviewCore(book, sheet, guarded, job, out shownBook, out shownSheet, out why), timeout, null);
+            var outcome = RunSta(job => text = OverviewCore(book, sheet, guarded, picture, job, out shownBook, out shownSheet, out why), timeout, null);
             var done = outcome == Outcome.Done;
             bookShown = done ? shownBook : null;
             sheetShown = done ? shownSheet : null;
@@ -50,7 +72,7 @@ namespace Tsuzuri.Office
             public bool Merged;
         }
 
-        private static string OverviewCore(string bookName, string sheetName, Func<string, bool> guarded, Job job,
+        private static string OverviewCore(string bookName, string sheetName, Func<string, bool> guarded, string picture, Job job,
                                            out string bookShown, out string sheetShown, out string problem)
         {
             bookShown = null;
@@ -96,6 +118,12 @@ namespace Tsuzuri.Office
                     var walkColumns = Math.Min(columns, DumpColumns);
                     var walkRows = Math.Min(rows, Math.Max(1, DumpCells / Math.Max(1, walkColumns)));
 
+                    // まず使っている範囲の大きさ（行・列と、幅・高さのポイント）をつかみ、何の見込みか・画像をどこまで撮るかを決める
+                    string sizeNote;
+                    int pictureRows, pictureColumns;
+                    Measure(scope, used, rows, columns, out sizeNote, out pictureRows, out pictureColumns);
+                    // 画像は先に作る（書式などを調べて時間切れになっても、見た目はつかめるように）
+                    var pictureNote = Picture(scope, ws, top, left, pictureRows, pictureColumns, rows, columns, picture, job);
                     var clock = System.Diagnostics.Stopwatch.StartNew();
                     Func<bool> stop = () => job.Abandoned || clock.ElapsedMilliseconds > OverviewWalkMillis;
                     var bottom = top + walkRows - 1;
@@ -109,6 +137,8 @@ namespace Tsuzuri.Office
                     if (walkRows < rows || walkColumns < columns)
                         o.Append("。多いので、書式・結合・列の幅・行の高さ・セルは ").Append(RangeName(top, left, bottom, right)).Append(" だけ");
                     o.Append('\n');
+                    o.Append("\n## 大きさ\n").Append(sizeNote);
+                    o.Append("\n## 画像\n").Append(pictureNote).Append('\n');
                     var lookAt = o.Length;   // ここに「見た目」の段を入れる（書式などを調べてから決める）
 
                     Section(o, "シート", () => SheetFacts(scope, ws), job);
@@ -177,6 +207,152 @@ namespace Tsuzuri.Office
                     return null;
                 }
             }
+        }
+
+        /// <summary>
+        /// 使っている範囲の大きさをつかむ: 行・列の数と、幅・高さ（ポイント。1回ずつ聞けば済むので、数万行でも速い）から、A4 で何枚分かを見積もり、
+        /// 大まかな見込み（1枚に収まる書類・様式か、数枚分の表か、大きなデータの一覧か）と、画像にする行・列を決める。見込みは大きさからの推し量りで、決めつけない。
+        /// </summary>
+        private static void Measure(Scope scope, object used, int rows, int columns, out string note, out int pictureRows, out int pictureColumns)
+        {
+            double width = 0, height = 0;
+            try
+            {
+                width = Convert.ToDouble(scope.Get(used, "Width"), CultureInfo.InvariantCulture);
+                height = Convert.ToDouble(scope.Get(used, "Height"), CultureInfo.InvariantCulture);
+            }
+            catch (Exception ex) when (!IsBusy(ex))
+            {
+            }
+            var o = new StringBuilder();
+            o.Append(rows).Append(" 行 × ").Append(columns).Append(" 列");
+            pictureColumns = Math.Min(columns, PictureColumns);
+            if (width > 0 && height > 0)
+            {
+                // 縦向き・横向きのうち、少ない枚数で収まるほう
+                var portrait = Math.Ceiling(width / PageShort) * Math.Ceiling(height / PageLong);
+                var landscape = Math.Ceiling(width / PageLong) * Math.Ceiling(height / PageShort);
+                var pages = Math.Min(portrait, landscape);
+                o.Append("。幅 約 ").Append(Math.Round(width)).Append(" pt × 高さ 約 ").Append(Math.Round(height)).Append(" pt（A4 ")
+                 .Append(portrait <= landscape ? "縦" : "横").Append("で約 ").Append(pages.ToString("0", CultureInfo.InvariantCulture)).Append(" 枚分）\n");
+                if (pages <= 1)
+                {
+                    o.Append("見込み（大きさからの推し量り）: A4 1枚に収まる大きさ。書類・様式・1枚の表かもしれない。画像は全体を撮る予定（何を撮れたかは「## 画像」）\n");
+                    pictureRows = Math.Min(rows, PictureRows);
+                    Fit(width, height, rows, columns, ref pictureRows, ref pictureColumns);
+                    note = o.ToString();
+                    return;
+                }
+            }
+            else
+            {
+                o.Append("（幅・高さは読めなかった）\n");
+            }
+            if (rows > DataRows)
+            {
+                o.Append("見込み（大きさからの推し量り）: 行がとても多い。大きなデータの一覧かもしれない。画像は見出しとデータの並び方が分かる上の ")
+                 .Append(DataPictureRows).Append(" 行だけを撮る予定（何を撮れたかは「## 画像」。中身は -Range で絞って読む）\n");
+                pictureRows = Math.Min(rows, DataPictureRows);
+                Fit(width, height, rows, columns, ref pictureRows, ref pictureColumns);
+                note = o.ToString();
+                return;
+            }
+            pictureRows = Math.Min(rows, PictureRows);
+            Fit(width, height, rows, columns, ref pictureRows, ref pictureColumns);
+            o.Append("見込み（大きさからの推し量り）: 数枚分の表など。画像は ")
+             .Append(pictureRows < rows || pictureColumns < columns ? "左上から " + pictureRows + " 行 × " + pictureColumns + " 列まで" : "全体を").Append("撮る予定（何を撮れたかは「## 画像」）\n");
+            note = o.ToString();
+        }
+
+        /// <summary>撮る範囲を、幅・高さが PicturePoints に収まる行・列までに縮める（行・列の大きさは平均とみなした、およその値）。</summary>
+        private static void Fit(double width, double height, int rows, int columns, ref int pictureRows, ref int pictureColumns)
+        {
+            if (width > 0 && columns > 0)
+                pictureColumns = Math.Max(1, Math.Min(pictureColumns, (int)(PicturePoints / (width / columns))));
+            if (height > 0 && rows > 0)
+                pictureRows = Math.Max(1, Math.Min(pictureRows, (int)(PicturePoints / (height / rows))));
+        }
+
+        /// <summary>
+        /// 使っている範囲（多ければ左上から PictureRows 行 × PictureColumns 列まで）を、画面の見た目のまま PNG にする（Range.CopyPicture → クリップボード）。
+        /// 撮れなければ範囲を半分にして、3回まで撮り直す。返すのは、概要に書く1行（画像のパスと範囲、か撮れなかったわけ）。
+        /// </summary>
+        private static string Picture(Scope scope, object ws, int top, int left, int takeRows, int takeColumns, int rows, int columns, string path, Job job)
+        {
+            if (string.IsNullOrEmpty(path)) return "作っていない";
+            try
+            {
+                if (System.IO.File.Exists(path)) System.IO.File.Delete(path);   // 前のシートの画像を、今のシートのものと取り違えないように
+            }
+            catch (Exception)
+            {
+            }
+            string why = null;
+            var shrunk = false;
+            var clock = System.Diagnostics.Stopwatch.StartNew();
+            Func<bool> late = () => job.Abandoned || clock.ElapsedMilliseconds > PictureMillis;
+            for (var attempt = 0; attempt < 3 && !late(); attempt++)
+            {
+                try
+                {
+                    var range = scope.Get(ws, "Range", scope.Get(ws, "Cells", top, left), scope.Get(ws, "Cells", top + takeRows - 1, left + takeColumns - 1));
+                    try
+                    {
+                        System.Windows.Clipboard.Clear();
+                    }
+                    catch (Exception)
+                    {
+                    }
+                    scope.Call(range, "CopyPicture", 1, 2);   // xlScreen（画面の見た目）・xlBitmap
+                    System.Windows.Media.Imaging.BitmapSource image = null;
+                    for (var i = 0; i < 30 && image == null && !late(); i++)
+                    {
+                        try
+                        {
+                            if (System.Windows.Clipboard.ContainsImage()) image = System.Windows.Clipboard.GetImage();
+                        }
+                        catch (Exception)
+                        {
+                        }
+                        if (image == null) System.Threading.Thread.Sleep(100);
+                    }
+                    if (image == null)
+                    {
+                        why = late() ? "時間内にクリップボードから画像を受け取れなかった" : "クリップボードから画像を受け取れなかった";
+                        continue;
+                    }
+                    try
+                    {
+                        System.Windows.Clipboard.Clear();   // 受け取ったら消す（利用者が次に貼り付けたとき、シートの画像が出ないように）
+                    }
+                    catch (Exception)
+                    {
+                    }
+                    // 透けた画像にならないように、透明の度合いを捨てる（HBITMAP から作ると、透明の度合いが 0 になることがある）
+                    image = new System.Windows.Media.Imaging.FormatConvertedBitmap(image, System.Windows.Media.PixelFormats.Bgr32, null, 0);
+                    var side = Math.Max(image.PixelWidth, image.PixelHeight);
+                    if (side > PictureSide)
+                    {
+                        var scale = (double)PictureSide / side;
+                        image = new System.Windows.Media.Imaging.TransformedBitmap(image, new System.Windows.Media.ScaleTransform(scale, scale));
+                    }
+                    var encoder = new System.Windows.Media.Imaging.PngBitmapEncoder();
+                    encoder.Frames.Add(System.Windows.Media.Imaging.BitmapFrame.Create(image));
+                    using (var stream = System.IO.File.Create(path)) encoder.Save(stream);
+                    var shown = RangeName(top, left, top + takeRows - 1, left + takeColumns - 1);
+                    return path + "（" + shown + " を画面の見た目で。どういうファイルか・配置・色分けをつかむ用。字は小さくて読めないことがあるので、中身は下の文字で読む"
+                           + (shrunk ? "。撮れなかったので範囲を縮めた" : takeRows < rows || takeColumns < columns ? "。使っている範囲の左上のここだけ" : string.Empty)
+                           + "。真っ白・何も無いように見えたら、Excel の窓が隠れているなどで撮れていないので、空のシートと取り違えず、文字で判断する）";
+                }
+                catch (Exception ex) when (!IsBusy(ex))
+                {
+                    why = (ex.InnerException ?? ex).Message;
+                    takeRows = Math.Max(1, takeRows / 2);   // 大きすぎて撮れないことがあるので、範囲を縮めて撮り直す
+                    takeColumns = Math.Max(1, takeColumns / 2);
+                    shrunk = true;
+                }
+            }
+            return "作れなかった（" + (why ?? "時間切れ") + "）。文字で判断する";
         }
 
         /// <summary>見出しと中身を足す。中身を読めなければ、そう書く（ほかの段は続ける）。Excel が応えないときは、全体をやめる。</summary>
@@ -533,11 +709,10 @@ namespace Tsuzuri.Office
             }
             catch (Exception ex) when (!IsBusy(ex))
             {
-                // 無いと「見つからない」のエラーになる（0x800A03EC）。ほかのわけ（シートの保護など）は、調べられなかったと書く
-                var com = ex as System.Runtime.InteropServices.COMException ?? ex.InnerException as System.Runtime.InteropServices.COMException;
+                // 無いと「見つからない」のエラーになる（番号はほかの失敗と同じ 0x800A03EC なので、文で見分ける）。ほかのわけ（シートの保護など）は、調べられなかったと書く
                 var notFound = (ex.InnerException ?? ex).Message.IndexOf("見つかりません", StringComparison.Ordinal) >= 0
                                || (ex.InnerException ?? ex).Message.IndexOf("No cells were found", StringComparison.OrdinalIgnoreCase) >= 0;
-                return notFound || (com != null && com.ErrorCode == unchecked((int)0x800A03EC)) ? null : "（調べられなかった: " + (ex.InnerException ?? ex).Message + "）\n";
+                return notFound ? null : "（調べられなかった: " + (ex.InnerException ?? ex).Message + "）\n";
             }
         }
 
@@ -551,23 +726,30 @@ namespace Tsuzuri.Office
                 var list = scope.Get(ws, "CommentsThreaded");
                 var n = Convert.ToInt32(scope.Get(list, "Count"), CultureInfo.InvariantCulture);
                 var text = new StringBuilder();
-                for (var i = 1; i <= n && i <= OverviewItems; i++)
+                for (var i = 1; i <= n && i <= OverviewItems * 4; i++)
                 {
                     var comment = scope.Pick(list, "Item", i);
                     var cell = Address(scope, scope.Get(comment, "Parent"));
-                    threadedCells.Add(cell);
-                    text.Append("- コメント ").Append(cell).Append("「").Append(Clip(Text(scope.Pick(comment, "Text")))).Append("」\n");
+                    threadedCells.Add(cell);   // 並べるのは 50 個までだが、重ねて出さないための覚えは多めに
+                    if (i <= OverviewItems) text.Append("- コメント ").Append(cell).Append("「").Append(Clip(Text(scope.Pick(comment, "Text")))).Append("」\n");
                 }
+                if (n > OverviewItems) text.Append("（コメントが多いので、ここまで。全部で ").Append(n).Append(" 個）\n");
                 return text.ToString();
             });
             if (!string.IsNullOrEmpty(threaded)) o.Append(threaded);
             var comments = scope.Get(ws, "Comments");
             var count = Convert.ToInt32(scope.Get(comments, "Count"), CultureInfo.InvariantCulture);
-            for (var i = 1; i <= count && i <= OverviewItems; i++)
+            var listedNotes = 0;
+            for (var i = 1; i <= count && i <= OverviewItems * 5; i++)
             {
                 var comment = scope.Pick(comments, "Item", i);
                 var cell = Address(scope, scope.Get(comment, "Parent"));
                 if (threadedCells.Contains(cell)) continue;
+                if (listedNotes++ >= OverviewItems)
+                {
+                    o.Append("（メモが多いので、ここまで）\n");
+                    break;
+                }
                 o.Append("- メモ ").Append(cell).Append("「").Append(Clip(Text(scope.Pick(comment, "Text")))).Append("」\n");
             }
             return o.ToString();

@@ -231,7 +231,7 @@ namespace Tsuzuri
             if (unresolved != null) return "error\t" + unresolved;
 
             string bookShown, sheetShown, problem;
-            var text = ExcelBridge.Overview(book, sheet, IsGuardedBook, 30000, out bookShown, out sheetShown, out problem);
+            var text = ExcelBridge.Overview(book, sheet, IsGuardedBook, Path.Combine(AiFolder, "excel-overview.png"), 45000, out bookShown, out sheetShown, out problem);
             if (text == null) return "error\t" + (problem ?? "Excel を読めなかった。");
             var file = Path.Combine(AiFolder, "excel-overview.txt");
             try
@@ -242,7 +242,7 @@ namespace Tsuzuri
             {
                 return "error\t書き出せなかった: " + ex.Message;
             }
-            return "ok\t" + file + "（ブック " + bookShown + "・シート " + sheetShown + " の概要。書式・結合・図形・グラフなどと、セルの値と式。長いことがあるので、Read で全部読む）";
+            return "ok\t" + file + "（ブック " + bookShown + "・シート " + sheetShown + " の概要。シートの画像のパス・書式・結合・図形・グラフなどと、セルの値と式。長いことがあるので、Read で全部読み、「## 画像」に書いた画像も Read で見る）";
         }
 
         /// <summary>

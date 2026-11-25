@@ -5,13 +5,14 @@ using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
 using AiLink.Agents;
+using AiLink.Views;
 
 namespace AiLink
 {
     // MainWindow の一部: AI の会話ごとの「プロジェクトフォルダ」（Tsuzuri の MainWindow.AiPin.cs のプロジェクトフォルダの段を写したもの。2026-11-25）。
     //
     // AI の欄の下端（渡した状態の行の下）に1段置き、選んでいる会話のタブの分を出す。タブごとに持ち、次の起動でも戻す（AiTabState）。
-    // 入れ方: 左の列の「このフォルダをプロジェクトフォルダにする」（ファイラーで見ているフォルダ）・欄に打つ・エクスプローラーから落とす。
+    // 入れ方: 右の「選ぶ…」（フォルダを選ぶ画面）・欄に打つ・エクスプローラーから落とす。
     // 第3段で、話しかけるたびに今の状態の頭に1行で書く（入っていなくても「指定なし」と毎回）。
     public partial class MainWindow
     {
@@ -21,7 +22,7 @@ namespace AiLink
         /// <summary>タブを切り替えて欄に入れ直している最中（そのときの TextChanged はタブに書かない）。</summary>
         private bool _aiProjectRefreshing;
 
-        private const string AiProjectHint = "空なら「指定なし」と伝える。左の列の「このフォルダをプロジェクトフォルダにする」で入れる（打つ・エクスプローラーから落とすのでも入る）";
+        private const string AiProjectHint = "空なら「指定なし」と伝える。右の「選ぶ…」で選ぶ（打つ・エクスプローラーからフォルダを落とすのでも入る）";
 
         /// <summary>下端の段を作る（初めて要るとき）。渡した状態の行（AiContextText）のすぐ下に入れる。</summary>
         private void EnsureAiProjectRow()
@@ -33,6 +34,7 @@ namespace AiLink
             _aiProjectRow = new Grid { Margin = new Thickness(12, 0, 8, 4) };
             _aiProjectRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
             _aiProjectRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            _aiProjectRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
 
             var label = new TextBlock
             {
@@ -89,6 +91,22 @@ namespace AiLink
                 _aiProjectBox.Text = folder;
                 StoreAiTabs();
             };
+
+            var choose = new Button
+            {
+                Content = "選ぶ…",
+                ToolTip = "フォルダを選ぶ画面で、この会話のプロジェクトフォルダを選ぶ",
+                FontSize = 12,
+                Padding = new Thickness(8, 1, 8, 1),
+                Margin = new Thickness(6, 2, 0, 2),
+                Focusable = false,
+                VerticalAlignment = VerticalAlignment.Center,
+            };
+            var buttonStyle = TryFindResource("ToolButton") as Style;
+            if (buttonStyle != null) choose.Style = buttonStyle;
+            choose.Click += delegate { ChooseAiProject(); };
+            Grid.SetColumn(choose, 2);
+            _aiProjectRow.Children.Add(choose);
 
             parent.Children.Insert(parent.Children.IndexOf(AiContextText) + 1, _aiProjectRow);
         }
@@ -150,35 +168,20 @@ namespace AiLink
             return DirectoryExists(paths[0]) ? paths[0] : null;
         }
 
-        /// <summary>ファイラーで見ているフォルダを、選んでいる会話のプロジェクトフォルダにする。</summary>
-        private void FilerUseFolder_Click(object sender, RoutedEventArgs e)
+        /// <summary>「選ぶ…」: フォルダを選ぶ画面で、選んでいる会話のプロジェクトフォルダを選ぶ。</summary>
+        private void ChooseAiProject()
         {
             var tab = _aiTab;
-            var folder = _filer != null ? _filer.Folder : null;
-            if (tab == null)
-            {
-                Status("AI の会話がありません");
-                return;
-            }
-            if (string.IsNullOrEmpty(folder) || !Directory.Exists(folder))
-            {
-                Status("フォルダが見つかりません");
-                return;
-            }
+            if (tab == null) return;
+            string problem;
+            var folder = FolderPicker.Pick(this, "会話 " + tab.Name + " のプロジェクトフォルダ", out problem);
+            if (problem != null) Status("フォルダを選べませんでした: " + problem);
+            if (folder == null || !ReferenceEquals(tab, _aiTab)) return;
             tab.Project = folder;
             RefreshAiProjectRow();
             StoreAiTabs();
-            Status("AI の会話 " + tab.Name + " のプロジェクトフォルダにしました: " + folder);
-        }
-
-        /// <summary>どの会話に渡すかをツールチップに出す。会話が無ければ押せない。</summary>
-        private void PaintFilerUseFolder()
-        {
-            var tab = _aiTab;
-            FilerUseFolder.IsEnabled = tab != null;
-            FilerUseFolder.ToolTip = tab == null
-                ? "AI の会話が無いので渡せない"
-                : "ファイラーで今見ているフォルダを、AI の欄で選んでいる会話（" + tab.Name + "）のプロジェクトフォルダにする。話しかけるたびに AI に伝える";
+            Status("会話 " + tab.Name + " のプロジェクトフォルダにしました: " + folder);
+            FocusAiTerminal(tab);
         }
     }
 }

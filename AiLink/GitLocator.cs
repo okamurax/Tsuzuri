@@ -3,7 +3,7 @@ using System.IO;
 
 namespace AiLink
 {
-    /// <summary>git.exe の場所（ファイラーの git の印で使う。Tsuzuri の DocumentHistory.GitPath と同じ探し方）。</summary>
+    /// <summary>git.exe の場所（Tsuzuri の DocumentHistory.GitPath と同じ探し方）。AI の端末の PATH に exe の隣の git を足すのに使う。</summary>
     public static class GitLocator
     {
         private static readonly object SearchLock = new object();
@@ -21,7 +21,7 @@ namespace AiLink
         {
             get
             {
-                lock (SearchLock)   // ファイラーの裏のスレッドからも呼ぶ（探し終わる前に「無い」と答えないように）
+                lock (SearchLock)   // ほかのスレッドから呼んでも、探し終わる前に「無い」と答えないように
                 {
                     if (_searched) return _git;
                     _searched = true;

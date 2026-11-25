@@ -101,7 +101,7 @@ namespace AiLink
         /// <summary>タブの段の「＋」。</summary>
         private Button _aiAddButton;
 
-        /// <summary>アイコンのフォント（ファイラーと同じ）。</summary>
+        /// <summary>アイコンのフォント。</summary>
         private static readonly FontFamily IconFont = new FontFamily("Segoe Fluent Icons, Segoe MDL2 Assets");
 
         /// <summary>
@@ -313,7 +313,6 @@ namespace AiLink
             _aiTab = tab;
             ShowAiTabs();
             RefreshAiProjectRow();
-            PaintFilerUseFolder();
             if (tab != null) FocusAiTerminal(tab);
         }
 
@@ -387,22 +386,6 @@ namespace AiLink
                               .ToList();
             _settings.AiTabs = tabs.Count > 0 ? tabs : null;
             _settings.Save();
-        }
-
-        /// <summary>ファイラーで名前を変えたあと、各タブのプロジェクトフォルダを直す。</summary>
-        private void OnAiPathRenamed(Func<string, string> remap)
-        {
-            var changed = false;
-            foreach (var tab in _aiTabs)
-            {
-                var moved = remap(tab.Project);
-                if (moved == tab.Project) continue;
-                tab.Project = moved;
-                changed = true;
-            }
-            if (!changed) return;
-            RefreshAiProjectRow();
-            StoreAiTabs();
         }
 
         // =====================================================================
@@ -625,18 +608,22 @@ namespace AiLink
             foreach (var tab in _aiTabs) tab.View.Dispose();
             CloseAiShell();
 
-            try
+            DeleteExcelSheets();
+            foreach (var path in new[] { AiShellDumpPath })
             {
-                File.Delete(AiShellDumpPath);
-            }
-            catch (Exception)
-            {
-                // 消せなくても閉じるのは止めない。次に起動したとき DeleteStaleAiFiles が片付ける
+                try
+                {
+                    File.Delete(path);
+                }
+                catch (Exception)
+                {
+                    // 消せなくても閉じるのは止めない。次に起動したとき DeleteStaleAiFiles が片付ける
+                }
             }
         }
 
         /// <summary>
-        /// 前に落ちた AiLink が残したファイル（terminal-番号.txt）を消す。番号のプロセスがもう動いていないか、
+        /// 前に落ちた AiLink が残したファイル（terminal-番号.txt・sheets-番号.txt）を消す。番号のプロセスがもう動いていないか、
         /// 別のプログラムに番号が使い回されていれば消す。できる範囲で。
         /// </summary>
         private static void DeleteStaleAiFiles()
@@ -644,11 +631,14 @@ namespace AiLink
             try
             {
                 var self = Process.GetCurrentProcess();
-                foreach (var path in Directory.GetFiles(AiFolder, "terminal-*.txt"))
+                foreach (var path in Directory.GetFiles(AiFolder, "terminal-*.txt").Concat(Directory.GetFiles(AiFolder, "sheets-*.txt")))
                 {
                     var name = Path.GetFileNameWithoutExtension(path);
                     int id;
-                    if (!int.TryParse(name.Substring(name.IndexOf('-') + 1), out id) || id == self.Id) continue;
+                    // 名前は terminal-番号・sheets-番号-中身の印。番号で見る
+                    var number = name.Substring(name.IndexOf('-') + 1);
+                    if (number.IndexOf('-') >= 0) number = number.Substring(0, number.IndexOf('-'));
+                    if (!int.TryParse(number, out id) || id == self.Id) continue;
                     if (IsAiLinkRunning(id, self.ProcessName)) continue;
                     try
                     {

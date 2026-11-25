@@ -14,7 +14,7 @@ namespace AiLink
     // MainWindow の一部: 開いている Excel を読み書きする（Tsuzuri の MainWindow.Excel.cs から写したもの。2026-11-25）。
     // ・AI は、開いているブックのどのシートも読める・書ける（2026-11-25。利用者の判断。前は一覧で選んだ1つのシートだけ書けた）。
     //   AI に渡さない場所・ネットの場所・隠れたブックは扱わない。書く前に、AI が利用者の許可を取る（AI に渡す文で指示する）。保存は利用者がする。
-    // ・ランチャーのファイラーの下の段に、開いているブックとシートの一覧。シートを押すと選び、もう一度押すと外す。いくつでも選べる（初めは何も選んでいない）。
+    // ・左の列に、開いているブックとシートの一覧。シートを押すと選び、もう一度押すと外す。いくつでも選べる（初めは何も選んでいない）。
     //   選んだシートが、AI への「このシート」になる。話しかけるたびの今の状態に、選んだブックとシートの名前だけを書く（中身・Excel で前に出ているもの・保存したかは渡さない）。
     // ・AI が範囲を指定して読む（excel.ps1 → パイプの excel-read）・書く（excel.ps1 -Write → パイプの excel-write）・COM の台本を動かす（excel.ps1 -Script → excel-script）。
     //   読むときは、ブック・シートを付けなければ、選んだシートが1つのときだけそのシート（2つ以上なら付けさせる）。書くときは、どちらも付けさせる
@@ -66,7 +66,69 @@ namespace AiLink
             return book.IndexOf('\\') < 0 && book.IndexOf('/') < 0;
         }
 
-        /// <summary>今の状態に「Excel」の段を書く（選んだブックとシートの名前だけ。選んでいなくても、そう書く）。Excel は読まない。</summary>
+        /// <summary>選んだシートがこれより多いブックは、全部を選んでいなくても、名前を並べずにファイルに書く。</summary>
+        private const int ExcelSheetsInline = 30;
+
+        /// <summary>
+        /// シートの名前の一覧を書くファイルの頭（2026-11-25）。画面ごと。中身ごとに別の名前（sheets-画面-中身の印.txt）にし、上書きしない
+        /// （前の頼みの今の状態が指すファイルを、あとの頼みで書き換えないため）。閉じるときにまとめて消す。
+        /// </summary>
+        private string ExcelSheetsPrefix
+        {
+            get { return "sheets-" + AiProcessId + "-"; }
+        }
+
+        /// <summary>名前の一覧をファイルに書き、そのパスを返す。中身が同じなら同じファイル。書けなければ null。</summary>
+        private string WriteExcelSheets(string content)
+        {
+            try
+            {
+                string mark;
+                using (var sha = System.Security.Cryptography.SHA1.Create())
+                {
+                    mark = string.Concat(sha.ComputeHash(Encoding.UTF8.GetBytes(content)).Take(6).Select(b => b.ToString("x2")));
+                }
+                var path = Path.Combine(AiFolder, ExcelSheetsPrefix + mark + ".txt");
+                if (File.Exists(path)) return path;
+                Directory.CreateDirectory(AiFolder);
+                var temp = path + ".saving";
+                try
+                {
+                    File.WriteAllText(temp, content, new UTF8Encoding(false));
+                    File.Move(temp, path);
+                }
+                finally
+                {
+                    if (File.Exists(temp)) File.Delete(temp);
+                }
+                return path;
+            }
+            catch (Exception)
+            {
+                return null;
+            }
+        }
+
+        /// <summary>この画面が書いた名前の一覧のファイルを消す（閉じるとき）。</summary>
+        private void DeleteExcelSheets()
+        {
+            try
+            {
+                if (!Directory.Exists(AiFolder)) return;
+                foreach (var path in Directory.GetFiles(AiFolder, ExcelSheetsPrefix + "*.txt")) File.Delete(path);
+            }
+            catch (Exception)
+            {
+                // 消せなくても閉じるのは止めない。次に起動したときに片付ける
+            }
+        }
+
+        /// <summary>
+        /// 今の状態に「Excel」の段を書く（選んだブックとシートの名前だけ。選んでいなくても、そう書く）。Excel は読まない。
+        /// 2枚以上のシートがあるブックで、一覧を最後に読んだときのシートを全部選んでいれば「全シート（N 枚）」、
+        /// 選んだシートが ExcelSheetsInline 枚より多ければ「シート N 枚」と書き、名前は並べずにファイルに書いてそのパスを添える
+        /// （2026-11-25。利用者の考え。シートがとても多いブックで、話しかけるたびに名前を全部並べないため）。ファイルを書けなければ名前を並べる。
+        /// </summary>
         private void AppendExcelContext(StringBuilder text)
         {
             var choices = _excelChoices;
@@ -82,13 +144,49 @@ namespace AiLink
                 text.Append("Excel: Excel の一覧で選んだシートは、AI に渡さない場所のブックにあるので、名前も渡していない。尋ねたり探したりしない\n");
                 return;
             }
-            text.Append("Excel: 利用者がExcel の一覧で選んだシート（").Append(shown.Count).Append(" 枚。名前だけ。中身は渡していない）: ");
-            for (var i = 0; i < shown.Count; i++)
+
+            // ブックごとにまとめる（ブックは最初に選んだ順）。名前を並べないブックの分は、先にファイルの中身を作る
+            var books = _lastExcelBooks;
+            var groups = shown.GroupBy(choice => choice.Book, StringComparer.OrdinalIgnoreCase).ToList();
+            var sheetList = new StringBuilder();
+            var listedOut = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var wholeBooks = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var group in groups)
             {
-                if (i > 0) text.Append("、");
-                text.Append("ブック「").Append(shown[i].Book)
-                    .Append(UnsavedExcelBook(shown[i].Book) ? "（まだ保存していない新しいブック）" : string.Empty)
-                    .Append("」のシート「").Append(shown[i].Sheet).Append("」");
+                var chosen = group.ToList();
+                var listed = books != null ? books.FirstOrDefault(item => SameExcelBook(item.Path ?? item.Name, group.Key)) : null;
+                var whole = listed != null && listed.Sheets.Count >= 2 && chosen.Count == listed.Sheets.Count
+                            && listed.Sheets.All(sheet => chosen.Any(choice => string.Equals(choice.Sheet, sheet, StringComparison.OrdinalIgnoreCase)));
+                if (!whole && chosen.Count <= ExcelSheetsInline) continue;
+                listedOut.Add(group.Key);
+                if (whole) wholeBooks.Add(group.Key);
+                sheetList.Append("# ブック: ").Append(group.Key).Append(whole ? "（全シート " + chosen.Count + " 枚）" : "（選んだシート " + chosen.Count + " 枚）").Append('\n');
+                foreach (var sheet in whole ? listed.Sheets : chosen.Select(choice => choice.Sheet).ToList()) sheetList.Append(sheet).Append('\n');
+            }
+            var file = sheetList.Length > 0 ? WriteExcelSheets(sheetList.ToString()) : null;
+            if (file == null) listedOut.Clear();   // 書けなければ、名前を並べる
+
+            text.Append("Excel: 利用者がExcel の一覧で選んだシート（").Append(shown.Count).Append(" 枚。渡すのは名前だけで、中身は渡していない）: ");
+            var first = true;
+            foreach (var group in groups)
+            {
+                var chosen = group.ToList();
+                var unsaved = UnsavedExcelBook(group.Key) ? "（まだ保存していない新しいブック）" : string.Empty;
+                if (listedOut.Contains(group.Key))
+                {
+                    if (!first) text.Append("、");
+                    first = false;
+                    text.Append("ブック「").Append(group.Key).Append("」").Append(unsaved)
+                        .Append(wholeBooks.Contains(group.Key) ? "の全シート（" : "のシート（").Append(chosen.Count)
+                        .Append(" 枚。シートの名前はここに並べず、ファイル「").Append(file).Append("」に書いた）");
+                    continue;
+                }
+                foreach (var choice in chosen)
+                {
+                    if (!first) text.Append("、");
+                    first = false;
+                    text.Append("ブック「").Append(group.Key).Append("」").Append(unsaved).Append("のシート「").Append(choice.Sheet).Append("」");
+                }
             }
             if (hidden > 0) text.Append("（ほかに選んだ ").Append(hidden).Append(" 枚は、AI に渡さない場所のブックなので、名前も渡していない。尋ねたり探したりしない）");
             text.Append('\n');

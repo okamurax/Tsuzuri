@@ -26,7 +26,7 @@
         <SolidColorBrush x:Key="SidebarHeaderText" Color="#B3B6BC" />
         <!-- 本文の地（#101827）の上でのホバー。サイドバー用の HoverFill より一段暗い -->
         <SolidColorBrush x:Key="CenterHover"       Color="#1C2435" />
-        <!-- 作業面（サイドバー・本文・ファイラー）を包む角丸の枠。Mattermost の画面から取った -->
+        <!-- 作業面（Excel の一覧・AI の欄）を包む角丸の枠。Mattermost の画面から取った -->
         <SolidColorBrush x:Key="FrameBorder"       Color="#293142" />
         <!-- 入力欄の枠。フォーカスで AccentBrush に変える -->
         <SolidColorBrush x:Key="InputBorder"       Color="#3A4255" />

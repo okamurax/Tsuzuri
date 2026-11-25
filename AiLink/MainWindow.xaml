@@ -33,41 +33,19 @@
                        Text="" />
         </Border>
 
-        <!-- 作業面。左の列（ランチャー・ファイラー・Excel の一覧）｜仕切り｜AI の欄 -->
+        <!-- 作業面。左の列（開いている Excel の一覧）｜仕切り｜AI の欄 -->
         <Border Margin="4,0,4,0" CornerRadius="8"
                 BorderBrush="{StaticResource FrameBorder}" BorderThickness="1"
                 Background="{StaticResource PageBackground}">
             <Grid x:Name="Layout">
                 <Grid.ColumnDefinitions>
-                    <ColumnDefinition x:Name="LauncherColumn" Width="380" MinWidth="220" />
+                    <ColumnDefinition x:Name="SidebarColumn" Width="300" MinWidth="180" />
                     <ColumnDefinition Width="4" />
                     <ColumnDefinition Width="*" MinWidth="320" />
                 </Grid.ColumnDefinitions>
 
-                <!-- 左の列 -->
-                <Grid Grid.Column="0" Background="{StaticResource SidebarBackground}">
-                    <Grid.RowDefinitions>
-                        <RowDefinition x:Name="LauncherRow" Height="200" MinHeight="60" />
-                        <RowDefinition Height="Auto" />
-                        <RowDefinition Height="Auto" />
-                        <RowDefinition Height="*" MinHeight="80" />
-                        <RowDefinition Height="Auto" />
-                        <RowDefinition x:Name="ExcelListRow" Height="180" MinHeight="60" />
-                    </Grid.RowDefinitions>
-                    <Border x:Name="LauncherSlot" Grid.Row="0" />
-                    <GridSplitter Grid.Row="1" Height="4" Style="{StaticResource RowSplitter}" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" ResizeDirection="Rows"
-                                  DragCompleted="Layout_DragCompleted" />
-                    <!-- AI の会話のプロジェクトフォルダを渡す段（Tsuzuri と同じく、ファイラーで見ているフォルダを渡す） -->
-                    <Border Grid.Row="2" Height="32" BorderBrush="{StaticResource BorderBrushSoft}" BorderThickness="0,0,0,1">
-                        <Button x:Name="FilerUseFolder" Style="{StaticResource ToolButton}" Content="このフォルダをプロジェクトフォルダにする"
-                                Margin="8,0,8,0" Padding="8,1,8,1" FontSize="12" Focusable="False"
-                                VerticalAlignment="Center" HorizontalAlignment="Left" Click="FilerUseFolder_Click" />
-                    </Border>
-                    <Border x:Name="FilerHost" Grid.Row="3" />
-                    <GridSplitter Grid.Row="4" Height="4" Style="{StaticResource RowSplitter}" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" ResizeDirection="Rows"
-                                  DragCompleted="Layout_DragCompleted" />
-                    <Border x:Name="ExcelListHost" Grid.Row="5" />
-                </Grid>
+                <!-- 左の列: 開いている Excel のブックとシートの一覧（Views/ExcelListView。MainWindow.Excel.cs） -->
+                <Border x:Name="ExcelListHost" Grid.Column="0" Background="{StaticResource SidebarBackground}" />
 
                 <GridSplitter Grid.Column="1" Width="4" HorizontalAlignment="Stretch" VerticalAlignment="Stretch"
                               DragCompleted="Layout_DragCompleted" />

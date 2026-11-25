@@ -8,8 +8,8 @@ using System.Windows.Threading;
 namespace AiLink
 {
     /// <summary>
-    /// AI連携ツールの窓（1つだけ）。左の列にランチャー・ファイラー・Excel の一覧、右に AI の欄（PORTING.md）。
-    /// 部分ごとのファイル: MainWindow.Launcher.cs（ランチャー・ファイラー）、MainWindow.Ai*.cs（AI の欄）、MainWindow.Excel.cs（Excel）。
+    /// AI連携ツールの窓（1つだけ）。左の列に開いている Excel の一覧、右に AI の欄（PORTING.md）。
+    /// 部分ごとのファイル: MainWindow.Ai*.cs（AI の欄）、MainWindow.Excel.cs（Excel）。
     /// </summary>
     public partial class MainWindow : Window
     {
@@ -24,9 +24,7 @@ namespace AiLink
             InitializeComponent();
             RestoreWindowBounds();
 
-            LauncherColumn.Width = new GridLength(_settings.LauncherWidth);
-            LauncherRow.Height = new GridLength(_settings.LauncherHeight);
-            ExcelListRow.Height = new GridLength(_settings.ExcelListHeight);
+            SidebarColumn.Width = new GridLength(_settings.SidebarWidth);
 
             _statusReset.Tick += delegate
             {
@@ -34,8 +32,6 @@ namespace AiLink
                 StatusText.Text = string.Empty;
             };
 
-            CreateLauncher();
-            CreateFiler();
             Closing += OnClosing;
 
             // 会話のタブは窓が出てから開く（端末（WebView2）は窓ができてから動く）。Excel の一覧も読む
@@ -44,12 +40,10 @@ namespace AiLink
                 StartAi();
                 RefreshExcelList();
             };
-            // ほかのアプリ（Excel など）から戻ったら、Excel の一覧とファイラーを読み直す（ブックを開いた・閉じた・保存した）
+            // ほかのアプリ（Excel など）から戻ったら、Excel の一覧を読み直す（ブックを開いた・閉じた・保存した）
             Activated += delegate
             {
-                if (!IsLoaded) return;
-                RefreshExcelList();
-                if (_filer != null) _filer.ReloadIfChanged();
+                if (IsLoaded) RefreshExcelList();
             };
         }
 
@@ -58,7 +52,6 @@ namespace AiLink
             StoreWindowBounds();
             StoreLayout();
             _settings.Save();
-            if (_filer != null) _filer.Stop();
             StopAi();
         }
 
@@ -118,7 +111,7 @@ namespace AiLink
             Close();
         }
 
-        /// <summary>仕切りを動かした。左の列の幅・ランチャーと Excel の一覧の高さを覚える。</summary>
+        /// <summary>仕切りを動かした。左の列の幅を覚える。</summary>
         private void Layout_DragCompleted(object sender, DragCompletedEventArgs e)
         {
             StoreLayout();
@@ -127,9 +120,7 @@ namespace AiLink
 
         private void StoreLayout()
         {
-            if (LauncherColumn.ActualWidth >= 220) _settings.LauncherWidth = LauncherColumn.ActualWidth;
-            if (LauncherRow.ActualHeight >= 60) _settings.LauncherHeight = LauncherRow.ActualHeight;
-            if (ExcelListRow.ActualHeight >= 60) _settings.ExcelListHeight = ExcelListRow.ActualHeight;
+            if (SidebarColumn.ActualWidth >= 180) _settings.SidebarWidth = SidebarColumn.ActualWidth;
         }
     }
 }

@@ -106,9 +106,6 @@
     <Compile Include="MainWindow.Excel.cs">
       <DependentUpon>MainWindow.xaml</DependentUpon>
     </Compile>
-    <Compile Include="MainWindow.Launcher.cs">
-      <DependentUpon>MainWindow.xaml</DependentUpon>
-    </Compile>
     <Compile Include="MainWindow.xaml.cs">
       <DependentUpon>MainWindow.xaml</DependentUpon>
     </Compile>
@@ -119,13 +116,9 @@
     <Compile Include="Properties\AssemblyInfo.cs" />
     <Compile Include="Views\ExcelListView.cs" />
     <Compile Include="Views\FileIcon.cs" />
-    <Compile Include="Views\FilerGit.cs" />
-    <Compile Include="Views\FilerView.cs" />
-    <Compile Include="Views\LauncherView.cs" />
-    <Compile Include="Views\Palette.cs" />
+    <Compile Include="Views\FolderPicker.cs" />
     <Compile Include="Views\PseudoConsole.cs" />
     <Compile Include="Views\ScrollThumbLength.cs" />
-    <Compile Include="Views\ShellActions.cs" />
     <Compile Include="Views\ShellIcons.cs" />
     <Compile Include="Views\TerminalView.cs" />
   </ItemGroup>

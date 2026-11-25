@@ -5,28 +5,37 @@
 # and that a broken answer is reported as a failure. Keep this file ASCII only.
 
 $ErrorActionPreference = 'Stop'
+Write-Host 'Testing excel.ps1 (about three minutes; each case waits a few seconds, and the cases that cannot connect wait 15)...'
 $root = Split-Path -Parent $PSScriptRoot
 $failures = 0
 
 function Start-FakeServer([string]$pipe, [string]$answer, [string]$log) {
-    # one connection: records the request line, then answers (or closes without answering when $answer is empty)
-    return Start-Job -ArgumentList $pipe, $answer, $log -ScriptBlock {
-        param($pipe, $answer, $log)
-        $server = New-Object System.IO.Pipes.NamedPipeServerStream($pipe, [System.IO.Pipes.PipeDirection]::InOut)
-        try {
-            $server.WaitForConnection()
-            $reader = New-Object System.IO.StreamReader($server, [System.Text.Encoding]::UTF8)
-            $line = $reader.ReadLine()
-            [System.IO.File]::WriteAllText($log, [string]$line)
-            if ($answer) {
-                $writer = New-Object System.IO.StreamWriter($server, (New-Object System.Text.UTF8Encoding($false)))
-                $writer.WriteLine($answer)
-                $writer.Flush()
-            }
-        } finally {
-            $server.Dispose()
-        }
+    # a separate powershell process with one connection: records the request line, then answers (or closes without answering when
+    # $answer is empty). It gives up by itself after 30 seconds, and the test kills it at the end of each case
+    # (a background job blocked in WaitForConnection cannot be stopped, which hung this test)
+    $code = @'
+$server = New-Object System.IO.Pipes.NamedPipeServerStream('PIPE', [System.IO.Pipes.PipeDirection]::InOut, 1, [System.IO.Pipes.PipeTransmissionMode]::Byte, [System.IO.Pipes.PipeOptions]::Asynchronous)
+try {
+    if (-not $server.WaitForConnectionAsync().Wait(30000)) { exit 2 }
+    $reader = New-Object System.IO.StreamReader($server, [System.Text.Encoding]::UTF8)
+    $line = $reader.ReadLine()
+    [System.IO.File]::WriteAllText('LOG', [string]$line)
+    $answer = [System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('ANSWER'))
+    if ($answer) {
+        $writer = New-Object System.IO.StreamWriter($server, (New-Object System.Text.UTF8Encoding($false)))
+        $writer.WriteLine($answer)
+        $writer.Flush()
     }
+} finally {
+    $server.Dispose()
+}
+'@
+    $code = $code.Replace('PIPE', $pipe).Replace('LOG', $log.Replace("'", "''")).Replace('ANSWER', [Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes([string]$answer)))
+    $start = New-Object System.Diagnostics.ProcessStartInfo('powershell.exe')
+    $start.Arguments = '-NoProfile -ExecutionPolicy Bypass -EncodedCommand ' + [Convert]::ToBase64String([System.Text.Encoding]::Unicode.GetBytes($code))
+    $start.UseShellExecute = $false
+    $start.CreateNoWindow = $true
+    return [System.Diagnostics.Process]::Start($start)
 }
 
 function Invoke-Case([string]$app, [string]$name, [string[]]$arguments, [hashtable]$setup) {
@@ -39,8 +48,8 @@ function Invoke-Case([string]$app, [string]$name, [string[]]$arguments, [hashtab
     $file = Join-Path $dir $(if ($setup.Script) { 'excel-script-tab1.ps1' } else { 'excel-write-tab1.tsv' })
     if ($null -ne $setup.Bytes) { [System.IO.File]::WriteAllBytes($file, [byte[]]$setup.Bytes) }
 
-    $job = $null
-    if ($setup.Server) { $job = Start-FakeServer $pipe $setup.Answer $log; Start-Sleep -Milliseconds 800 }
+    $server = $null
+    if ($setup.Server) { $server = Start-FakeServer $pipe $setup.Answer $log; Start-Sleep -Milliseconds 1500 }
     $lock = $null
     if ($setup.Lock) { $lock = [System.IO.File]::Open($file, 'Open', 'Read', 'Read') }   # no FileShare.Delete: moving it fails
     try {
@@ -60,7 +69,11 @@ function Invoke-Case([string]$app, [string]$name, [string[]]$arguments, [hashtab
     } finally {
         if ($lock) { $lock.Dispose() }
     }
-    if ($job) { Wait-Job $job -Timeout 5 | Out-Null; Remove-Job $job -Force }
+    if ($server) {
+        # it has written the log by now when the request was sent; otherwise it is still waiting for a connection
+        if (-not $server.WaitForExit(3000)) { try { $server.Kill() } catch { } }
+        $server.Dispose()
+    }
 
     $request = if (Test-Path -LiteralPath $log) { [System.IO.File]::ReadAllText($log) } else { $null }
     $left = @(Get-ChildItem -LiteralPath $dir -Filter 'excel-*' | Where-Object { $_.Name -ne 'excel.ps1' } | ForEach-Object { $_.Name })

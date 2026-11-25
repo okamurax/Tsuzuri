@@ -62,9 +62,10 @@ namespace Tsuzuri
         {
             var launcherOpen = _launcher != null;
 
-            // 図エディタを出している間は、図エディタの左端（窓の左端。アウトラインは覆われている）の下へ。本文の列のままだと、キャンバスの中ほどにかかる（レビューの指摘）。
-            // ランチャーを図エディタの上に出したときは、ランチャーの左下へ戻す
-            Grid.SetColumn(SideTabs, _drawing != null && !launcherOpen ? 0 : 2);
+            // 図エディタが見えている間は隠す（2026-11-25。利用者の判断。描くのに邪魔なので）。カレンダーは図エディタの間は出せず、ランチャーは Alt+L で出せる。
+            // ランチャーを図エディタの上に出したときは、ランチャーを押して閉じられるように出す（ランチャーの左下）。
+            // 前は、図エディタの間は窓の左端の下へ移していた（本文の列のままだと、キャンバスの中ほどにかかるため）
+            SideTabs.Visibility = _drawing != null && !launcherOpen ? Visibility.Collapsed : Visibility.Visible;
             PaintSideTab(CalendarTab, CalendarTabBack, CalendarTabBar, CalendarTabIcon, _calendar != null);
             PaintSideTab(LauncherTab, LauncherTabBack, LauncherTabBar, LauncherTabIcon, launcherOpen);
 

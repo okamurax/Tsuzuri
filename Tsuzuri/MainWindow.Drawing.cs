@@ -130,7 +130,7 @@ namespace Tsuzuri
             _drawing = session;
             DrawingHost.Child = view;
             DrawingHost.Visibility = Visibility.Visible;
-            PaintSideTabs();   // つまみを図エディタの左端へ（キャンバスの中ほどにかからないように）
+            PaintSideTabs();   // 図エディタが見えている間は、つまみを隠す
             Status("図エディタ: " + stem + "（右の AI の欄はそのまま使えます。保存か終了で本文に戻ります）");
 
             // 覆われた本文に打ち込まないよう、キー入力を図エディタへ移す（ランチャー・カレンダーと同じ。組み版のあとで）

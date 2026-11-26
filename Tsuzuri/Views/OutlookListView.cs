@@ -459,7 +459,7 @@ namespace Tsuzuri.Views
                 }
                 var shown = _shown.Count;
                 // 続きがあれば、一番下まで来たら読む。読めなかったときは、利用者が一番下までスクロールしたときだけやり直す
-                _more = !page.Loading && page.Problem == null && shown < page.Total && shown < OutlookBridge.MaxListedMails;
+                _more = !page.Loading && page.Problem == null && !page.Exhausted && shown < page.Total && shown < OutlookBridge.MaxListedMails;
                 _retry = !page.Loading && page.Problem != null;
                 _foot.Text = page.Loading ? "読んでいます…"
                              : page.Problem != null ? page.Problem + "（下までスクロールすると、やり直します）"

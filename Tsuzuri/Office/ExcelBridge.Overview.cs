@@ -687,7 +687,7 @@ namespace Tsuzuri.Office
             var count = Convert.ToInt32(scope.Get(shapes, "Count"), CultureInfo.InvariantCulture);
             var o = new StringBuilder();
             var listed = 0;
-            for (var i = 1; i <= count && listed < OverviewItems; i++)
+            for (var i = 1; i <= count && listed < OverviewItems && i <= OverviewItems * 20; i++)   // 数えない物がとても多くても、回る数に上限（時間切れのあとも回り続けないように。2026-11-26 のレビュー）
             {
                 var shape = scope.Pick(shapes, "Item", i);
                 var type = Convert.ToInt32(scope.Get(shape, "Type"), CultureInfo.InvariantCulture);
@@ -700,7 +700,7 @@ namespace Tsuzuri.Office
                 if (fill != null) o.Append("・塗り ").Append(fill);
                 o.Append('\n');
             }
-            if (count > listed && listed >= OverviewItems) o.Append("（多いので、ここまで。全部で ").Append(count).Append(" 個）\n");
+            if (count > listed && (listed >= OverviewItems || count > OverviewItems * 20)) o.Append("（多いので、ここまで。全部で ").Append(count).Append(" 個）\n");
             return o.ToString();
         }
 
@@ -758,14 +758,14 @@ namespace Tsuzuri.Office
             var count = Convert.ToInt32(scope.Get(names, "Count"), CultureInfo.InvariantCulture);
             var o = new StringBuilder();
             var listed = 0;
-            for (var i = 1; i <= count && listed < OverviewItems; i++)
+            for (var i = 1; i <= count && listed < OverviewItems && i <= OverviewItems * 20; i++)   // 数えない物がとても多くても、回る数に上限（時間切れのあとも回り続けないように。2026-11-26 のレビュー）
             {
                 var name = scope.Pick(names, "Item", i);
                 if (scope.Get(name, "Visible") as bool? == false) continue;
                 listed++;
                 o.Append("- ").Append(Text(scope.Get(name, "Name"))).Append(" = ").Append(Clip(Text(scope.Get(name, "RefersTo")))).Append('\n');
             }
-            if (count > listed && listed >= OverviewItems) o.Append("（多いので、ここまで）\n");
+            if (count > listed && (listed >= OverviewItems || count > OverviewItems * 20)) o.Append("（多いので、ここまで）\n");
             return o.ToString();
         }
 

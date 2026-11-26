@@ -137,7 +137,9 @@ namespace Tsuzuri
                 text.Append("Excel: ランチャーの Excel の一覧でシートを選んでいない（前の頼みで選んでいても、今は外されている）\n");
                 return;
             }
-            var shown = choices.Where(choice => !IsGuardedBook(choice.Book)).ToList();
+            // 画面のスレッドで動くので、ファイルを確かめに行かず、一覧を読んだときに裏で決めたものを使う（つながらない共有フォルダで画面を止めないように。2026-11-26 のレビュー）
+            var known = _excelGuarded;
+            var shown = choices.Where(choice => !(known != null ? known.Contains(choice.Book) || choice.Book.IndexOf("://", StringComparison.Ordinal) >= 0 : IsGuardedBook(choice.Book))).ToList();
             var hidden = choices.Length - shown.Count;
             if (shown.Count == 0)
             {
@@ -630,7 +632,18 @@ namespace Tsuzuri
             }
             finally
             {
-                if (process != null) process.Dispose();
+                if (process != null)
+                {
+                    // 起動したあとの途中で例外が出ても、台本を動かしたままにしない（Gate を返したあとも Excel を操作し続けないように。2026-11-26 のレビュー）
+                    try
+                    {
+                        if (!process.HasExited) process.Kill();
+                    }
+                    catch (Exception)
+                    {
+                    }
+                    process.Dispose();
+                }
                 outputDone.Dispose();
                 errorDone.Dispose();
                 TryDelete(wrapper);
@@ -686,6 +699,24 @@ namespace Tsuzuri
         private OfficeTabs _officeTabs;
         private bool _excelListing;
         private bool _excelListPending;
+
+        private System.Windows.Threading.DispatcherTimer _excelListSoon;
+
+        /// <summary>少し待ってから一覧を読み直す（AI がツールを使うたびに読み直すと、AI の Excel の読み書きと取り合うため。続けて来た分は 1 回にまとめる）。</summary>
+        private void RefreshExcelListSoon()
+        {
+            if (_excelListSoon == null)
+            {
+                _excelListSoon = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromMilliseconds(1500) };
+                _excelListSoon.Tick += delegate
+                {
+                    _excelListSoon.Stop();
+                    RefreshExcelList();
+                };
+            }
+            _excelListSoon.Stop();
+            _excelListSoon.Start();
+        }
 
         /// <summary>一覧を読み直す（裏で。ランチャーを出していなければ何もしない）。選んだシートが無くなっていれば外す。</summary>
         private void RefreshExcelList()

@@ -4,6 +4,7 @@ using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Threading;
@@ -36,14 +37,28 @@ namespace Tsuzuri.Office
             public string Problem;
             /// <summary>頼みの番号。読み足しと読み直しが重なったとき、古い頼みの結果を捨てるのに使う。</summary>
             public int Generation;
+            /// <summary>読み足しても増えなかった（数と読める行がずれている）。読み足しをやめる印で、選びを外す判定には使わない。</summary>
+            public bool Exhausted;
         }
 
         /// <summary>画面のための読み込み（フォルダの一覧・メール）を1本ずつ流す列（AI の頼みと Outlook を取り合う数を増やさない）。画面のスレッドでつなぐ。</summary>
         private Task _queue = Task.FromResult(0);
 
-        private void Enqueue(Action work)
+        /// <summary>work を列に入れる。work が例外を出したら、onError を画面のスレッドで呼ぶ（読み込み中の印を戻し、二度と読み直せなくならないように）。</summary>
+        private void Enqueue(Action work, Action onError)
         {
-            _queue = _queue.ContinueWith(previous => work(), TaskScheduler.Default);
+            var dispatcher = View.Dispatcher;
+            _queue = _queue.ContinueWith(previous =>
+            {
+                try
+                {
+                    work();
+                }
+                catch (Exception)
+                {
+                    dispatcher.BeginInvoke(onError);
+                }
+            }, TaskScheduler.Default);
         }
 
         private readonly string _aiFolder;
@@ -62,8 +77,12 @@ namespace Tsuzuri.Office
         /// <summary>開いているフォルダと、その読んだ分（画面のスレッドだけで使う）。</summary>
         private readonly Dictionary<string, MailPage> _pages = new Dictionary<string, MailPage>(StringComparer.OrdinalIgnoreCase);
 
-        private List<OutlookBridge.Store> _stores;
+        private volatile List<OutlookBridge.Store> _stores;
         private DateTime _readAt = DateTime.MinValue;
+        private DateTime _cleanedAt = DateTime.UtcNow;
+
+        /// <summary>_stores を読めた時刻（Ticks。パイプのスレッドからも読むので long で Interlocked）。読み始めた時刻（_readAt）とは別。</summary>
+        private long _storesAt;
         private bool _reading;
 
         /// <summary>一覧の表示。アプリが Excel の一覧とタブで切り替える（OfficeTabs）。</summary>
@@ -112,9 +131,14 @@ namespace Tsuzuri.Office
                         Show(problem);
                         return;
                     }
+                    Interlocked.Exchange(ref _storesAt, DateTime.UtcNow.Ticks);
                     Apply(stores);
                     if (force) foreach (var folder in _pages.Keys.ToList()) LoadMails(folder, true);
                 }));
+            }, () =>
+            {
+                _reading = false;
+                Show("Outlook を読めませんでした");
             });
         }
 
@@ -222,6 +246,8 @@ namespace Tsuzuri.Office
                     page.Problem = mails == null ? UserText(problem) : null;
                     if (mails != null)
                     {
+                        // 読み足したのに増えなければ、そこで終わりとする（数と読める行がずれていても、読み足しが空回りしないように）
+                        page.Exhausted = !again && mails.Count <= page.Mails.Count;
                         page.Mails = mails;
                         page.Total = total;
                         // フォルダの全部を読めたのに無いメールは、選びから外す（移された・消された）
@@ -239,6 +265,12 @@ namespace Tsuzuri.Office
                     if (again) Show(null);   // 読み直したときは作り直す（消えたメールを除くため）
                     else View.SetMails(folder, page);
                 }));
+            }, () =>
+            {
+                if (page.Generation != generation) return;
+                page.Loading = false;
+                page.Problem = "読めませんでした";
+                View.SetMails(folder, page);
             });
         }
 
@@ -247,6 +279,7 @@ namespace Tsuzuri.Office
         {
             if (string.IsNullOrEmpty(problem)) return "読めませんでした";
             if (problem.Contains("応答しない")) return "Outlook が応答しません（Outlook にダイアログや確認の画面が出ていないか見てください）";
+            if (problem.Contains("まだ前の頼みに応えていない")) return "Outlook がまだ前の頼みに応えていません（Outlook に確認の画面が出ていないか見てください）";
             if (problem.Contains("今回は何もしていない")) return "Outlook が忙しくて読めませんでした";
             return problem.Replace("開いてもらう", "開いてください");
         }
@@ -371,6 +404,13 @@ namespace Tsuzuri.Office
                 return "error\t頼みを読めなかった。何もしていない";
             }
 
+            // 古い結果のファイルを、長く開いたままでもたまらないように、1時間に1回まで片付ける
+            if ((DateTime.UtcNow - _cleanedAt).TotalHours >= 1)
+            {
+                _cleanedAt = DateTime.UtcNow;
+                DeleteOld(_aiFolder);
+            }
+
             switch (parts[0])
             {
                 case "outlook-folders":
@@ -388,14 +428,26 @@ namespace Tsuzuri.Office
 
         private string ServeFolders()
         {
-            string problem;
-            var stores = OutlookBridge.ListStores(45000, out problem);
-            if (stores == null) return "error\t" + problem;
-            View.Dispatcher.BeginInvoke(new Action(() =>
+            // 60 秒以内に読んだ一覧があれば、それを使う（全部のフォルダをたどるのは重いので、頼みのたびにたどり直さない。2026-11-26 のレビュー）
+            var cached = _stores;
+            var cachedAt = new DateTime(Interlocked.Read(ref _storesAt), DateTimeKind.Utc);
+            List<OutlookBridge.Store> stores;
+            string problem = null;
+            var fresh = false;
+            if (cached != null && (DateTime.UtcNow - cachedAt).TotalSeconds < 60) stores = cached;   // 写しを使ったときは、読めた時刻も一覧も触らない（期限が延び続けないように）
+            else
             {
-                _readAt = DateTime.UtcNow;
-                Apply(stores);
-            }));
+                stores = OutlookBridge.ListStores(45000, out problem);
+                fresh = stores != null;
+                if (fresh) Interlocked.Exchange(ref _storesAt, DateTime.UtcNow.Ticks);
+            }
+            if (stores == null) return "error\t" + problem;
+            if (fresh)
+                View.Dispatcher.BeginInvoke(new Action(() =>
+                {
+                    _readAt = DateTime.UtcNow;
+                    Apply(stores);
+                }));
 
             var output = new StringBuilder();
             output.Append("# Outlook のメールのフォルダ（ストアごと。1行に1つのパス。メールの中身は含まない）\n");
@@ -419,7 +471,7 @@ namespace Tsuzuri.Office
                 return "error\t-Limit は 1〜200。何もしていない";
 
             string problem;
-            var found = OutlookBridge.Search(folder, fields[1].Trim(), fields[2].Trim(), fields[3].Trim(), since, until, fields[6].Trim() == "1", limit, 75000, out problem);
+            var found = OutlookBridge.Search(folder, fields[1].Trim(), fields[2].Trim(), fields[3].Trim(), since, until, fields[6].Trim() == "1", limit, 65000, out problem);
             if (found == null) return "error\t" + problem;
             return WriteResult("outlook-search-", found.Text, found.Summary);
         }

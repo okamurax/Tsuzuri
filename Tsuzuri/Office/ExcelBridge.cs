@@ -175,9 +175,9 @@ namespace Tsuzuri.Office
                 return null;
             }
             // AI に渡さない場所かは、シートを探す前に確かめる（そのブックにどんなシートがあるかを、返すわけから漏らさない）
-            if (guarded != null && Text(scope.Get(book, "Path")).Length > 0 && guarded(Text(scope.Get(book, "FullName"))))
+            if (guarded != null && Text(scope.Get(book, "Path")).Length > 0 && Guarded(guarded, Text(scope.Get(book, "FullName"))))
             {
-                problem = "このブックは、利用者が決めた AI に渡さない場所か、https:// などの URL の場所にある。何もしていない";
+                problem = "このブックは、利用者が決めた AI に渡さない場所か、https:// などの URL の場所にある（か、つながらない場所で確かめられなかった）。何もしていない";
                 return null;
             }
             try
@@ -454,6 +454,15 @@ namespace Tsuzuri.Office
                             {
                             }
                         }
+                        // 概要の画像で WPF のクリップボードを使うと、このスレッドに Dispatcher（隠し窓つき）ができる。使い捨てのスレッドなので、ここで閉じる（少しずつ漏れないように。2026-11-26 のレビュー）
+                        try
+                        {
+                            var dispatcher = System.Windows.Threading.Dispatcher.FromThread(Thread.CurrentThread);
+                            if (dispatcher != null) dispatcher.InvokeShutdown();
+                        }
+                        catch (Exception)
+                        {
+                        }
                         Gate.Release();
                     }
                 });
@@ -636,9 +645,9 @@ namespace Tsuzuri.Office
 
                     var path = Text(scope.Get(book, "Path")).Length > 0 ? Text(scope.Get(book, "FullName")) : null;
                     bookShown = path ?? Text(scope.Get(book, "Name"));
-                    if (path != null && guarded != null && guarded(path))
+                    if (path != null && guarded != null && Guarded(guarded, path))
                     {
-                        problem = "このブックは、利用者が決めた AI に渡さない場所か、https:// などの URL の場所にある。読まない";
+                        problem = "このブックは、利用者が決めた AI に渡さない場所か、https:// などの URL の場所にある（か、つながらない場所で確かめられなかった）。読まない";
                         bookShown = null;
                         return null;
                     }
@@ -700,6 +709,16 @@ namespace Tsuzuri.Office
                     return null;
                 }
             }
+        }
+
+        /// <summary>
+        /// AI に渡さない場所かを、時間を区切って確かめる（2026-11-26 のレビュー）。確かめはファイルを見に行くので、つながらない共有フォルダでは長く待たされ、
+        /// その間 Excel の参照と Gate を持ち続けてしまう。5 秒で確かめられなければ、渡さない側にする（読まない・書かない）。
+        /// </summary>
+        private static bool Guarded(Func<string, bool> guarded, string path)
+        {
+            var check = System.Threading.Tasks.Task.Run(() => guarded(path));
+            return !check.Wait(5000) || check.Result;
         }
 
         private static bool UnknownName(Exception ex)

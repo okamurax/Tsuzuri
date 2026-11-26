@@ -47,8 +47,6 @@ namespace Tsuzuri
         /// <summary>Claude Code に渡す設定（フック）のファイル。エディタを閉じるときに消す（2026-10-27）。書くまでは null。</summary>
         private string _aiSettingsPath;
 
-        /// <summary>前に落ちたエディタが残した設定・状態のファイルを片付けたか（起動して最初に claude を用意するとき1回だけ）。</summary>
-        private bool _aiStaleFilesCleaned;
 
         /// <summary>
         /// 話しかけられた頼み（保存と状態の書き出し）に応えている最中か（2026-10-27）。保存の確かめのダイアログの最中にも
@@ -823,11 +821,7 @@ namespace Tsuzuri
             {
                 Directory.CreateDirectory(AiFolder);
 
-                if (!_aiStaleFilesCleaned)
-                {
-                    _aiStaleFilesCleaned = true;
-                    DeleteStaleAiFiles();
-                }
+                MaybeDeleteStaleAiFiles();
 
                 var id = WindowKey;   // 画面ごとに分ける（プロセスの番号-画面の番号）
                 _aiContextPath = Path.Combine(AiFolder, "context-" + id + ".md");
@@ -998,6 +992,20 @@ namespace Tsuzuri
             _aiContextPath = null;
             _aiSettingsPath = null;
         }
+
+        /// <summary>古い結果のファイルの片付けを、1時間に1回まで回す（起動して初めの会話のときだけだと、何日も開いたままでたまるため。2026-11-26 のレビュー）。</summary>
+        private static void MaybeDeleteStaleAiFiles()
+        {
+            lock (StaleFilesLock)
+            {
+                if ((DateTime.UtcNow - _staleFilesCleanedAt).TotalHours < 1) return;
+                _staleFilesCleanedAt = DateTime.UtcNow;
+            }
+            DeleteStaleAiFiles();
+        }
+
+        private static readonly object StaleFilesLock = new object();
+        private static DateTime _staleFilesCleanedAt = DateTime.MinValue;
 
         /// <summary>
         /// 前に落ちたエディタ（閉じる処理を通らなかったもの）が残した settings-番号.json・context-番号.md を消す（2026-10-27）。
@@ -1217,9 +1225,16 @@ namespace Tsuzuri
                     }
 
                     var connection = server;
-                    var worker = new Thread(delegate () { ServeAiRequest(connection); });
-                    worker.IsBackground = true;   // 終了を止めない
-                    worker.Start();
+                    try
+                    {
+                        var worker = new Thread(delegate () { ServeAiRequest(connection); });
+                        worker.IsBackground = true;   // 終了を止めない
+                        worker.Start();
+                    }
+                    catch (Exception)
+                    {
+                        connection.Dispose();   // スレッドを作れなかった。落ちずに待ち受けを続ける（2026-11-26 のレビュー）
+                    }
                 }
             });
             _aiListener.IsBackground = true;   // 終了を止めない
@@ -1320,6 +1335,8 @@ namespace Tsuzuri
                 {
                     var reader = new StreamReader(server, new UTF8Encoding(false), false, 256, true);
                     var request = reader.ReadLine();
+                    // つないですぐ切れた相手（何も送らなかった）には答えない（下の「書き換えたあと」の扱いに落として、図の描き直しや一覧の読み直しを走らせないように。2026-11-26 のレビュー）
+                    if (request == null) return;
 
                     if (request == "prompt" || (request != null && request.StartsWith("prompt\t", StringComparison.Ordinal)))
                     {
@@ -1377,6 +1394,7 @@ namespace Tsuzuri
                                                  || request.StartsWith("excel-script\t", StringComparison.Ordinal) || request.StartsWith("excel-overview\t", StringComparison.Ordinal)))
                     {
                         // Excel を範囲を指定して読む・書く・COM の台本を動かす（2026-11-24・25。excel.ps1。MainWindow.Excel.cs）。画面のスレッドは使わない
+                        MaybeDeleteStaleAiFiles();
                         var answer = request.StartsWith("excel-read\t", StringComparison.Ordinal) ? ServeExcelRead(request)
                                      : request.StartsWith("excel-write\t", StringComparison.Ordinal) ? ServeExcelWrite(request)
                                      : request.StartsWith("excel-overview\t", StringComparison.Ordinal) ? ServeExcelOverview(request) : ServeExcelScript(request);
@@ -2384,7 +2402,7 @@ namespace Tsuzuri
 
             if (_calendar != null) _calendar.ReloadIfChanged();   // Claude が予定を書き換えたら出し直す（2026-11-21）
             if (_launcher != null && _filer != null) _filer.ReloadIfChanged();   // ランチャーのファイラーの一覧も、フォルダの中身が変わっていれば読み直す（2026-11-24）
-            if (_launcher != null) RefreshExcelList();   // ランチャーの Excel の一覧も（2026-11-24。MainWindow.Excel.cs）
+            if (_launcher != null) RefreshExcelListSoon();   // ランチャーの Excel の一覧も（2026-11-24。MainWindow.Excel.cs）。続けて来る分は 1.5 秒まとめる（2026-11-26 のレビュー）
             foreach (var view in _stack) view.RecheckImages();      // 画像は、ここでだけ確かめ直す（スクロールでは確かめない。2026-11-23）
             ReloadDrawingIfChanged();   // 図エディタで開いている図を Claude などが書き換えたら、図エディタに読み込む（2026-11-23）
 

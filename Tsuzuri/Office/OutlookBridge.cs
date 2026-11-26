@@ -137,6 +137,7 @@ namespace Tsuzuri.Office
             var count = ToInt(scope.Get(folders, "Count"));
             for (var i = 1; i <= count && into.Count < MaxFoldersPerStore; i++)
             {
+                Check();
                 // 子ごとに参照を手放す（Exchange のオンライン モードは、同時に開けるフォルダの数にも上限がある。持つのは深さの分の鎖だけにする）
                 using (var child = new Scope())
                 {
@@ -295,6 +296,7 @@ namespace Tsuzuri.Office
                     var total = 0;
                     foreach (var target in targets)
                     {
+                        Check();
                         try
                         {
                             total += ReadTable(scope, target, filter, since, until, limit, rows);
@@ -346,10 +348,15 @@ namespace Tsuzuri.Office
             }
             for (var i = 1; i <= count && into.Count < MaxSearchFolders; i++)
             {
+                Check();
                 try
                 {
                     var folder = scope.Pick(folders, "Item", i);
-                    if (ToInt(scope.Get(folder, "DefaultItemType")) != 0) continue;
+                    if (ToInt(scope.Get(folder, "DefaultItemType")) != 0)
+                    {
+                        scope.Release(folder);   // メールでないフォルダは、すぐ手放す
+                        continue;
+                    }
                     into.Add(folder);
                     CollectSubfolders(scope, folder, into, ref skipped);
                 }
@@ -364,7 +371,15 @@ namespace Tsuzuri.Office
         /// フォルダの Table を条件で読み、rows に足す（多くても limit 通まで。新しい順）。見つかった数を返す。
         /// 列は守られていないもの（EntryID・Subject・ReceivedTime・MessageClass）と、差出人の名前・添付の有無（DASL の名前）。
         /// </summary>
-        private static int ReadTable(Scope scope, object folder, string filter, DateTime? since, DateTime? until, int limit, List<Row> rows)
+        private static int ReadTable(Scope outer, object folder, string filter, DateTime? since, DateTime? until, int limit, List<Row> rows)
+        {
+            using (var scope = new Scope())   // Table と Columns はフォルダごとに手放す（下のフォルダを 100 個たどっても、参照を積み上げない）
+            {
+                return ReadTableCore(scope, folder, filter, since, until, limit, rows);
+            }
+        }
+
+        private static int ReadTableCore(Scope scope, object folder, string filter, DateTime? since, DateTime? until, int limit, List<Row> rows)
         {
             var folderPath = Text(scope.Get(folder, "FolderPath"));
             var table = scope.Call(folder, "GetTable", filter, 0);   // 0 = olUserItems
@@ -376,14 +391,18 @@ namespace Tsuzuri.Office
 
             // 数は Outlook に数えさせる（行を全部回すと、大きなフォルダで時間切れになる。2026-11-26 のレビュー）。行は limit 件まで読む
             var total = ToInt(scope.Call(table, "GetRowCount"));
+            if (total == 0) return 0;
+            // 行は GetArray でまとめて読む（1行ずつ GetNextRow・GetValues を呼ぶと、呼び出しが行の数の何倍にもなる。2026-11-26 のレビュー）
+            var array = scope.Call(table, "GetArray", limit) as Array;
+            if (array == null || array.Rank != 2) return total;
+            var r0 = array.GetLowerBound(0);
+            var c0 = array.GetLowerBound(1);
             var taken = 0;
-            while (taken < limit && !(bool)scope.Get(table, "EndOfTable"))
+            for (var r = r0; r <= array.GetUpperBound(0) && taken < limit; r++)
             {
-                var row = scope.Call(table, "GetNextRow");
-                try
+                var values = new object[6];
+                for (var c = 0; c < 6; c++) values[c] = array.GetValue(r, c0 + c);
                 {
-                    var values = scope.Call(row, "GetValues") as object[];
-                    if (values == null || values.Length < 6) continue;
                     // 日時は組み込みの名前の列なのでローカル。条件の日付でも確かめ直す（DASL の日時の文字が違う読み方をされても、外れたメールを出さない）
                     var received = values[2] is DateTime ? (DateTime)values[2] : DateTime.MinValue;
                     if (received == DateTime.MinValue && (since.HasValue || until.HasValue)) continue;   // 日時が読めない行は、日付の条件では確かめられない
@@ -399,10 +418,6 @@ namespace Tsuzuri.Office
                         From = Text(values[4]),
                         Attachment = values[5] is bool && (bool)values[5],
                     });
-                }
-                finally
-                {
-                    scope.Release(row);   // 行はすぐ手放す（たくさんの行で参照を積み上げない）
                 }
             }
             return total;
@@ -538,19 +553,20 @@ namespace Tsuzuri.Office
             var names = new List<string>();
             for (var i = 1; i <= count; i++)
             {
+                using (var item = new Scope())   // 添付は1つごとに手放す
                 try
                 {
-                    var attachment = scope.Pick(attachments, "Item", i);
+                    var attachment = item.Pick(attachments, "Item", i);
                     string name;
                     try
                     {
-                        name = Text(scope.Get(attachment, "FileName"));
+                        name = Text(item.Get(attachment, "FileName"));
                     }
                     catch (Exception ex) when (!IsBusy(ex) && !IsGone(ex))
                     {
                         name = string.Empty;   // 埋め込みのメール・OLE などは FileName が無いことがある
                     }
-                    if (name.Length == 0) name = Text(scope.Get(attachment, "DisplayName"));
+                    if (name.Length == 0) name = Text(item.Get(attachment, "DisplayName"));
                     names.Add(Line(name));
                 }
                 catch (Exception ex) when (!IsBusy(ex) && !IsGone(ex))
@@ -624,6 +640,7 @@ namespace Tsuzuri.Office
                     scope.Set(mail, "Subject", subject);
                     scope.Set(mail, "BodyFormat", 1);   // 1 = 文字だけ（AI が書いたのは文字なので、HTML にして書式を崩さない）
                     scope.Set(mail, "Body", body);
+                    Check();   // 呼んだ側が待つのをやめていれば保存しない（「保存されたか分からない」と答えたあとで保存して、作り直しで二重にならないように）
                     scope.Call(mail, "Save");   // 下書きフォルダ（既定のメールボックス）に入る。Send は呼ばない
                     return "下書きに保存した（件名「" + Line(subject) + "」・宛先 " + Line(to) + (cc.Length > 0 ? "・CC " + Line(cc) : string.Empty)
                            + "。送っていない。署名は付いていない。送る前に Outlook の下書きフォルダで見直してもらう）";
@@ -660,6 +677,7 @@ namespace Tsuzuri.Office
                         // 文字だけ・RTF: 本文の頭に足す
                         scope.Set(reply, "Body", text.Replace("\n", "\r\n") + "\r\n\r\n" + Text(scope.Get(reply, "Body")));
                     }
+                    Check();   // 呼んだ側が待つのをやめていれば保存しない
                     scope.Call(reply, "Save");   // 下書きフォルダに入る。Send は呼ばない
                     return "返信" + (all ? "（全員）" : string.Empty) + "の下書きに保存した（件名「" + Line(Text(scope.Get(reply, "Subject")))
                            + "」。宛先は元のメールから決まる。送っていない。署名は付いていない。送る前に Outlook の下書きフォルダで見直してもらう）";
@@ -711,14 +729,22 @@ namespace Tsuzuri.Office
             }
             var stores = scope.Get(session, "Stores");
             var count = ToInt(scope.Get(stores, "Count"));
+            // パスの頭（\\名前）と表示名が合うストアを先にたどり、合わなければほかのストアをたどる
+            // （つながらない共有メールボックス・PST の GetRootFolder で、頼みのたびに待たされないように。2026-11-26 のレビュー）
+            var cut = path.IndexOf('\\', 2);
+            var head = cut < 0 ? path.Substring(2) : path.Substring(2, cut - 2);
+            for (var pass = 0; pass < 2; pass++)
             for (var i = 1; i <= count; i++)
             {
+                Check();
                 object root;
                 string rootPath;
                 object store;
                 try
                 {
                     store = scope.Pick(stores, "Item", i);
+                    var named = string.Equals(Text(scope.Get(store, "DisplayName")), head, StringComparison.OrdinalIgnoreCase);
+                    if (named != (pass == 0) || ToInt(scope.Get(store, "ExchangeStoreType")) == 2) continue;   // パブリック フォルダはたどらない（一覧にも出さない）
                     root = scope.Call(store, "GetRootFolder");
                     rootPath = Text(scope.Get(root, "FolderPath")).TrimEnd('\\');
                 }
@@ -817,7 +843,14 @@ namespace Tsuzuri.Office
             {
                 try
                 {
-                    return scope.Keep(Marshal.GetActiveObject("Outlook.Application"));
+                    var app = scope.Keep(Marshal.GetActiveObject("Outlook.Application"));
+                    // Outlook の窓が1つも無ければ、ほかのプログラムが画面なしで起動したもので、プロファイルを選ぶ画面で止まりうる。触らない（新しい下書きの道も含め、つなぐ所で確かめる。2026-11-26 のレビュー）
+                    if (ToInt(scope.Get(scope.Get(app, "Explorers"), "Count")) == 0)
+                    {
+                        problem = "Outlook の窓が開いていない（Outlook（classic）を開いてもらう。ほかのプログラムが画面なしで動かしている Outlook には触らない）";
+                        return null;
+                    }
+                    return app;
                 }
                 catch (COMException ex) when (ex.ErrorCode == unchecked((int)0x800401E3) && attempt < 4)   // MK_E_UNAVAILABLE
                 {
@@ -858,6 +891,25 @@ namespace Tsuzuri.Office
         /// <summary>Outlook を呼ぶのは一度に1つだけ（ExcelBridge と同じ考え。時間切れになった呼び出しのスレッドが終わるまで、次を始めない）。</summary>
         private static readonly SemaphoreSlim Gate = new SemaphoreSlim(1, 1);
 
+        /// <summary>Outlook を呼ぶ1回分。State: 0 動いている、1 終えた、2 時間切れで呼んだ側が待つのをやめた（ExcelBridge の Job と同じ考え。2026-11-26 のレビュー）。</summary>
+        private sealed class Job
+        {
+            public int State;
+        }
+
+        /// <summary>今のスレッドの呼び出し（RunSta のスレッドの中だけ）。</summary>
+        [ThreadStatic] private static Job Current;
+
+        /// <summary>
+        /// 呼んだ側が待つのをやめていれば、やめる（長い繰り返しの1つごと・下書きの保存の直前に呼ぶ。時間切れのあとも裏で回り続けて、Gate を握り続けないように）。
+        /// 投げる OperationCanceledException は IsGone で「切れた」の側に数え、途中の catch で飲まれないようにしている。
+        /// </summary>
+        private static void Check()
+        {
+            var job = Current;
+            if (job != null && Volatile.Read(ref job.State) == 2) throw new OperationCanceledException();
+        }
+
         /// <summary>自分の STA のスレッドで work を呼び、timeout まで待つ。そのスレッドにはメッセージ フィルターを付ける（Outlook が忙しいときにやり直す）。</summary>
         private static Outcome RunSta(Action work, int timeout)
         {
@@ -870,10 +922,12 @@ namespace Tsuzuri.Office
             // 締め切りは1つ（空くのを待った分は、動かす時間から引く。合わせて timeout を超えない。台本の持ち時間に収めるため）
             var clock = Stopwatch.StartNew();
             if (!Gate.Wait(gateWait)) return Outcome.Previous;
+            var job = new Job();
             var thread = new Thread(() =>
             {
                 IOleMessageFilter old = null;
                 var registered = false;
+                Current = job;
                 try
                 {
                     registered = CoRegisterMessageFilter(new RetryFilter(), out old) == 0;
@@ -884,6 +938,8 @@ namespace Tsuzuri.Office
                 }
                 finally
                 {
+                    Interlocked.CompareExchange(ref job.State, 1, 0);
+                    Current = null;
                     if (registered)
                     {
                         IOleMessageFilter ignored;
@@ -903,7 +959,9 @@ namespace Tsuzuri.Office
                 Gate.Release();
                 throw;
             }
-            return thread.Join(Math.Max(1000, timeout - (int)clock.ElapsedMilliseconds)) ? Outcome.Done : Outcome.TimedOut;
+            if (thread.Join(Math.Max(1000, timeout - (int)clock.ElapsedMilliseconds))) return Outcome.Done;
+            // 待つのをやめる。その直前に終えていれば、終えたものとして結果を使う
+            return Interlocked.CompareExchange(ref job.State, 2, 0) == 0 ? Outcome.TimedOut : Outcome.Done;
         }
 
         [ComImport, Guid("00000016-0000-0000-C000-000000000046"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
@@ -952,6 +1010,7 @@ namespace Tsuzuri.Office
         /// <summary>途中で Outlook が終わった（RPC_E_DISCONNECTED・RPC_S_SERVER_UNAVAILABLE・RPC_S_CALL_FAILED）。</summary>
         private static bool IsGone(Exception ex)
         {
+            if (ex is OperationCanceledException || ex.InnerException is OperationCanceledException) return true;   // 時間切れでやめた（Check）
             var code = HResult(ex);
             return code == unchecked((int)0x80010108) || code == unchecked((int)0x800706BA) || code == unchecked((int)0x800706BE);
         }

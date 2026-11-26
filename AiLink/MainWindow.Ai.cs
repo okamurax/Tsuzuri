@@ -40,8 +40,6 @@ namespace AiLink
         /// <summary>exe の隣の Ai から AI のフォルダへ写す台本。</summary>
         private static readonly string[] AiScripts = { "excel.ps1", "outlook.ps1", "state.ps1", "talk.ps1", "hook.ps1" };
 
-        /// <summary>前に落ちた AiLink が残したファイルを片付けたか（最初にタブを開くとき1回だけ）。</summary>
-        private bool _aiStaleFilesCleaned;
 
         private Thread _aiListener;
 
@@ -519,11 +517,7 @@ namespace AiLink
         private void PrepareAiFolder()
         {
             Directory.CreateDirectory(AiFolder);
-            if (!_aiStaleFilesCleaned)
-            {
-                _aiStaleFilesCleaned = true;
-                DeleteStaleAiFiles();
-            }
+            MaybeDeleteStaleAiFiles();
 
             foreach (var script in AiScripts)
             {
@@ -667,9 +661,16 @@ namespace AiLink
                     }
 
                     var connection = server;
-                    var worker = new Thread(delegate () { ServeAiRequest(connection); });
-                    worker.IsBackground = true;   // 終了を止めない
-                    worker.Start();
+                    try
+                    {
+                        var worker = new Thread(delegate () { ServeAiRequest(connection); });
+                        worker.IsBackground = true;   // 終了を止めない
+                        worker.Start();
+                    }
+                    catch (Exception)
+                    {
+                        connection.Dispose();   // スレッドを作れなかった。落ちずに待ち受けを続ける（2026-11-26 のレビュー）
+                    }
                 }
             });
             _aiListener.IsBackground = true;
@@ -711,6 +712,7 @@ namespace AiLink
                     }
                     else if (request.StartsWith("excel-read\t", StringComparison.Ordinal))
                     {
+                        MaybeDeleteStaleAiFiles();   // 長く開いたままでも、古い結果のファイルをためない（1時間に1回まで）
                         answer = ServeExcelRead(request);
                     }
                     else if (request.StartsWith("excel-write\t", StringComparison.Ordinal))
@@ -771,6 +773,20 @@ namespace AiLink
 
             DeleteExcelSheets();
         }
+
+        /// <summary>古い結果のファイルの片付けを、1時間に1回まで回す（起動して初めの会話のときだけだと、何日も開いたままでたまるため。2026-11-26 のレビュー）。</summary>
+        private static void MaybeDeleteStaleAiFiles()
+        {
+            lock (StaleFilesLock)
+            {
+                if ((DateTime.UtcNow - _staleFilesCleanedAt).TotalHours < 1) return;
+                _staleFilesCleanedAt = DateTime.UtcNow;
+            }
+            DeleteStaleAiFiles();
+        }
+
+        private static readonly object StaleFilesLock = new object();
+        private static DateTime _staleFilesCleanedAt = DateTime.MinValue;
 
         /// <summary>
         /// 前に落ちた AiLink が残したファイル（sheets-番号-中身の印.txt）を消す。番号のプロセスがもう動いていないか、

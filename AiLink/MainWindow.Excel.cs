@@ -138,7 +138,9 @@ namespace AiLink
                 text.Append("Excel: Excel の一覧でシートを選んでいない（前の頼みで選んでいても、今は外されている）\n");
                 return;
             }
-            var shown = choices.Where(choice => !IsGuardedBook(choice.Book)).ToList();
+            // 画面のスレッドで動くので、ファイルを確かめに行かず、一覧を読んだときに裏で決めたものを使う（つながらない共有フォルダで画面を止めないように。2026-11-26 のレビュー）
+            var known = _excelGuarded;
+            var shown = choices.Where(choice => !(known != null ? known.Contains(choice.Book) || choice.Book.IndexOf("://", StringComparison.Ordinal) >= 0 : IsGuardedBook(choice.Book))).ToList();
             var hidden = choices.Length - shown.Count;
             if (shown.Count == 0)
             {
@@ -605,7 +607,18 @@ namespace AiLink
             }
             finally
             {
-                if (process != null) process.Dispose();
+                if (process != null)
+                {
+                    // 起動したあとの途中で例外が出ても、台本を動かしたままにしない（Gate を返したあとも Excel を操作し続けないように。2026-11-26 のレビュー）
+                    try
+                    {
+                        if (!process.HasExited) process.Kill();
+                    }
+                    catch (Exception)
+                    {
+                    }
+                    process.Dispose();
+                }
                 outputDone.Dispose();
                 errorDone.Dispose();
                 TryDelete(wrapper);

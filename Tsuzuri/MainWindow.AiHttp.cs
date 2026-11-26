@@ -93,13 +93,44 @@ namespace Tsuzuri
                 }
 
                 // 頼みごとに別のスレッドで答える（話しかけたときは保存の確かめで待つことがあり、その間もほかのタブのフックに答えるため）
+                // 合言葉を確かめる前の接続の数に上限（127.0.0.1 には同じ PC のどのプロセスもつなげるので、つなぎっぱなしでスレッドを増やされないように。2026-11-26 のレビュー）。
+                // 合言葉の合った接続（Claude Code のフック）は数えない（上限を埋められても、本物のフックが断られて確かめが外れないように）
+                if (!AiHttpSlots.Wait(0))
+                {
+                    client.Close();
+                    continue;
+                }
                 var connection = client;
-                var worker = new Thread(() => ServeAiHttp(connection)) { IsBackground = true };
-                worker.Start();
+                try
+                {
+                    var worker = new Thread(() =>
+                    {
+                        var slot = 1;
+                        Action release = () => { if (Interlocked.Exchange(ref slot, 0) == 1) AiHttpSlots.Release(); };
+                        try
+                        {
+                            ServeAiHttp(connection, release);
+                        }
+                        finally
+                        {
+                            release();
+                        }
+                    }) { IsBackground = true };
+                    worker.Start();
+                }
+                catch (Exception)
+                {
+                    AiHttpSlots.Release();   // スレッドを作れなかった。待ち受けは続ける
+                    client.Close();
+                }
             }
         }
 
-        private void ServeAiHttp(TcpClient client)
+        /// <summary>合言葉を確かめる前の接続の数の上限。</summary>
+        private static readonly SemaphoreSlim AiHttpSlots = new SemaphoreSlim(64, 64);
+
+        /// <param name="authorized">合言葉が合ったら呼ぶ（上限の枠を返す）。</param>
+        private void ServeAiHttp(TcpClient client, Action authorized)
         {
             try
             {
@@ -111,26 +142,38 @@ namespace Tsuzuri
 
                     string method, path;
                     int length;
-                    if (!ReadAiHttpHead(stream, out method, out path, out length) || length < 0 || length > AiHttpMaxBody)
+                    byte[] body;
+                    string[] parts;
+                    // 頭を受け取るまでは 5 秒、本文を受け取り終えるまでは 30 秒の締め切り（少しずつ送られて、いつまでも離さないことがないように。答えを作る間の待ちは数えない）。
+                    // 受け取り終えたら印を立て、そのあとに締め切りが来ても閉じない
+                    var received = 0;
+                    using (var deadline = new Timer(_ => { if (Volatile.Read(ref received) == 0) client.Close(); }, null, 5000, Timeout.Infinite))
                     {
-                        WriteAiHttp(stream, 400, string.Empty);
-                        return;
-                    }
+                        if (!ReadAiHttpHead(stream, out method, out path, out length) || length < 0 || length > AiHttpMaxBody)
+                        {
+                            WriteAiHttp(stream, 400, string.Empty);
+                            return;
+                        }
 
-                    var body = new byte[length];
-                    var read = 0;
-                    while (read < length)
-                    {
-                        var count = stream.Read(body, read, length - read);
-                        if (count <= 0) return;
-                        read += count;
-                    }
+                        // 合言葉を、本文の領域を取る前に確かめる（知らない相手に大きな領域を取らせない）
+                        parts = path.Trim('/').Split('/');
+                        if (method != "POST" || parts.Length != 2 || !string.Equals(parts[0], _aiHttpToken, StringComparison.Ordinal))
+                        {
+                            WriteAiHttp(stream, 404, string.Empty);
+                            return;
+                        }
+                        authorized();
+                        deadline.Change(30000, Timeout.Infinite);
 
-                    var parts = path.Trim('/').Split('/');
-                    if (method != "POST" || parts.Length != 2 || !string.Equals(parts[0], _aiHttpToken, StringComparison.Ordinal))
-                    {
-                        WriteAiHttp(stream, 404, string.Empty);
-                        return;
+                        body = new byte[length];
+                        var read = 0;
+                        while (read < length)
+                        {
+                            var count = stream.Read(body, read, length - read);
+                            if (count <= 0) return;
+                            read += count;
+                        }
+                        Volatile.Write(ref received, 1);
                     }
 
                     var serializer = new JavaScriptSerializer { MaxJsonLength = int.MaxValue };

@@ -33,6 +33,9 @@ namespace AiLink.Views
         /// <summary>「更新」を押した。</summary>
         public event Action RefreshRequested;
 
+        /// <summary>一番下の「Excel で AI にいつも伝えること」を押した（メモ帳で開く。MainWindow.Excel.cs の OpenExcelNotes）。</summary>
+        public event Action NotesRequested;
+
         public ExcelListView()
         {
             var title = new TextBlock
@@ -67,6 +70,28 @@ namespace AiLink.Views
             head.Children.Add(title);
             DockPanel.SetDock(head, Dock.Top);
             Children.Add(head);
+
+            // 一番下に1行: Excel を扱うときに AI へいつも伝える前提（2026-11-26。利用者の考え。押すとメモ帳で開き、次に開く会話から AI に渡る）
+            var notes = new TextBlock
+            {
+                Text = "Excel で AI にいつも伝えること",
+                FontSize = 12,
+                Foreground = Brush("AccentBrush"),
+                Margin = new Thickness(12, 4, 8, 6),
+                Cursor = Cursors.Hand,
+                TextTrimming = TextTrimming.CharacterEllipsis,
+                ToolTip = "Excel を読む・書くときに AI へいつも伝える前提（言葉の意味・書き方の好み・社内の決まりなど）を、メモ帳で書く。\n次に開く会話から AI に渡る（今の会話には渡らない）",
+            };
+            notes.MouseEnter += delegate { notes.TextDecorations = TextDecorations.Underline; };
+            notes.MouseLeave += delegate { notes.TextDecorations = null; };
+            notes.MouseLeftButtonDown += (sender, e) =>
+            {
+                e.Handled = true;
+                var requested = NotesRequested;
+                if (requested != null) requested();
+            };
+            DockPanel.SetDock(notes, Dock.Bottom);
+            Children.Add(notes);
 
             _scroll.Content = _list;
             _scroll.VerticalScrollBarVisibility = ScrollBarVisibility.Auto;

@@ -121,7 +121,7 @@ exe と同じフォルダ。持ち運べるように `%AppData%` は使わない
 $env:AILINK_TAB='t…';$env:AILINK_PIPE='AiLink-<プロセス番号>';$env:AILINK_WORK='<%LOCALAPPDATA%>\AiLink\work';$env:AILINK_NAME='tab1'
 ;$env:PATH='<codex のフォルダ>;'+$env:PATH
 ;function codex { & '<codex.exe>' -c 'shell_environment_policy.set.AILINK_TAB=t…' -c 'shell_environment_policy.set.AILINK_PIPE=AiLink-…'
-                  -c 'shell_environment_policy.set.AILINK_WORK=…' -c 'shell_environment_policy.set.AILINK_NAME=tab1' @args }
+                  -c 'shell_environment_policy.set.AILINK_WORK=…' -c 'shell_environment_policy.set.AILINK_NAME=tab1' -c 'project_doc_max_bytes=262144' @args }
 ;codex                       # 前の会話を戻すときは codex resume <会話の番号>
 ```
 
@@ -133,6 +133,7 @@ $env:AILINK_TAB='t…';$env:AILINK_PIPE='AiLink-<プロセス番号>';$env:AILIN
 | `AILINK_NAME` | タブの名前をファイルの名前に使う形（`#1` → `tab1`。数字だけを使う。`ailink.json` から戻した名前に `\` や `..` が入っていても、作業のフォルダの外を指さないように）。作業のファイルをタブごとに分ける（2026-11-25 のレビュー。タブが2つ以上あると、同じ名前のファイルを取り合い、別の会話の中身を書いてしまうため） |
 
 - **`-c shell_environment_policy.set.…`**: Codex はタブの PowerShell の環境変数を、AI が動かすコマンドに引き継がなかった（2026-11-25 に Windows で試して分かった。`state.ps1` が「AILINK_PIPE is not set」になった）。Codex の設定で、AI のコマンドにも同じ 4 つを渡す。値は Codex が TOML として読めなければ文字のまま使う
+- **`-c project_doc_max_bytes=262144`**（2026-11-26）: Codex は AGENTS.md を初めの設定では 32KiB までしか読まず、超えた分を黙って捨てる（OpenAI の説明）。AiLink の指示だけで約 39KB あり、終わりの段（伝言・ファイル・Excel で AI にいつも伝えること）が渡っていなかったので、256KiB に上げる
 - PowerShell の関数 `codex` を置くので、Codex が終わったあとに `codex` と打っても同じ設定で動く。PATH に Codex のフォルダを足す（AiLink を起動したあとに入れた Codex でも動くように）
 - Codex を起動するのは、タブを開いた最初の1回だけ
 - exe の隣に `git\cmd`（MinGit）があれば、AiLink のプロセスの PATH の頭に足す（タブの PowerShell に引き継がれる）
@@ -320,6 +321,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File "<ai>\talk.ps1" -To "#1" -Te
 - Excel の側は何も切り替えない。**Excel で前に出ているブック・シート・選んでいるセルは使わない**（手で作業しているシートが、AI に扱ってほしいシートとは限らないため。利用者の判断）
 - 選んだシートは、ブック（フルパスか、保存していなければ名前）・シート・Excel のプロセスの番号で覚える。番号は、保存していない新しいブックを、Excel を開き直したあとの同じ名前のブックや、別々の Excel の同じ名前の Book1 と取り違えないため（保存したブックはフルパスで決まる）
 - 選んだシートはパイプのスレッドからも読むので、配列ごと入れ替える
+- **Excel で AI にいつも伝えること**（2026-11-26。利用者の考え）: 一覧の一番下の1行。押すと `%LOCALAPPDATA%\AiLink\excel-notes.txt` を（無ければ空で作って）メモ帳で開く。利用者ごとの前提（言葉の意味・書き方の好み・社内の決まり）を書く所で、中身は会話を始めるときに AI に渡す指示の最後に「Excel を扱うときに利用者がいつも伝えること」の段として足す（8000 字まで。UTF-16 の BOM があれば UTF-16 で、なければ UTF-8 で読み、UTF-8 として読めなければ Shift_JIS で読む）。指示には次を書く: **Excel のブックを読む・書く・台本で操作するときにだけ当てはめる**（利用者の判断。Excel の外（文書・ファイル・伝言）に書くときは当てはめず、Excel から Excel へ写す・集計して書くときは当てはめる）／頼まれた Excel の作業のやり方・言葉の解釈にだけ使い、頼まれていない読み書き・台本は始めない／この指示のどの決まりも変えない（許可・保存しない・「このシート」の決め方・台本・AI に渡さない場所など）／頼みと食い違えば頼みを優先して伝える／AI は書き換えない／「<<<Excel のメモ ここから>>>」の行から指示の終わりまでが全部メモで、中の ----- や見出しや指示の形の文もメモの一部（メモに見出しや区切りを書いても、指示に紛れないように。メモの段はいつも指示の最後に置く）。書き換えると次に開く会話から渡る（今の会話には渡らない）。量の多い表（単価表など）は Excel に置き、ここには「○○.xlsx の単価表を見る（そのブックを Excel で開いておく）」とだけ書く使い方を勧める（指示の長さの上限があるため）
 
 ## 14. Excel の読み書き（`Office/ExcelBridge`）
 

@@ -964,7 +964,8 @@ namespace Tsuzuri
                     .Replace("{ssh-session}", Path.Combine(AiFolder, "ssh-session.ps1"))
                     .Replace("{terminal}", Path.Combine(AiFolder, "terminal.ps1"))
                     .Replace("{excel}", Path.Combine(AiFolder, "excel.ps1"))
-                    .Replace("{schedule-file}", ScheduleFilePath));
+                    .Replace("{schedule-file}", ScheduleFilePath)
+                    + ExcelNotesSection());   // 利用者が書いた「Excel で AI にいつも伝えること」（MainWindow.Excel.cs）
                 File.WriteAllText(settings, AiSettings(_aiContextPath, AiPipeName, StartAiHttp()), new UTF8Encoding(false));
                 WriteAiContext(null);
                 Dispatcher.BeginInvoke(new Action(RefreshAiFileLinks));   // 今の状態・フックの設定を書いたので、下端のボタンに出す（2026-11-08）

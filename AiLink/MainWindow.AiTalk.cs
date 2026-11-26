@@ -80,6 +80,9 @@ namespace AiLink
             if (body.Length > AiTalkLimit) return "error\t伝言が長すぎる（" + AiTalkLimit + " 字まで）。長い中身は作業のフォルダのファイルに書き、伝言にはそのファイルの場所と頼みだけを書いて送り直す。";
 
             body = body.Replace("【#", "［#");   // 本文に差出人の見出しの形を書いて、ほかの会話になりすませないように
+            // $ は全角の ＄ にする（2026-11-26。利用者の判断）。Codex の入力欄は $ のあとに字を打つとスキルの候補を開き、あとで送る Enter がその候補を選んで、
+            // 伝言の中身が別の語に置き換わった（$a が $openai-templates:… になった）。受け取る AI には、指示で「＄ は $ のこと」と伝える
+            body = body.Replace("$", "＄");
             // 入力欄が空の印と同じ文字は本文から外す（画面の確かめを釣らないように）
             if (_agent.EmptyInputMarker != null) body = body.Replace(_agent.EmptyInputMarker, "(…)");
             target.Inbox.Add("【" + from.Name + " からの伝言】" + body);

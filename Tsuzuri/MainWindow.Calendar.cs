@@ -45,7 +45,7 @@ namespace Tsuzuri
 
         /// <summary>
         /// 予定の通知（Windows の通知）を押したとき（2026-11-22）。前に出ている画面を前に出し、カレンダーを開く。
-        /// 開いていればそのまま（ランチャーの奥に隠れていれば、カレンダーをランチャーの手前へ出す。ランチャーは閉じない）。
+        /// 開いていればそのまま。ランチャーを出していれば閉じる（カレンダーとランチャーは、いつもどちらか一方だけ。2026-11-26）。
         /// </summary>
         internal static void ShowCalendarFromNotice()
         {
@@ -54,12 +54,7 @@ namespace Tsuzuri
             if (window.WindowState == WindowState.Minimized) window.WindowState = WindowState.Normal;
             window.Activate();
             if (window._calendar == null) window.ToggleCalendar();
-            else if (!window.CalendarOnTop)
-            {
-                window._calendarAboveLauncher = true;
-                window.StackOverlays();
-                window._calendar.Focus();
-            }
+            else window._calendar.Focus();
         }
 
         private void ToggleCalendar()
@@ -72,12 +67,14 @@ namespace Tsuzuri
                 return;
             }
 
-            // ランチャーとは別々に開け閉めする（2026-11-24。利用者の考え）。出していれば、ランチャーの奥に隠れていても閉じる
             if (_calendar != null)
             {
                 CloseCalendar();
                 return;
             }
+
+            // カレンダーとランチャーは、いつもどちらか一方だけ（2026-11-26。利用者の判断。前は別々に開け閉めして重ねていた）。ランチャーを出していれば閉じる
+            if (_launcher != null) CloseLauncher();
 
             var heights = ReadWeekHeights();
             _calendar = new CalendarView(ScheduleFilePath, Status, ScheduleHeadings, OpenScheduleLink,
@@ -86,7 +83,7 @@ namespace Tsuzuri
             if (_googleSending) _calendar.SetSendingToGoogle(true);
             CalendarHost.Child = _calendar;
             CalendarHost.Visibility = Visibility.Visible;
-            _calendarAboveLauncher = _launcher != null;   // 後から出したほうを上に（ランチャーを出していれば、その上に重ねる）
+            _calendarAboveLauncher = false;   // ランチャーは閉じたので重ならない
             StackOverlays();
             PaintSideTabs();
 

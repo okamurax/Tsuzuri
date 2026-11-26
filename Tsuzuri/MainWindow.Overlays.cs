@@ -56,7 +56,8 @@ namespace Tsuzuri
                 && !string.Equals(last, _filer.Folder, StringComparison.OrdinalIgnoreCase))
                 _filer.Navigate(last);
 
-            // カレンダーは閉じない（2026-11-21。利用者の考え）。後から出したほうを上に重ねるので、ランチャーを上に重ね、ランチャーを閉じればカレンダーに戻る。
+            // カレンダーとランチャーは、いつもどちらか一方だけ（2026-11-26。利用者の判断。前は別々に開け閉めして重ねていた）。カレンダーを出していれば閉じる
+            if (_calendar != null) CloseCalendar();
 
             _launcher = new LauncherView(_settings, OpenFromLauncher, Status, folder =>
             {

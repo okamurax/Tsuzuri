@@ -16,7 +16,7 @@ namespace AiLink
     // 窓に戻るたびに（Activated）と、案内を出している間は3秒ごとに探し直し、見つかれば案内を消して会話のタブを開く。
     public partial class MainWindow
     {
-        /// <summary>AI のつなぎ口。AiLink は Codex に固定する（PORTING.md）。</summary>
+        /// <summary>AI のつなぎ口。AiLink は Codex に固定する（AiLink/SPEC.md）。</summary>
         private readonly IAgent _agent = new CodexAgent();
 
         /// <summary>見つけた AI の実行ファイル。見つかるまでは null。</summary>

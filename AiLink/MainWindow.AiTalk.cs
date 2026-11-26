@@ -6,7 +6,7 @@ using AiLink.Views;
 
 namespace AiLink
 {
-    // MainWindow の一部: 会話のタブどうしの伝言（2026-11-25。利用者の判断。PORTING.md）。
+    // MainWindow の一部: 会話のタブどうしの伝言（2026-11-25。利用者の判断。AiLink/SPEC.md 12章）。
     //
     // Codex には Claude Code のような会話どうしのメッセージが無いので、AiLink が仲立ちする。Enter は要らない（利用者の判断）。
     // AI が talk.ps1 -To "#1" で頼むと、AiLink は「【#2 からの伝言】…」をそのタブの受け箱に入れ、すぐ渡せるなら渡す:

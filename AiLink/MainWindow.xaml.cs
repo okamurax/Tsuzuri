@@ -8,7 +8,7 @@ using System.Windows.Threading;
 namespace AiLink
 {
     /// <summary>
-    /// AI連携ツールの窓（1つだけ）。左の列に開いている Excel の一覧、右に AI の欄（PORTING.md）。
+    /// AI連携ツールの窓（1つだけ）。左の列に開いている Excel の一覧、右に AI の欄（AiLink/SPEC.md）。
     /// 部分ごとのファイル: MainWindow.Ai*.cs（AI の欄）、MainWindow.Excel.cs（Excel）。
     /// </summary>
     public partial class MainWindow : Window

@@ -2,7 +2,7 @@
 #
 #   powershell -NoProfile -ExecutionPolicy Bypass -File state.ps1
 #       prints which conversation this is, the other conversations, and the Excel sheets the user chose in the Excel list.
-#       Run it at the start of every request.
+#       Run it only when the current request came without the current state (the instructions say when).
 #
 # It sends one line to AiLink through the pipe of the window (AILINK_PIPE and AILINK_TAB, set for the AI of the AI pane).
 # Keep this file ASCII only: PowerShell 5.1 reads a script without BOM as the ANSI code page.

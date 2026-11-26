@@ -23,7 +23,7 @@ namespace AiLink
     // MainWindow の一部: AI の欄の会話のタブと、台本（Ai/*.ps1）からの頼みを受けるパイプ（Tsuzuri の MainWindow.Ai.cs から写したもの。2026-11-25）。
     //
     // 欄はいつも出しておく。会話のタブごとに別の PowerShell が動く（端末は Views/TerminalView。WebView2 の xterm.js と ConPTY）。
-    // タブを開くと PowerShell の中で AI（Codex）を起動する。指示・フック・会話の続きを渡すのは、これから第3段で足す（PORTING.md）。
+    // タブを開くと PowerShell の中で AI（Codex）を起動する。起動のコマンド・指示・フック・会話の続きは AiLink/SPEC.md（7〜9章）。
     // 中の PowerShell には環境変数でタブの番号（AILINK_TAB）とパイプの名前（AILINK_PIPE）を渡す。台本（state.ps1・excel.ps1・talk.ps1）はこのパイプで頼んでくる。
     public partial class MainWindow
     {

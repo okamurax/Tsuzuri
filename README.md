@@ -209,7 +209,7 @@ Tsuzuri には埋め込んでいません（公開しているリポジトリに
 2. NuGet パッケージを復元する（PackageReference 方式）
 3. ビルドする（`Tsuzuri\bin\Release\Tsuzuri.exe` ができる）
 
-AI連携ツール（`AiLink/`）は別のソリューション `AiLink\AiLink.sln` で開いてビルドします（`AiLink\bin\Release\AiLink.exe`。Tsuzuri と更新の時期がずれるため、別の Visual Studio で扱う）。Excel の台本の確かめ（`Tsuzuri/Ai/excel-guard.ps1`）は AiLink も同じファイルを使います。
+AI連携ツール（`AiLink/`。説明は [AiLink/README.md](AiLink/README.md)）は別のソリューション `AiLink\AiLink.sln` で開いてビルドします（`AiLink\bin\Release\AiLink.exe`。Tsuzuri と更新の時期がずれるため、別の Visual Studio で扱う）。Excel の台本の確かめ（`Tsuzuri/Ai/excel-guard.ps1`）は AiLink も同じファイルを使います。
 
 Mac では、XAML を除いた C# のコンパイルだけを `bash tools/check-build.sh` で確かめられます（.NET SDK が要ります。AiLink は `bash tools/check-build-ailink.sh`）。
 

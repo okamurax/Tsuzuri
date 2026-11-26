@@ -1,8 +1,8 @@
 namespace AiLink.Agents
 {
     /// <summary>
-    /// AI のつなぎ口（PORTING.md）。AiLink は Codex に固定するが、ほかの AI に替えられるように、AI ごとの違いはここの向こうに置く。
-    /// 今は「入っているか」と「入れ方の案内」だけ。起動のコマンド・フック・会話の番号などは第3段で足す。
+    /// AI のつなぎ口（AiLink/SPEC.md）。AiLink は Codex に固定するが、ほかの AI に替えられるように、AI ごとの違いはここの向こうに置く。
+    /// 今あるのは、探し方・入れ方の案内・画面の印・プロセスの名前・会話の番号。起動のコマンドとフックの形は、まだ MainWindow.Ai.cs・MainWindow.AiHooks.cs にある。
     /// </summary>
     public interface IAgent
     {

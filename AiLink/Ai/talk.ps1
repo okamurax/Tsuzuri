@@ -2,8 +2,9 @@
 #
 #   powershell -NoProfile -ExecutionPolicy Bypass -File talk.ps1 -To "#1" -Text "message"
 #   powershell -NoProfile -ExecutionPolicy Bypass -File talk.ps1 -To "#1" -TextFile <file>
-#       AiLink keeps the message for that tab, headed with the name of this tab, and marks the tab.
-#       The user puts it in the input line of that tab with a button, reads it and presses Enter; then the AI of that tab reads it.
+#       AiLink keeps the message for that tab, headed with the name of this tab, and types it into that tab when its AI is waiting
+#       (or gives it when its AI finishes the current work). After several automatic messages without the user, it waits for the
+#       "pass the message" button instead. A $ in the message is typed as a full-width one (Codex opens suggestions after $).
 #
 # It sends one line to AiLink through the pipe of the window (AILINK_PIPE and AILINK_TAB, set for the AI of the AI pane).
 # Keep this file ASCII only: PowerShell 5.1 reads a script without BOM as the ANSI code page.

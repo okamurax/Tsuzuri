@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <Project ToolsVersion="15.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <Import Project="$(MSBuildExtensionsPath)\$(MSBuildToolsVersion)\Microsoft.Common.props" Condition="Exists('$(MSBuildExtensionsPath)\$(MSBuildToolsVersion)\Microsoft.Common.props')" />
-  <!-- AI連携ツール（AiLink）。Tsuzuri の AI の欄とランチャーを切り出した単独のソフト（PORTING.md）。古い形の csproj で、コンパイルするファイルを1つずつ並べる -->
+  <!-- AI連携ツール（AiLink）。Tsuzuri の AI の欄と Excel の読み書きを切り出した単独のソフト（README.md・SPEC.md）。古い形の csproj で、コンパイルするファイルを1つずつ並べる -->
   <PropertyGroup>
     <Configuration Condition=" '$(Configuration)' == '' ">Debug</Configuration>
     <Platform Condition=" '$(Platform)' == '' ">AnyCPU</Platform>
@@ -134,7 +134,8 @@
   </ItemGroup>
   <ItemGroup>
     <None Include="App.config" />
-    <None Include="PORTING.md" />
+    <None Include="README.md" />
+    <None Include="SPEC.md" />
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
 </Project>

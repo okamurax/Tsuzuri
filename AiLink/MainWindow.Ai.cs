@@ -38,7 +38,7 @@ namespace AiLink
         private static readonly string AiPipeName = "AiLink-" + AiProcessId;
 
         /// <summary>exe の隣の Ai から AI のフォルダへ写す台本。</summary>
-        private static readonly string[] AiScripts = { "excel.ps1", "state.ps1", "talk.ps1", "hook.ps1" };
+        private static readonly string[] AiScripts = { "excel.ps1", "outlook.ps1", "state.ps1", "talk.ps1", "hook.ps1" };
 
         /// <summary>前に落ちた AiLink が残したファイルを片付けたか（最初にタブを開くとき1回だけ）。</summary>
         private bool _aiStaleFilesCleaned;
@@ -578,7 +578,7 @@ namespace AiLink
         /// </summary>
         private static string AiRules()
         {
-            var scripts = new[] { "state.ps1", "excel.ps1", "talk.ps1" }
+            var scripts = new[] { "state.ps1", "excel.ps1", "outlook.ps1", "talk.ps1" }
                 .Select(name => "\"" + Path.Combine(AiFolder, name).Replace("\\", "\\\\").Replace("\"", "\\\"") + "\"");
             return "# AiLink が書くルール（会話を始めるたびに書き直す）。AiLink の台本だけを、確かめずに動かす。\n"
                    + "prefix_rule(\n"
@@ -725,6 +725,10 @@ namespace AiLink
                     {
                         answer = ServeExcelScript(request);
                     }
+                    else if (Tsuzuri.Office.OutlookLink.Handles(request))
+                    {
+                        answer = ServeOutlook(request);   // Outlook を探す・読む・下書きに保存する（2026-11-26。MainWindow.Outlook.cs）
+                    }
                     else
                     {
                         answer = "error\t知らない頼み。";
@@ -776,6 +780,7 @@ namespace AiLink
         {
             try
             {
+                Tsuzuri.Office.OutlookLink.DeleteOld(AiFolder, AiWorkFolder);   // Outlook の結果と、消せずに残った下書きの作業ファイル（2026-11-26）
                 var self = Process.GetCurrentProcess();
                 // 頼みごとの名前で書いた Excel の結果は、半日より古いものを消す（どの起動のものかは名前から分からないので、古さで見る）
                 foreach (var pattern in new[] { "excel-read-*.tsv", "excel-overview-*.txt", "excel-overview-*.png", "excel-script-*.ps1" })

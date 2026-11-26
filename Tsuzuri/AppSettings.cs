@@ -165,7 +165,7 @@ namespace Tsuzuri
 
             if (SidebarWidth < 110 || SidebarWidth > 2000) SidebarWidth = 190;
             if (FilerWidth < 180 || FilerWidth > 2000) FilerWidth = 300;
-            if (!(ExcelListHeight >= 60 && ExcelListHeight <= 2000)) ExcelListHeight = 180;   // NaN もここで直す
+            if (!(ExcelListHeight >= 130 && ExcelListHeight <= 2000) || ExcelListHeight == 180) ExcelListHeight = 300;   // Outlook の一覧も下に並べたので広げた（2026-11-26。前の初めの値 180 のままの人も）   // NaN もここで直す
             if (AiWidth < 200 || AiWidth > 4000) AiWidth = 560;
             if (!(SearchResultHeight >= 40 && SearchResultHeight <= 4000)) SearchResultHeight = 132;   // NaN もここで直す
             if (!(AiShellSplit >= 0.15 && AiShellSplit <= 0.85)) AiShellSplit = 0.6;   // NaN もここで直す

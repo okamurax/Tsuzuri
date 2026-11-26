@@ -151,7 +151,7 @@ namespace Tsuzuri
   - 「選んでいる文字」: 利用者がエディタで選んでいる文字。
   - ふだん（カーソルを固定していないとき）は、これらはエディタの画面の位置そのもの。
   - 今の状態の頭に「（前に書いた状態を渡す: …）」とあれば、エディタが今回の状態を書けず、ほかの会話のためか前の時点に書いたものを渡している。
-    その中の「この会話は〜」「プロジェクトフォルダ」「ファイル」「見ているページ」「カーソル」「まず読む範囲」「図エディタ」「Excel」「Excel の作業ファイル」の段（とそれを指す図の念押し）は信じず、読む・書く前に、どの文書のどこの話かを利用者に確かめる。
+    その中の「この会話は〜」「プロジェクトフォルダ」「ファイル」「見ているページ」「カーソル」「まず読む範囲」「図エディタ」「Excel」「Excel の作業ファイル」「Outlook」「Outlook の作業ファイル」の段（とそれを指す図の念押し）は信じず、読む・書く前に、どの文書のどこの話かを利用者に確かめる。
   - 今の状態に「この会話はカーソルを固定していない」とあれば、前の頼みで固定していても今は解除されている。今の状態の「ファイル」「見ているページ」「カーソル」に従う。
     「どの会話からの頼みか分からなかった」とあれば、固定とプロジェクトフォルダは渡っていない。前の頼みで固定やプロジェクトフォルダがあったなら、読む・書く前に利用者に確かめる。
   - **カーソルを固定しているとき**: 今の状態に「この会話は、利用者がカーソルの位置を固定している」とある。利用者が、同じ文書の別々のページの話を別々の会話で同時に進めるために、
@@ -170,7 +170,7 @@ namespace Tsuzuri
       多くはこの会話を始めたときに開いていた文書のフォルダだが、WordPress の記事なら記事の一時ファイルの上のフォルダ、AI に渡さない場所の文書なら利用者のフォルダ）。
       あとで別の場所の文書を開いても変わらないので、今の文書のフォルダと同じとは限らない。
       会話を始めたフォルダだという理由だけで、そこを作業の場所にしない。
-  - 「プロジェクトフォルダ」の行に場所があれば、「このフォルダ」「プロジェクト」「ソース」は、断りが無ければプロジェクトフォルダを指す。
+  - 「プロジェクトフォルダ」の行に場所があれば、「このフォルダ」「プロジェクト」「ソース」は、断りが無ければプロジェクトフォルダを指す（Outlook のメールの話のときの「このフォルダ」は、下の Outlook の決まり）。
     ソースを読む・書く・コマンドを動かすのは、断りが無ければプロジェクトフォルダで（コマンドは、そこへ移ってから動かすか、パスをフルパスで書く。会話を始めたフォルダで動かさない）。
     話題の文書（メモ・手順など）を読み書きするのは、今までどおり「ファイル」の行の文書（文書のフォルダの中）。
     行が「指定なし」なら、前の頼みで指定があっても今は外されている。
@@ -232,7 +232,7 @@ namespace Tsuzuri
     ファイルの末尾に足すのは、新しいサブページを作るときだけ。書いたら、印の行を探し直し、ページの範囲の中に入ったかを読み直して確かめる。
   - 同じ行がほかのページにもあることがある。Edit が一つに決まらないときは、前後の行を足して一つに決める。
     replace_all は、利用者がファイル全体を頼んだときだけ使う。
-" + Tsuzuri.Office.ExcelInstructions.ForTsuzuri() + @"- AI の欄の下に、利用者と一緒に使う「共通ターミナル」（PowerShell。利用者がそこから ssh で機器やサーバーにつないでいることもある）を出していることがある。
+" + Tsuzuri.Office.ExcelInstructions.ForTsuzuri() + Tsuzuri.Office.OutlookInstructions.ForTsuzuri() + @"- AI の欄の下に、利用者と一緒に使う「共通ターミナル」（PowerShell。利用者がそこから ssh で機器やサーバーにつないでいることもある）を出していることがある。
   利用者が「共通ターミナル」と言ったら、これを指す（自分の Bash や、上の段の会話のタブではない）。
   出していれば、話しかけるたびに今の状態に「共通ターミナル」として、画面の最後の 20 行と選んでいる文字が付いてくる。
   - 画面は話しかけたときのもの。足りないとき・そのあとの出力を見たいときは、覚えている全部（1 万行まで）をファイルに書き出させて読む:
@@ -351,7 +351,7 @@ namespace Tsuzuri
             "@powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File \"%~dp0ssh-askpass.ps1\"\r\n";
 
         /// <summary>exe の隣の Ai から AI のフォルダへ写す台本（2026-11-08。SPEC 19章）。askpass と、ネットワーク機器への入り方（ssh-session.ps1）。</summary>
-        private static readonly string[] AiScripts = { "ssh-askpass.ps1", "ssh-session.ps1", "terminal.ps1", "excel.ps1" };
+        private static readonly string[] AiScripts = { "ssh-askpass.ps1", "ssh-session.ps1", "terminal.ps1", "excel.ps1", "outlook.ps1" };
 
         /// <summary>ツールバーの「AI」。AI の欄を出し入れする。タブが1つも無ければ、claude を起動したタブを1つ開く。</summary>
         private void ToggleAi()
@@ -852,6 +852,7 @@ namespace Tsuzuri
                     .Replace("{ssh-session}", Path.Combine(AiFolder, "ssh-session.ps1"))
                     .Replace("{terminal}", Path.Combine(AiFolder, "terminal.ps1"))
                     .Replace("{excel}", Path.Combine(AiFolder, "excel.ps1"))
+                    .Replace("{outlook}", Path.Combine(AiFolder, "outlook.ps1"))
                     .Replace("{schedule-file}", ScheduleFilePath)
                     + ExcelNotesSection());   // 利用者が書いた「Excel で AI にいつも伝えること」（MainWindow.Excel.cs）
                 File.WriteAllText(settings, AiSettings(_aiContextPath, AiPipeName, StartAiHttp()), new UTF8Encoding(false));
@@ -1007,6 +1008,7 @@ namespace Tsuzuri
         {
             try
             {
+                Tsuzuri.Office.OutlookLink.DeleteOld(AiFolder);   // Outlook の結果と、消せずに残った下書きの作業ファイル（2026-11-26）
                 var self = Process.GetCurrentProcess();
 
                 // 頼みごとの名前で書いた Excel の結果・台本は、半日より古いものを消す（どの起動のものかは名前から分からないので、古さで見る。2026-11-25）
@@ -1378,6 +1380,15 @@ namespace Tsuzuri
                         var answer = request.StartsWith("excel-read\t", StringComparison.Ordinal) ? ServeExcelRead(request)
                                      : request.StartsWith("excel-write\t", StringComparison.Ordinal) ? ServeExcelWrite(request)
                                      : request.StartsWith("excel-overview\t", StringComparison.Ordinal) ? ServeExcelOverview(request) : ServeExcelScript(request);
+                        var writer = new StreamWriter(server, new UTF8Encoding(false), 256, true);
+                        writer.WriteLine(answer.Replace("\r", " ").Replace("\n", " "));
+                        writer.Flush();
+                        server.WaitForPipeDrain();
+                    }
+                    else if (Tsuzuri.Office.OutlookLink.Handles(request))
+                    {
+                        // Outlook を探す・読む・下書きに保存する（2026-11-26。outlook.ps1。MainWindow.Outlook.cs・Office/OutlookLink.cs）。画面のスレッドは使わない
+                        var answer = ServeOutlook(request);
                         var writer = new StreamWriter(server, new UTF8Encoding(false), 256, true);
                         writer.WriteLine(answer.Replace("\r", " ").Replace("\n", " "));
                         writer.Flush();
@@ -1799,7 +1810,7 @@ namespace Tsuzuri
         /// </summary>
         private const string AiStaleNote =
             "（前に書いた状態を渡す: エディタが今回の状態を書けなかったので、前に書いたものを渡す。ほかの会話のため、または前の時点のものかもしれない。"
-            + "中の「この会話は〜」「プロジェクトフォルダ」「ファイル」「見ているページ」「カーソル」「まず読む範囲」「図エディタ」「Excel」「Excel の作業ファイル」の段を信じず、読む・書く前に利用者に確かめる）\n";
+            + "中の「この会話は〜」「プロジェクトフォルダ」「ファイル」「見ているページ」「カーソル」「まず読む範囲」「図エディタ」「Excel」「Excel の作業ファイル」「Outlook」「Outlook の作業ファイル」の段を信じず、読む・書く前に利用者に確かめる）\n";
 
         /// <summary>タブごとの今の状態のファイル（パイプのフックが読む。2026-11-22）。claude を起動する前は null。</summary>
         private string AiTabContextPath(AiTab tab)
@@ -2100,6 +2111,8 @@ namespace Tsuzuri
             AppendDrawingContext(text, pin != null, tab == null);   // 図エディタを出していれば、図のファイル・選んでいる図形（2026-11-23。MainWindow.Drawing.cs）
             AppendExcelContext(text);   // ランチャーの Excel の一覧で選んだブックとシートの名前（2026-11-24。MainWindow.Excel.cs）
             AppendExcelFiles(text, tab);   // この会話の Excel の作業ファイル（2026-11-25）
+            AppendOutlookContext(text);   // ランチャーの Outlook の一覧で選んだフォルダのパス（2026-11-26。MainWindow.Outlook.cs）
+            AppendOutlookFiles(text, tab);   // この会話の Outlook の下書きの作業ファイル
             AppendAiShellContext(text);   // 共通ターミナルの画面（2026-11-08）
 
             // 図の頼みは、最初の指示に書くだけでは罫線で描かれた（2026-11-01）。話しかけるたびに1行だけ念を押す（書き方そのものは渡さない）。

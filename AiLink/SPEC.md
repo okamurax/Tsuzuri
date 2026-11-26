@@ -53,10 +53,12 @@ Tsuzuri の AI の欄（会話のタブ・今の状態の渡し方）と Excel �
 | `Office/ExcelInstructions.cs` | AI への指示の Excel の段（Tsuzuri と同じ型の文から作る。`⟦T:…⟧` は Tsuzuri だけ、`⟦A:…⟧` は AiLink だけ）。`Tsuzuri/Office/` へのリンク |
 | `Views/TerminalView.cs`・`PseudoConsole.cs` | 端末（WebView2 の xterm.js と ConPTY）。アプリのジョブ |
 | `Views/ExcelListView.cs` | 左の列の Excel の一覧。`Tsuzuri/Views/` へのリンク |
+| `MainWindow.Outlook.cs` | Outlook のつなぎ（AiLink に置く所だけ） |
+| `Office/OutlookBridge.cs`・`OutlookLink.cs`・`OutlookInstructions.cs`、`Views/OutlookListView.cs` | Outlook の COM・選んだフォルダと頼みに答える所・指示の Outlook の段・一覧。`Tsuzuri/` へのリンク |
 | `Views/ProcessTree.cs` | プロセスの親子（タブの PowerShell の下で AI が動いているか） |
 | `Views/FileIcon.cs`・`ShellIcons.cs`・`ScrollThumbLength.cs` | アイコン・スクロールバー（`FileIcon.cs` は `Tsuzuri/Views/` へのリンク） |
 | `GitLocator.cs` | exe の隣の git（MinGit）の場所 |
-| `Ai/excel.ps1`・`state.ps1`・`talk.ps1`・`hook.ps1` | AI（とフック）が動かす台本（`excel.ps1` は `Tsuzuri/Ai/` へのリンク。`AILINK_PIPE` があれば AiLink として動く）。ASCII だけで書く（PowerShell 5.1 は BOM の無い台本を ANSI の文字コードで読む） |
+| `Ai/excel.ps1`・`outlook.ps1`・`state.ps1`・`talk.ps1`・`hook.ps1` | AI（とフック）が動かす台本（`excel.ps1`・`outlook.ps1` は `Tsuzuri/Ai/` へのリンク。`AILINK_PIPE` があれば AiLink として動く）。ASCII だけで書く（PowerShell 5.1 は BOM の無い台本を ANSI の文字コードで読む） |
 | `Ai/excel-guard.ps1` | `Tsuzuri/Ai/excel-guard.ps1` へのリンク（台本の書き方の確かめ） |
 | `Terminal/` | 端末の画面（terminal.html・xterm.js と addon） |
 | `ConPty/` | 新しい ConPTY（`x64\`・`arm64\` の conpty.dll と、その下の Windows の種類ごとの OpenConsole.exe） |
@@ -420,6 +422,15 @@ PowerShell の構文解析で、許した形だけを通す（断る一覧では
 - Sort の Header・Find の LookIn・LookAt・MatchCase・シートの Copy の Before か After は必ず渡す
 - Excel が忙しいとき（0x800AC472・0x80010001・0x8001010A）は利用者に作業を終えてもらう
 - 範囲でまとめて読み書きする。セルを写すのは `Copy(写し先)`（クリップボードを使わない）か Value2 で。列の幅は列ごとに
+
+## 16-2. Outlook（`Office/OutlookBridge`・`OutlookLink`・`outlook.ps1`）
+
+Tsuzuri と同じファイル（`Tsuzuri/Office/Outlook*.cs`・`Tsuzuri/Views/OutlookListView.cs`・`Tsuzuri/Ai/outlook.ps1`。2026-11-26。利用者の考え）。動きと COM の扱いは Tsuzuri の SPEC 19章「開いている Outlook（classic）のメールを探す・読む・下書きに保存する」。AiLink に置くのは `MainWindow.Outlook.cs` だけ。
+
+- できること: フォルダの一覧・探す・1通を読む・下書きに保存する（新しいメールと返信）。送信・削除・移動などの道は作らない（利用者の判断）
+- 一覧は左の列の Excel の一覧の下。選んだフォルダのパスを、今の状態の「Outlook」の段に書く
+- 下書きのファイルは会話のフォルダの `outlook-draft-tab<n>.txt`（指示の `{outlook-draft}`）。`outlook.ps1` も Codex のルールで確かめなしに動かす（台本はパイプで頼むだけ）
+- AI への指示の Outlook の段は `OutlookInstructions.ForAiLink()`（Excel と同じ型の文の仕組み）
 
 ## 17. AI に渡さない場所（`Agents/AiGuard.cs`）
 

@@ -152,7 +152,7 @@ namespace AiLink
             {
                 if (item.Key != "command" || item.Value.IndexOf(AiFolder, StringComparison.OrdinalIgnoreCase) < 0) continue;
                 if (ChainsCommands(item.Value))
-                    return AiGuardDeny("AI連携ツールの台本（state.ps1・excel.ps1・talk.ps1）は、ほかのコマンドとつなげず、1つだけで動かす。引数は引用符で囲み、"
+                    return AiGuardDeny("AI連携ツールの台本（state.ps1・excel.ps1・outlook.ps1・talk.ps1）は、ほかのコマンドとつなげず、1つだけで動かす。引数は引用符で囲み、"
                                        + "引用符の外には英数字・空白・- : \\ / . _ # , = だけを書く（; | & < > ( ) { } @ $ 改行は書かない）。二重引用符の中にも $ と ` は書かない。全角の引用符（‘ ’ “ ” など）はどこにも書かない。"
                                        + "伝言に \" $ ` が入るときは -TextFile で渡す。");
             }

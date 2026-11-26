@@ -136,15 +136,26 @@ namespace Tsuzuri.Office
 ⟧- ほかのわけで読めない・書けなければ、返ってきたわけを利用者に伝える。
 ";
 
-        private static readonly Regex OnlyTsuzuri = new Regex("⟦T:(.*?)⟧", RegexOptions.Singleline);
-        private static readonly Regex OnlyAiLink = new Regex("⟦A:(.*?)⟧", RegexOptions.Singleline);
-
         /// <summary>Tsuzuri の指示の、Excel の項目（「- 利用者は Windows の Excel…」から。終わりに改行が付く）。</summary>
         public static string ForTsuzuri()
         {
-            var body = Fill(OnlyAiLink.Replace(OnlyTsuzuri.Replace(Template.Replace("\r\n", "\n"), "$1"), string.Empty), "Tsuzuri ", "Claude ");
-            var text = new StringBuilder();
-            text.Append("- 利用者は Windows の Excel（Tsuzuri とは別のアプリ）でブックを開いていることがある。開いているブックは、どのシートも Tsuzuri を通して読める・書ける・COM の台本で操作できる（Excel を変えるのは、利用者の許可を取ってから。保存はしない）。話しかけるたびに、今の状態に「Excel」の段が1行付いてくる。\n");
+            return TsuzuriItem("- 利用者は Windows の Excel（Tsuzuri とは別のアプリ）でブックを開いていることがある。開いているブックは、どのシートも Tsuzuri を通して読める・書ける・COM の台本で操作できる（Excel を変えるのは、利用者の許可を取ってから。保存はしない）。話しかけるたびに、今の状態に「Excel」の段が1行付いてくる。\n", Template);
+        }
+
+        /// <summary>AiLink の指示の、Excel の段（「## Excel」から。終わりに空の行が付く）。</summary>
+        public static string ForAiLink()
+        {
+            return AiLinkSection("## Excel\n\n開いているブックは、どのシートも AI連携ツールを通して読める・書ける・COM の台本で操作できる（Excel を変えるのは、利用者の許可を取ってから。保存はしない）。\n\n", Template);
+        }
+
+        private static readonly Regex OnlyTsuzuri = new Regex("⟦T:(.*?)⟧", RegexOptions.Singleline);
+        private static readonly Regex OnlyAiLink = new Regex("⟦A:(.*?)⟧", RegexOptions.Singleline);
+
+        /// <summary>型の文から Tsuzuri の分を作る: ⟦T:…⟧ を残し ⟦A:…⟧ を消し、指示の箇条書きの1項目として、head のあとに行を2字下げて並べる（コマンドの例の行は下げない）。OutlookInstructions も使う。</summary>
+        internal static string TsuzuriItem(string head, string template)
+        {
+            var body = Fill(OnlyAiLink.Replace(OnlyTsuzuri.Replace(template.Replace("\r\n", "\n"), "$1"), string.Empty), "Tsuzuri ", "Claude ");
+            var text = new StringBuilder(head);
             foreach (var line in body.TrimEnd('\n').Split('\n'))
             {
                 text.Append(line.Length == 0 || line.StartsWith("      ", System.StringComparison.Ordinal) ? line : "  " + line).Append('\n');
@@ -152,12 +163,11 @@ namespace Tsuzuri.Office
             return text.ToString();
         }
 
-        /// <summary>AiLink の指示の、Excel の段（「## Excel」から。終わりに空の行が付く）。</summary>
-        public static string ForAiLink()
+        /// <summary>型の文から AiLink の分を作る: ⟦A:…⟧ を残し ⟦T:…⟧ を消して、head のあとに置く（終わりに空の行が付く）。</summary>
+        internal static string AiLinkSection(string head, string template)
         {
-            var body = Fill(OnlyTsuzuri.Replace(OnlyAiLink.Replace(Template.Replace("\r\n", "\n"), "$1"), string.Empty), "AI連携ツール", "あなた");
-            return "## Excel\n\n開いているブックは、どのシートも AI連携ツールを通して読める・書ける・COM の台本で操作できる（Excel を変えるのは、利用者の許可を取ってから。保存はしない）。\n\n"
-                   + body.TrimEnd('\n') + "\n\n";
+            var body = Fill(OnlyTsuzuri.Replace(OnlyAiLink.Replace(template.Replace("\r\n", "\n"), "$1"), string.Empty), "AI連携ツール", "あなた");
+            return head + body.TrimEnd('\n') + "\n\n";
         }
 
         private static string Fill(string text, string app, string you)

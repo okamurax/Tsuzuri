@@ -611,7 +611,7 @@ namespace Tsuzuri
         /// <summary>ランチャーとファイラーの画面を閉じている間は幅が 0 なので、覚え直さない。</summary>
         private void StoreFilerWidth()
         {
-            if (ExcelListRow.ActualHeight >= 60) _settings.ExcelListHeight = ExcelListRow.ActualHeight;   // Excel の一覧の高さも（2026-11-24）
+            if (ExcelListRow.ActualHeight >= 130) _settings.ExcelListHeight = ExcelListRow.ActualHeight;   // Excel の一覧の高さも（2026-11-24）
             if (FilerColumn.ActualWidth < 180) return;
 
             _settings.FilerWidth = FilerColumn.ActualWidth;

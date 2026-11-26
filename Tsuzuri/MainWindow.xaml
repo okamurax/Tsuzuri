@@ -202,7 +202,7 @@
                             <RowDefinition Height="Auto" />
                             <RowDefinition Height="*" MinHeight="80" />
                             <RowDefinition Height="Auto" />
-                            <RowDefinition x:Name="ExcelListRow" Height="180" MinHeight="60" />
+                            <RowDefinition x:Name="ExcelListRow" Height="300" MinHeight="130" />
                         </Grid.RowDefinitions>
                         <Border Grid.Row="0" Height="32" BorderBrush="{StaticResource BorderBrushSoft}" BorderThickness="0,0,0,1">
                             <Button x:Name="FilerUseFolder" Style="{StaticResource ToolButton}" Content="このフォルダをプロジェクトフォルダにする"

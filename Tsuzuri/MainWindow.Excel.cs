@@ -221,6 +221,11 @@ namespace Tsuzuri
         /// <summary>AI の欄の下端の行に足す、Excel の分（「  ・Excel 見積.xlsx › 明細」。2つ以上なら枚数）。</summary>
         private string ExcelSummaryPart()
         {
+            return ExcelOnlySummaryPart() + (_outlook != null ? _outlook.SummaryPart() : string.Empty);   // Outlook の分も（2026-11-26）
+        }
+
+        private string ExcelOnlySummaryPart()
+        {
             var choices = _excelChoices;
             if (choices.Length == 0) return string.Empty;
             if (choices.Length > 1) return "  ・Excel " + choices.Length + " シート";
@@ -690,8 +695,9 @@ namespace Tsuzuri
                 _excelList.NotesRequested += OpenExcelNotes;
                 _excelList.RowClicked += ChooseExcelRow;
                 _excelList.EmptyClicked += ClearExcelChoices;
-                ExcelListHost.Child = _excelList;
+                ExcelListHost.Child = OutlookListView.Stack(_excelList, Outlook.View);   // Outlook の一覧を下に（2026-11-26。MainWindow.Outlook.cs）
             }
+            Outlook.Refresh(false);   // 前に読んでから 60 秒たっていれば読み直す
             if (_excelListing)
             {
                 _excelListPending = true;

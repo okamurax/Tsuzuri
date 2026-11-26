@@ -62,6 +62,7 @@
   <ItemGroup>
     <!-- excel.ps1 も Tsuzuri と同じファイル（環境変数でどちらのアプリから呼ばれたかを見分ける。2026-11-26） -->
     <Content Include="..\Tsuzuri\Ai\excel.ps1"><Link>Ai\excel.ps1</Link><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory></Content>
+    <Content Include="..\Tsuzuri\Ai\outlook.ps1"><Link>Ai\outlook.ps1</Link><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory></Content>
     <!-- 台本の書き方の確かめは Tsuzuri と同じファイルを使う（写しを作らない） -->
     <Content Include="..\Tsuzuri\Ai\excel-guard.ps1"><Link>Ai\excel-guard.ps1</Link><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory></Content>
     <Content Include="Ai\hook.ps1"><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory></Content>
@@ -114,6 +115,9 @@
     <Compile Include="MainWindow.AiSetup.cs">
       <DependentUpon>MainWindow.xaml</DependentUpon>
     </Compile>
+    <Compile Include="MainWindow.Outlook.cs">
+      <DependentUpon>MainWindow.xaml</DependentUpon>
+    </Compile>
     <Compile Include="MainWindow.Excel.cs">
       <DependentUpon>MainWindow.xaml</DependentUpon>
     </Compile>
@@ -124,6 +128,11 @@
     <Compile Include="..\Tsuzuri\Office\ExcelBridge.cs"><Link>Office\ExcelBridge.cs</Link></Compile>
     <Compile Include="..\Tsuzuri\Office\ExcelBridge.Overview.cs"><Link>Office\ExcelBridge.Overview.cs</Link></Compile>
     <Compile Include="..\Tsuzuri\Office\ExcelInstructions.cs"><Link>Office\ExcelInstructions.cs</Link></Compile>
+    <!-- Outlook（classic）も Tsuzuri と同じファイル（2026-11-26） -->
+    <Compile Include="..\Tsuzuri\Office\OutlookBridge.cs"><Link>Office\OutlookBridge.cs</Link></Compile>
+    <Compile Include="..\Tsuzuri\Office\OutlookInstructions.cs"><Link>Office\OutlookInstructions.cs</Link></Compile>
+    <Compile Include="..\Tsuzuri\Office\OutlookLink.cs"><Link>Office\OutlookLink.cs</Link></Compile>
+    <Compile Include="..\Tsuzuri\Views\OutlookListView.cs"><Link>Views\OutlookListView.cs</Link></Compile>
     <Compile Include="..\Tsuzuri\Views\ExcelListView.cs"><Link>Views\ExcelListView.cs</Link></Compile>
     <Compile Include="..\Tsuzuri\Views\FileIcon.cs"><Link>Views\FileIcon.cs</Link></Compile>
     <Compile Include="Properties\AssemblyInfo.cs" />

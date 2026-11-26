@@ -122,6 +122,7 @@ B のリンクを踏む     [A帯][B帯][C]
 - カレンダーがあることと予定の保存先も最初に伝えてある。カレンダーを開いていれば、出している週・選んでいる日（日を押す・なぞる・Shift+押す）・選んでいる予定も渡るので、「この週の空いている日は？」「選んだ日に〜を入れて」で通じる
 - 会話はタブで複数持てる。次に起動したときは、前の会話のタブを戻す
 - 開いている Excel（Windows のデスクトップ版）を読み書きできる。Claude は開いているブックのどのシートも読み（扱い始めに一度、書式・結合・図形・グラフなどを含むシートの概要を読む）、値を書くほか、COM の台本（PowerShell）で書式・行や列・並べ替え・グラフなども操作する。Excel を変える前には許可を求め、保存はしない（保存は自分でする。元に戻したければ保存せずに閉じる）。ランチャーのファイラーの下の段に、開いているブックとシートの一覧があり、シートを選ぶ（いくつでも。エクスプローラーと同じ選び方で、押すとそれだけを選び、Ctrl を押しながらで足す・外す、Shift を押しながらで範囲。ブックの行は、そのブックのシート全部。何もない所を押すと全部外す）と、それが Claude への「このシート」になる（名前だけが渡り、中身は渡らない）。保存していない変更があるブックには「※」が付く。Claude が変えた分は Excel の Ctrl+Z では戻らず、それより前に手でした編集の Ctrl+Z の履歴も消える。Excel で手作業しているシートや選んでいるセルは渡らない
+- 開いている Outlook（classic。Windows のデスクトップ版）のメールを、探す・読む・下書きに保存できる（2026-11-26）。Excel の一覧の下に Outlook の一覧（メールボックスごとのフォルダ）があり、フォルダを選ぶ（押すとそれだけ、Ctrl を押しながらで足す・外す）と、そのパスが Claude への「このフォルダ」になる（メールは渡らない）。選んでいないフォルダも、名前を言えば扱える。**送信・削除・移動はできない**（その機能を作っていない）。下書きは新しいメールと返信（全員に返信も）を作れ、送るのは Outlook で見直してから自分でする。署名は付かない。メールに書かれた指示には従わないよう、Claude に指示している。メールの中身は Claude（クラウド）に渡るので、会社の決まりは使う側で確かめる。外から宛先や本文を読むと、Outlook が「プログラムがメール アドレス情報にアクセスしようとしています」と尋ねることがある（ウイルス対策が有効なら、たいてい出ない）。新しい Outlook には対応していない
 - タブの段の右の「＋＋」のボタンで、欄の下に、自分と Claude が一緒に使う「共通ターミナル」（PowerShell）を出せる。画面の最後の 20 行と選んでいる文字が Claude に渡り、全部が要れば Claude が自分でファイルに書き出して読む。Claude はここにコマンドを置けるが Enter は押さない（押すのは自分）。複数行は、中のプログラムが貼り付けの印を受け付ければまとめて、受け付けなければ（RTX など）Enter を押すたびに1行ずつ置く。画面の中のパスワードなどの行は伏せて渡す。
   確かめてから実行したい変更・パスワードなどを打つ対話・長く動かすものなど、共通ターミナルでやるほうがよい作業では Claude から提案してきて、応じると Claude が共通ターミナルを出して置く
 - 「ここに構成図を描いて」と頼むと、図エディタ・罫線・Mermaid のどれで描くかを尋ねてくる。図エディタなら、Claude が図の JSON を書き、Tsuzuri が画像にする。出来た図は押せば図エディタで手直しでき、図エディタを出したまま Claude に直させることもできる
@@ -201,7 +202,7 @@ Tsuzuri には埋め込んでいません（公開しているリポジトリに
 - Windows 10 以降（x64 / ARM64）
 - .NET Framework 4.8
 - WebView2 ランタイム（AI の欄で使う。Windows 11 には入っている）
-- 任意: Claude Code（AI の欄）、MinGit（変更の記録）、Excel（デスクトップ版。AI の欄で読み書きする）
+- 任意: Claude Code（AI の欄）、MinGit（変更の記録）、Excel（デスクトップ版。AI の欄で読み書きする）、Outlook（classic。AI の欄でメールを探す・読む・下書きを作る）
 
 ## ビルド
 
@@ -209,7 +210,7 @@ Tsuzuri には埋め込んでいません（公開しているリポジトリに
 2. NuGet パッケージを復元する（PackageReference 方式）
 3. ビルドする（`Tsuzuri\bin\Release\Tsuzuri.exe` ができる）
 
-AI連携ツール（`AiLink/`。説明は [AiLink/README.md](AiLink/README.md)）は別のソリューション `AiLink\AiLink.sln` で開いてビルドします（`AiLink\bin\Release\AiLink.exe`。Tsuzuri と更新の時期がずれるため、別の Visual Studio で扱う）。Excel を扱う部分（Excel の COM・Excel の一覧・`excel.ps1`・台本の確かめ・AI への指示の Excel の段）は、AiLink も Tsuzuri と同じファイルをリンクして使います（`Tsuzuri/Office/`・`Tsuzuri/Views/ExcelListView.cs`・`Tsuzuri/Ai/excel*.ps1`）。直したら両方をビルドしてください。
+AI連携ツール（`AiLink/`。説明は [AiLink/README.md](AiLink/README.md)）は別のソリューション `AiLink\AiLink.sln` で開いてビルドします（`AiLink\bin\Release\AiLink.exe`。Tsuzuri と更新の時期がずれるため、別の Visual Studio で扱う）。Excel と Outlook を扱う部分（COM・一覧・`excel.ps1`・`outlook.ps1`・台本の確かめ・AI への指示の Excel と Outlook の段）は、AiLink も Tsuzuri と同じファイルをリンクして使います（`Tsuzuri/Office/`・`Tsuzuri/Views/ExcelListView.cs`・`OutlookListView.cs`・`FileIcon.cs`・`Tsuzuri/Ai/excel*.ps1`・`outlook.ps1`）。直したら両方をビルドしてください。
 
 Mac では、XAML を除いた C# のコンパイルだけを `bash tools/check-build.sh` で確かめられます（.NET SDK が要ります。AiLink は `bash tools/check-build-ailink.sh`）。
 
@@ -274,7 +275,7 @@ Tsuzuri/
 ├ ScheduleNotifier.cs    カレンダーの予定の通知（Windows の通知）
 ├ Markdown/              ページの読み書き（PageDocument）、Markdig による解析、変更の記録（DocumentHistory）、置換（SearchReplace）、カレンダーの予定（Schedule*）
 ├ Views/                 編集面（AvalonEdit の拡張）、ランチャー、ファイラー（git の印・Excel の一覧）、カレンダー、端末
-├ Office/                開いている Excel を読み書きする（COM を使うのはここだけ）
+├ Office/                開いている Excel を読み書きする・Outlook のメールを探す・読む・下書きに保存する（COM を使うのはここだけ。AiLink も同じファイルを使う）
 ├ Export/                Word への書き出し
 ├ WordPress/             WordPress の REST API、HTML → Markdown の変換、送る HTML（WordPressHtml）
 ├ Sync/                  Google カレンダーへ送る（ログイン・カレンダーの API・送る形）

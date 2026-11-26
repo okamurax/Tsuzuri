@@ -171,6 +171,8 @@ namespace Tsuzuri.Office
             public string Subject;
             /// <summary>受け取った日時（ローカル。無ければ DateTime.MinValue）。</summary>
             public DateTime Received;
+            /// <summary>本文の頭（Table の Body の列。Outlook が返すのは頭の約 255 字まで）。読めなければ null。一覧のポップアップに出すだけで、AI には渡さない。</summary>
+            public string Preview;
         }
 
         /// <summary>一覧で読む件数の上限（スクロールで読み足していっても、ここまで）。</summary>
@@ -209,6 +211,17 @@ namespace Tsuzuri.Office
                     var columns = scope.Get(table, "Columns");
                     scope.Call(columns, "RemoveAll");
                     foreach (var name in new[] { "EntryID", "Subject", "ReceivedTime" }) scope.Release(scope.Call(columns, "Add", name));
+                    // 本文の頭も、同じ1回で読む（カーソルを当てたときのポップアップ用。当てるたびに Outlook を呼ばないように。2026-11-26。利用者の判断）。
+                    // 足せなければ（Outlook の版・ストアによって）、本文の頭なしで件名だけを出す
+                    var preview = false;
+                    try
+                    {
+                        scope.Release(scope.Call(columns, "Add", "Body"));
+                        preview = true;
+                    }
+                    catch (Exception ex) when (!IsBusy(ex) && !IsGone(ex) && !IsDenied(ex))
+                    {
+                    }
                     scope.Call(table, "Sort", "[ReceivedTime]", true);
                     total = ToInt(scope.Call(table, "GetRowCount"));
                     var list = new List<Mail>();
@@ -227,6 +240,7 @@ namespace Tsuzuri.Office
                             EntryId = Text(values.GetValue(r, c0)),
                             Subject = Line(Text(values.GetValue(r, c0 + 1))),
                             Received = received is DateTime && ((DateTime)received).Year < 4500 ? (DateTime)received : DateTime.MinValue,
+                            Preview = preview && values.GetLength(1) > 3 ? Text(values.GetValue(r, c0 + 3)) : null,
                         });
                     }
                     return list;

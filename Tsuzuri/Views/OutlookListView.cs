@@ -453,9 +453,10 @@ namespace Tsuzuri.Views
                     if (!_shown.Add(mail.EntryId)) continue;
                     var when = mail.Received == DateTime.MinValue ? string.Empty : mail.Received.ToString("M/d HH:mm", CultureInfo.InvariantCulture) + "  ";
                     var subject = mail.Subject.Length == 0 ? "（件名なし）" : mail.Subject;
-                    _mails.Children.Add(_owner.Row(MailKey(_folder, mail.EntryId), mail, when + subject, _indent, false, true,
-                                                   subject + (mail.Received == DateTime.MinValue ? string.Empty : "\n" + mail.Received.ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture))
-                                                   + "\n押すとこのメールだけを選んで、件名・日時・ID を AI に渡す（本文は渡さない）。Ctrl を押しながらだと足す・外す"));
+                    var row = _owner.Row(MailKey(_folder, mail.EntryId), mail, when + subject, _indent, false, true, null);
+                    row.ToolTip = MailTip(mail, subject);
+                    ToolTipService.SetShowDuration(row, 60000);
+                    _mails.Children.Add(row);
                 }
                 var shown = _shown.Count;
                 // 続きがあれば、一番下まで来たら読む。読めなかったときは、利用者が一番下までスクロールしたときだけやり直す
@@ -467,6 +468,49 @@ namespace Tsuzuri.Views
                              : shown < page.Total ? (shown >= OutlookBridge.MaxListedMails ? "ここまで（" + page.Total + " 通のうち新しい " + shown + " 通。古いものは AI に探させる）" : "全 " + page.Total + " 通のうち " + shown + " 通（下までスクロールすると続きを読む）")
                              : "全 " + page.Total + " 通";
                 _owner.Dispatcher.BeginInvoke(new Action(() => AskMoreIfAtEnd(false)), System.Windows.Threading.DispatcherPriority.Background);
+            }
+
+            /// <summary>
+            /// メールの行のポップアップ: 件名・日時と、本文の頭（一覧を読んだときに一緒に読んだもの。カーソルを当てても Outlook は呼ばない）。
+            /// 本文の頭は利用者が見るためだけで、AI には渡さない。
+            /// </summary>
+            private static object MailTip(OutlookBridge.Mail mail, string subject)
+            {
+                var panel = new StackPanel { MaxWidth = 420 };
+                panel.Children.Add(new TextBlock { Text = subject, FontWeight = FontWeights.SemiBold, TextWrapping = TextWrapping.Wrap });
+                if (mail.Received != DateTime.MinValue)
+                    panel.Children.Add(new TextBlock { Text = mail.Received.ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture), Opacity = 0.7, Margin = new Thickness(0, 2, 0, 0) });
+                var preview = Preview(mail.Preview);
+                panel.Children.Add(new TextBlock
+                {
+                    Text = preview ?? "（本文の頭は読めなかった）",
+                    TextWrapping = TextWrapping.Wrap,
+                    Margin = new Thickness(0, 6, 0, 0),
+                    Opacity = preview == null ? 0.7 : 1,
+                });
+                panel.Children.Add(new TextBlock
+                {
+                    Text = "押すとこのメールだけを選んで、件名・日時・ID を AI に渡す（本文は渡さない）。Ctrl を押しながらだと足す・外す",
+                    TextWrapping = TextWrapping.Wrap,
+                    Opacity = 0.7,
+                    Margin = new Thickness(0, 6, 0, 0),
+                });
+                return panel;
+            }
+
+            /// <summary>本文の頭を見せる形に: 空の行を詰め、制御文字を空白にし、長ければ切る。空なら null。</summary>
+            private static string Preview(string text)
+            {
+                if (string.IsNullOrWhiteSpace(text)) return null;
+                var lines = new List<string>();
+                foreach (var raw in text.Replace("\r\n", "\n").Replace('\r', '\n').Split('\n'))
+                {
+                    var line = new string(Array.ConvertAll(raw.ToCharArray(), c => char.IsControl(c) ? ' ' : c)).Trim();
+                    if (line.Length > 0) lines.Add(line);
+                }
+                var joined = string.Join("\n", lines);
+                if (joined.Length == 0) return null;
+                return joined.Length > 300 ? joined.Substring(0, 300) + "…" : joined + (text.Length >= 250 ? "…" : string.Empty);
             }
 
             /// <summary>一番下まで来ていて、続きがあれば頼む（中身が箱より短くて、スクロールできないときも）。byUser は利用者がスクロールしたとき（失敗のあとのやり直しはそのときだけ）。</summary>

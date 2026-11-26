@@ -84,6 +84,20 @@ foreach ($sheet in $wb.Worksheets) { $sheet.Name }
 $wb.Worksheets | ForEach-Object { $_.UsedRange.Address() }
 $wb.Worksheets | Select-Object -First 3 -Property Name
 '@),
+    @('checks from the script rules', @'
+$ws = $excel.Workbooks.Item('book.xlsx').Worksheets.Item('Data')
+if ($ws.ProtectContents) { throw 'protected' }
+if ($ws.FilterMode) { $ws.ShowAllData() }
+$target = $ws.Range('A1:B2')
+if ($excel.WorksheetFunction.CountA($target) -le 1) { $target.Merge() }
+$cell = New-Object 'object[,]' 1,1; $cell[0,0] = [double](Get-Date).ToOADate()
+$ws.Range('C1').Value2 = $cell
+$ws.Range('C1').NumberFormat = 'yyyy/m/d'
+$ws.Range('D1').MergeArea.Cells.Item(1,1).Formula2 = '=SUM(A1:A3)'
+$found = $ws.Range('A:A').Find('x', [Type]::Missing, -4163, 1)
+if ($null -ne $found) { $found.Address() }
+try { $ws.Range('A1:A9').SpecialCells(4).Count } catch { 'none' }
+'@),
     @('table, pivot from a range, formats', @'
 $ws = $excel.Workbooks.Item('book.xlsx').Worksheets.Item('Data')
 $table = $ws.ListObjects.Add(1, $ws.Range('A1:D20'), [Type]::Missing, 1)
@@ -200,6 +214,8 @@ $refuse = @(
     @('item with a variable', '$i = 1, 2; $s = $excel.Workbooks.Item(1).Worksheets.Item($i)'),
     @('pivot from text', '$excel.Workbooks.Item(1).PivotCaches().Create(1, "''C:\x\[a.xlsx]Sheet1''!R1C1:R99C5")'),
     @('pivot from text in a cell', '$excel.Workbooks.Item(1).PivotCaches().Create(1, $excel.Workbooks.Item(1).Worksheets.Item(1).Range(''Z1'').Value2)'),
+    @('screen updating', '$excel.ScreenUpdating = $false'),
+    @('calculation', '$excel.Calculation = -4135'),
     @('paste the clipboard', '$excel.Workbooks.Item(1).Worksheets.Item(1).Paste()')
 )
 

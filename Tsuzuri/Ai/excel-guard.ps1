@@ -88,12 +88,12 @@ function Test-ExcelScript([string]$Text) {
     $AllowedMembers = @(
         # objects and collections
         'application', 'parent', 'workbooks', 'worksheets', 'sheets', 'charts', 'item', 'count', 'name', 'codename', 'index',
-        'fullname', 'readonly', 'worksheetfunction', 'calculation', 'calculate', 'calculatefull', 'screenupdating', 'intersect', 'union',
+        'fullname', 'readonly', 'worksheetfunction', 'calculate', 'calculatefull', 'intersect', 'union',
         'cutcopymode', 'version', 'decimalseparator', 'thousandsseparator', 'usesystemseparators', 'international',
         # sheets
         'cells', 'range', 'rows', 'columns', 'usedrange', 'visible', 'delete', 'copy', 'move', 'add', 'select', 'activate', 'tab',
         'autofiltermode', 'showalldata', 'filtermode', 'standardwidth', 'standardheight', 'type', 'next', 'previous',
-        'displaypagebreaks', 'enablecalculation', 'protectcontents',
+        'displaypagebreaks', 'protectcontents', 'protectstructure', 'multiuserediting', 'prefixcharacter', 'date1904', 'pivottable',
         # ranges
         'value', 'value2', 'formula', 'formular1c1', 'formulaarray', 'formula2', 'formula2r1c1', 'formulalocal', 'text',
         'address', 'addresslocal', 'row', 'column', 'offset', 'resize', 'end', 'currentregion', 'currentarray', 'entirerow',
@@ -175,7 +175,9 @@ function Test-ExcelScript([string]$Text) {
         'connection*', 'webservice', 'evaluate', 'commandbars', 'executemso', 'dde*', 'activatemicrosoftapp', 'publishobjects',
         'altstartuppath', 'startuppath', 'addpicture*', 'oleobjects', 'applytheme', 'applycharttemplate', 'mergeworkbook',
         'xmlmap*', 'xmlimport*', 'queries', 'dialogs', 'windows', 'recentfiles', 'autorecover', 'model', 'slicercaches', 'customxmlparts',
-        'filedialog', 'consolidate', 'protect', 'unprotect', 'protect*', 'password', 'writepassword',
+        'filedialog', 'consolidate', 'protect', 'unprotect', 'password', 'writepassword',
+        # Excel-wide settings stay changed for the user when a script stops halfway (the wrapper cannot restore them)
+        'screenupdating', 'calculation', 'enablecalculation', 'interactive', 'cursor',
         'paste', 'pastespecial')   # paste reads the user's clipboard (text or files copied in other programs)
 
     function InList([string]$name, [string[]]$list) {

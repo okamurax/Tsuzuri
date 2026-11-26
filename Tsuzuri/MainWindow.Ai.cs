@@ -295,7 +295,18 @@ namespace Tsuzuri
     台本で触るブックは、先に excel.ps1 で読むか概要を読んで確かめる（AI に渡さない場所・ネットの場所・隠れたブックなら、そこで断られる）。
     台本では Excel の COM だけを使い、ファイル・ほかのプログラム・ネットには触らない。Tsuzuriは動かす前に台本の書き方を調べ、決まった形だけを動かす。使えるのは、変数・代入・if/foreach/for/while/switch/try/throw、$excel からたどる Excel のプロパティとメソッドのうち、セル・書式・シート・テーブル・グラフ・ピボットテーブル（範囲から作るもの）を扱う決まったもの（名前をそのまま書く）と、文字・数・日付・配列のもの、Write-Output・ForEach-Object { }・Where-Object { }・Select-Object・Sort-Object・Measure-Object・Group-Object・Format-Table・Out-String・Out-Null・Get-Date（Select-Object などに渡すプロパティの名前も、そのまま書く）、New-Object 'object[,]' などの決まった型、[Type]::Missing（省く引数）。Workbooks・Worksheets・Sheets などのコレクションは変数に入れず、同じ式の中で使う（$wb.Worksheets.Item('明細')・foreach ($s in $wb.Worksheets)）。Item には名前か番号をそのまま書き、変数や式なら [string]$name・[int]$i・[int]$wb.Worksheets.Count のように型を付ける。ピボットテーブル・テーブルの元は $ws.Range('A1:D20') のように範囲（Range・UsedRange・CurrentRegion などで終わる式）で渡す（文字や .Value2 で渡さない）。台本の中で作る表はハッシュ表にして $h['名前'] で読む（自分で付けた名前を $x.名前 で読むのも、Select-Object・Sort-Object に渡すのも断られる。ハッシュ表の鍵はそのまま書く）。貼り付け（Paste・PasteSpecial）は使えない（利用者のクリップボードを読むため）。写すのは Copy(写し先) か Value2 で。ForEach-Object・Where-Object には { } を渡し、コマンドに -OutVariable などの共通のパラメーターは付けない。関数の定め・exit・ほかのコマンド・& や Invoke-Expression・> でのファイルへの書き出し・$env: などのドライブの変数・名前を文字や変数で組み立てた呼び出し（$x.$name・ForEach-Object Name）・-as や -is に文字で書いた型・GetType や PSObject・Excel の保存・閉じる・開く・マクロ・VBA・Evaluate・ファイル・印刷・ネット・接続のメンバー・ファイルを渡す Workbooks.Add と Sheets.Add・switch -File・$PSDefaultParameterValues は断られる。save を含む語（Saved なども）・Close・Quit などは、文字やコメントの中でも断られる（セルに書く文字にこれらの語が入るなら、-Write で書く）（断られたら、返ったわけを見て、使える形で書き直す。使える形で書けない操作なら、利用者に伝える）。セルに書く式でも、外のブックやフォルダを指す参照・WEBSERVICE などネットに触れる関数は書かない（式は確かめられないので、書く前に自分で避ける）。AI に渡さない場所のフォルダのフルパスを書いた台本も断られる（それ以外の書き方でも、そこには触らない）。
     たくさんのセルは、1つずつではなく範囲でまとめて読み書きする（1つずつは遅い）。結果は Write-Output で出す。
-    台本でセルに値を入れる（.Value2 = ・.Value = ）ときは、1つのセルでも、いつも object[,] の配列で入れる（例 $cell = New-Object 'object[,]' 1,1; $cell[0,0] = '注文書'; $ws.Range('A1').Value2 = $cell）。ループの中で文字や数をそのまま入れると、PowerShell がそれを覚えて、そのあとの配列の代入が「Object[,] を String にキャストできません」で止まる。.Formula・.FormulaR1C1 に式の文字を入れるのはそのままでよい。
+    **台本の書き方の決まり**（Excel の COM と PowerShell 5.1 でよく止まる所。2026-11-26 に調べてまとめた。守らないと、エラーか確かめの窓で止まる）:
+    - 値を入れる: セルに値を入れる（.Value2 = ）ときは、1つのセルでも、いつも object[,] の配列で入れる（例 $cell = New-Object 'object[,]' 1,1; $cell[0,0] = '注文書'; $ws.Range('A1').Value2 = $cell）。文字や数をそのまま入れると、PowerShell がその型を覚えて、そのあとの配列の代入が「Object[,] を String にキャストできません」で止まる（PowerShell の不具合。直らない）。.Value ではなく .Value2 を使う。配列の中身は [string]・[double]・[int] で型を付けて入れる（Sort-Object・Select-Object・Get-Date などコマンドの出力をそのまま入れると止まる）。日付は [double]$d.ToOADate() で数にして入れ、NumberFormat で日付の形にする。配列の大きさは書く範囲と同じにする（範囲が大きいと余りが #N/A になる）。.Formula・.Formula2 に式の文字を入れるのはそのままでよい。
+    - 文字のまま残す値: 先頭の 0（001）・電話番号や 16 桁以上の番号・「1-2」「1月2日」のような日付に見える文字・= で始まる文字は、そのまま入れると Excel が数・日付・式に変える（あとから形式を変えても戻らない）。先に範囲の NumberFormat を '@' にしてから入れる。
+    - 読む: .Value2 は、複数のセルなら 1 から始まる 2 次元の配列（$v[1,1]）、1つのセルなら配列でない値（そのまま使う）。空のセルは $null、エラーのセルは int の数（#N/A は -2146826246、#DIV/0! は -2146826281）、日付は数。.Text は表示の文字で、幅が足りないと #### になるので値には使わない。
+    - セルと範囲: セルは $ws.Cells.Item(行, 列)、範囲は $ws.Range('B3:D10') か $ws.Range($ws.Cells.Item(3,2), $ws.Cells.Item(10,4))（両端は同じシートから）。引数は前から順に渡す（名前を付けた引数は使えない）。途中を省くときは [Type]::Missing（$null は省いたことにならない）。結合したセルの値は、左上のセル（$r.MergeArea.Cells.Item(1,1)。$r は結合した範囲のどれかのセル）で読み書きする。
+    - 式と表示形式: 式は英語の関数名と , で .Formula2 に入れる（.Formula だと、UNIQUE・FILTER などの配列の式に @ が付いて 1 つの値になる）。.Formula2 は Excel 2021 と Microsoft 365 にしかなく、それより古い Excel では「メンバーが無い」というエラーになるので、そのときは .Formula に入れる。FormulaLocal・NumberFormatLocal は使わない。表示形式は NumberFormat に英語の書式（'yyyy/m/d'・'#,##0'・'0.00'・'@'）。'@' の形式のセルに式を入れると文字のままになるので、式を入れる前に形式を 'General' に戻す。
+    - 確かめの窓が出て止まる操作はしない（台本では窓を消せず、利用者が答えるまで止まる）: シートの削除（利用者に頼む）、左上のほかにも値が入った範囲の結合（結合する前に、$excel.WorksheetFunction.CountA で数えた値が 0 か、1 で左上のセルが空でないことを確かめる）、結合したセルの一部にかかる行・列の挿入と削除、名前の定義が重なるシートのコピー。
+    - 先に確かめてから操作する（確かめないと 1004 か 0x800A03EC で止まる）: シートが保護されていないか（ProtectContents。保護されていれば利用者に伝える）、並べ替える範囲に大きさの違う結合セルが無いか、フィルターがかかっているか（FilterMode が真のときだけ ShowAllData）、入力規則を足すセルに入力規則が無いか（あれば Validation.Delete() で消してから足す）、テーブル・ピボットテーブルを置く所がほかのテーブル・ピボットテーブルと重ならないか、ピボットテーブルの元の見出しに空のセルが無いか、シートの名前（31 文字まで・: \ / ? * [ ] を使わない・ほかのシートと重ならない）、列の幅は 0〜255、行の高さは 0〜409。SpecialCells は該当が無いとエラーになるので try で囲む。Find は見つからないと $null を返すので確かめてから使う。ShowAllData（利用者のフィルターを外す）・Validation.Delete()（今ある入力規則を消す）も Excel を変える操作なので、許可をもらうときに示す中身に入れる。
+    - 並べ替え・検索: Range.Sort は見出しの有無（8 番目の引数 Header。見出しがあれば 1、無ければ 2。0 は Excel に推測させるので使わない）を必ず渡す（省くと見出しも並べ替わる）。Worksheet.Sort を使うなら SortFields.Clear() から始める。Find は 3 番目の LookIn（値なら -4163、式なら -4123）・4 番目の LookAt（全体が同じなら 1、一部なら 2）・7 番目の MatchCase（$false か $true）を必ず渡す（省くと前の検索の設定が残っている）。シートのコピーは Before か After を必ず渡す（無いと新しいブックになる）。
+    - Excel が忙しいとき: 利用者がセルを編集している・Excel がダイアログを出しているときは、0x800AC472・0x80010001（Call was rejected by callee）・0x8001010A で止まる。そのときは利用者に Excel の作業を終えてもらってからやり直す（途中まで操作されているかもしれないので、読んで確かめる）。
+    - 速さ: たくさんのセルは、範囲の .Value2 で一度に読み、計算してから一度に書く（foreach でセルを 1 つずつたどると遅く、Excel が忙しい所に当たりやすい）。書式も範囲にまとめて付ける。
+    - ScreenUpdating・Calculation などの Excel 全体の設定は変えない（台本が途中で止まると、利用者の Excel がそのままになる。台本の確かめも断る）。
     セルを別の場所へ写すのは台本でする（値だけでも、書式ごとでも）。写すのも Excel を変える操作なので、下の決まりのとおり、写し先を先に読んで上書きする中身を確かめ、何をどこへ写すかを示して許可をもらう。
       利用者が「値だけ」と言っていなければ、見た目も写す: $excel.Workbooks.Item('見積.xlsx').Worksheets.Item('明細').Range('A1:D20').Copy($excel.Workbooks.Item('見積.xlsx').Worksheets.Item('集計').Range('F1'))（写し先を渡すとクリップボードを使わない）。Copy は式も写し、参照はずれて写る（別のブックへ写すと、元のブックを指す参照になる）ので、そうなる式があれば示すときに伝える。値だけなら、写し先の Value2 に元の Value2 を入れる（元が複数のセルなら、読んだ Value2 はもう object[,] なのでそのまま入れてよい。1つのセルなら 1×1 の配列に入れ直す）。
       Copy では列の幅は写らない。幅が足りないと日付や数字が #### と出るので、写し先の列の幅も合わせるなら、そのことも示して許可をもらう（列の幅は列全体にかかり、同じ列のほかの表の見た目も変わる。それも示す）。幅は列ごとに1列ずつ入れる（幅の違う列をまとめて読むと値が返らない。例 写し先.Columns.Item(1).ColumnWidth = 元.Columns.Item(1).ColumnWidth）。
@@ -304,7 +315,6 @@ namespace Tsuzuri
     **Excel を変える台本は、-Write と同じ決まりで、動かす前に何をするか（どのブックのどのシートのどこをどう変えるか、消えるものがあればそれ）を利用者に示して許可をもらう**
     （示す前の頼みは許可にならない・許可は示した分だけ）。読むだけの台本（値・式・書式・名前などを取り出して出力するだけ）は許可が要らない。
     Activate・Select・Calculate・設定の変更・新しいブックを作るのは、Excel を変える側に数える。ブックやファイルを開く・マクロ（VBA）を動かすのは、台本ではできない（頼まれたら、利用者に Excel で手でしてもらう）。
-    Application の設定（ScreenUpdating・Calculation・EnableEvents）は、要るときだけ台本の中で変え、try/finally で必ず元に戻す。
     確かめのダイアログが出る操作（シートの削除など）は、台本ではしない（DisplayAlerts は使えないので、利用者が答えるまで止まり、時間切れになる）。頼まれたら、利用者に Excel で手でしてもらう。
     save を含む語（Save・SaveAs・Saved・AutoSave・Unsaved など。名前の一部でも）・Close・Quit・ChangeFileAccess・Stop-Process・taskkill・SendKeys・Kill・DisplayAlerts・
     .Open で始まる呼び出し（Workbooks.Open・OpenText など）・.Run・RunAutoMacros・ExecuteExcel4Macro・パスを渡した Workbooks.Add・FollowHyperlink・Invoke-Item・Start-Process の語と、
@@ -313,7 +323,7 @@ namespace Tsuzuri
     ほかのやり方（語を組み立てるなど）で、保存する・閉じる・Excel を終える・読み込み直すこともしない。
     台本がエラーで止まったら、止まるまでの操作は Excel に残っている。読んで確かめてから、利用者に伝える。直してもう一度動かすときは、
     止まるまでに変わった分を読んで確かめ、二重にならない中身にして、示し直して許可をもらう。
-    台本のエラーに 0x80010001・0x8001010A があれば、「今は応えない」と同じ（Excel がセルの編集中など）。利用者に Excel の作業を終えてもらう（止まるまでの操作は残っている）。
+    台本のエラーに 0x800AC472・0x80010001（Call was rejected by callee）・0x8001010A があれば、「今は応えない」と同じ（Excel がセルの編集中など）。利用者に Excel の作業を終えてもらう（止まるまでの操作は残っている）。
   - **保存と元に戻すこと**: Claude は保存しない（保存は利用者がする）。-Write と台本の変更は Excel の Ctrl+Z では戻らず、Excel の元に戻す履歴も消える
     （利用者がその前に手でした編集も Ctrl+Z で戻せなくなる。許可をもらうときに、このことも伝える）。Tsuzuri には戻す仕組みは無い。
     Claude が変えた分を元に戻したいと言われたら、次のどちらかを伝える: 自分で書き戻す（元の中身を読んでおいた場合。Excel を変えるので、示して許可をもらってから）か、

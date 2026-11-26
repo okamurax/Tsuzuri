@@ -119,12 +119,29 @@ namespace Tsuzuri.Office
                     var walkColumns = Math.Min(columns, DumpColumns);
                     var walkRows = Math.Min(rows, Math.Max(1, DumpCells / Math.Max(1, walkColumns)));
 
-                    // まず使っている範囲の大きさ（行・列と、幅・高さのポイント）をつかみ、何の見込みか・画像をどこまで撮るかを決める
+                    // 印刷範囲が設定してあれば、それを書類の本体とみなし、大きさの見込みと画像の基準にする（2026-11-26。利用者の判断）。
+                    // 読むのは名前の定義（Print_Area）だけで、PageSetup・改ページには触れない（Excel がプリンターのドライバーに問い合わせ、遅くなる・止まることがあるため）
+                    string printAddress;
+                    int printTop, printLeft, printRows, printColumns;
+                    var printArea = PrintArea(scope, ws, used, out printAddress, out printTop, out printLeft, out printRows, out printColumns);
+
+                    // まず基準の範囲の大きさ（行・列と、幅・高さのポイント）をつかみ、何の見込みか・画像をどこまで撮るかを決める
                     string sizeNote;
                     int pictureRows, pictureColumns;
-                    Measure(scope, used, rows, columns, out sizeNote, out pictureRows, out pictureColumns);
+                    var pictureTop = top;
+                    var pictureLeft = left;
+                    var basisRows = rows;
+                    var basisColumns = columns;
+                    if (printArea != null)
+                    {
+                        pictureTop = printTop;
+                        pictureLeft = printLeft;
+                        basisRows = printRows;
+                        basisColumns = printColumns;
+                    }
+                    Measure(scope, printArea ?? used, basisRows, basisColumns, printArea != null, out sizeNote, out pictureRows, out pictureColumns);
                     // 画像は先に作る（書式などを調べて時間切れになっても、見た目はつかめるように）
-                    var pictureNote = Picture(scope, ws, top, left, pictureRows, pictureColumns, rows, columns, picture, job);
+                    var pictureNote = Picture(scope, ws, pictureTop, pictureLeft, pictureRows, pictureColumns, basisRows, basisColumns, picture, job);
                     var clock = System.Diagnostics.Stopwatch.StartNew();
                     Func<bool> stop = () => job.Abandoned || clock.ElapsedMilliseconds > OverviewWalkMillis;
                     var bottom = top + walkRows - 1;
@@ -138,6 +155,7 @@ namespace Tsuzuri.Office
                     if (walkRows < rows || walkColumns < columns)
                         o.Append("。多いので、書式・結合・列の幅・行の高さ・セルは ").Append(RangeName(top, left, bottom, right)).Append(" だけ");
                     o.Append('\n');
+                    o.Append("印刷範囲: ").Append(printAddress).Append('\n');
                     o.Append("\n## 大きさ\n").Append(sizeNote);
                     o.Append("\n## 画像\n").Append(pictureNote).Append('\n');
                     var lookAt = o.Length;   // ここに「見た目」の段を入れる（書式などを調べてから決める）
@@ -211,10 +229,10 @@ namespace Tsuzuri.Office
         }
 
         /// <summary>
-        /// 使っている範囲の大きさをつかむ: 行・列の数と、幅・高さ（ポイント。1回ずつ聞けば済むので、数万行でも速い）から、A4 で何枚分かを見積もり、
+        /// 基準の範囲（印刷範囲か使っている範囲）の大きさをつかむ: 行・列の数と、幅・高さ（ポイント。1回ずつ聞けば済むので、数万行でも速い）から、A4 で何枚分かを見積もり、
         /// 大まかな見込み（1枚に収まる書類・様式か、数枚分の表か、大きなデータの一覧か）と、画像にする行・列を決める。見込みは大きさからの推し量りで、決めつけない。
         /// </summary>
-        private static void Measure(Scope scope, object used, int rows, int columns, out string note, out int pictureRows, out int pictureColumns)
+        private static void Measure(Scope scope, object used, int rows, int columns, bool print, out string note, out int pictureRows, out int pictureColumns)
         {
             double width = 0, height = 0;
             try
@@ -226,7 +244,7 @@ namespace Tsuzuri.Office
             {
             }
             var o = new StringBuilder();
-            o.Append(rows).Append(" 行 × ").Append(columns).Append(" 列");
+            o.Append(print ? "基準: 印刷範囲 " : "基準: 使っている範囲 ").Append(rows).Append(" 行 × ").Append(columns).Append(" 列");
             pictureColumns = Math.Min(columns, PictureColumns);
             if (width > 0 && height > 0)
             {
@@ -241,7 +259,7 @@ namespace Tsuzuri.Office
                     o.Append("見込み（大きさからの推し量り）: A4 1枚に収まる大きさ。書類・様式・1枚の表かもしれない。画像は全体を撮る予定（何を撮れたかは「## 画像」）\n");
                     pictureRows = Math.Min(rows, PictureRows);
                     Fit(width, height, rows, columns, ref pictureRows, ref pictureColumns);
-                    note = o.ToString();
+                    note = (print ? PrintAreaNote : string.Empty) + o.ToString();
                     return;
                 }
             }
@@ -255,15 +273,84 @@ namespace Tsuzuri.Office
                  .Append(DataPictureRows).Append(" 行だけを撮る予定（何を撮れたかは「## 画像」。中身は -Range で絞って読む）\n");
                 pictureRows = Math.Min(rows, DataPictureRows);
                 Fit(width, height, rows, columns, ref pictureRows, ref pictureColumns);
-                note = o.ToString();
+                note = (print ? PrintAreaNote : string.Empty) + o.ToString();
                 return;
             }
             pictureRows = Math.Min(rows, PictureRows);
             Fit(width, height, rows, columns, ref pictureRows, ref pictureColumns);
             o.Append("見込み（大きさからの推し量り）: 数枚分の表など。画像は ")
              .Append(pictureRows < rows || pictureColumns < columns ? "左上から " + pictureRows + " 行 × " + pictureColumns + " 列まで" : "全体を").Append("撮る予定（何を撮れたかは「## 画像」）\n");
-            note = o.ToString();
+            note = (print ? PrintAreaNote : string.Empty) + o.ToString();
         }
+
+        /// <summary>
+        /// シートの印刷範囲（名前の定義 Print_Area。シートごとの名前）のうち、使っている範囲と重なる所。無ければ null で、address にわけ（使っている範囲を基準にする）。
+        /// PageSetup.PrintArea は使わない（PageSetup を触ると、Excel がプリンターのドライバーに問い合わせることがある）。
+        /// 列ごと・行ごとの印刷範囲（$A:$F・$1:$40）は、使っている範囲と重なる所に絞る（シートの最後の行までを範囲としないように）。
+        /// 範囲が2つ以上に分かれていれば最初の範囲を、別のシートを指していれば使わない。
+        /// </summary>
+        private static object PrintArea(Scope scope, object ws, object used, out string address, out int top, out int left, out int rows, out int columns)
+        {
+            address = "設定なし（使っている範囲を基準にした）";
+            top = left = rows = columns = 0;
+            try
+            {
+                var names = scope.Get(ws, "Names");
+                var count = Convert.ToInt32(scope.Get(names, "Count"), CultureInfo.InvariantCulture);
+                for (var i = 1; i <= count; i++)
+                {
+                    var name = scope.Pick(names, "Item", i);
+                    var text = Text(scope.Get(name, "Name"));
+                    if (!text.Equals("Print_Area", StringComparison.OrdinalIgnoreCase) && !text.EndsWith("!Print_Area", StringComparison.OrdinalIgnoreCase)) continue;
+                    var refersTo = Text(scope.Get(name, "RefersTo"));
+                    object range;
+                    try
+                    {
+                        range = scope.Get(name, "RefersToRange");
+                    }
+                    catch (Exception ex) when (!IsBusy(ex))
+                    {
+                        address = "設定してあるが、範囲として読めない（" + refersTo + "）。使っている範囲を基準にした";
+                        return null;
+                    }
+                    var target = scope.Get(range, "Worksheet");
+                    if (!string.Equals(Text(scope.Get(target, "Name")), Text(scope.Get(ws, "Name")), StringComparison.Ordinal)
+                        || !string.Equals(Text(scope.Get(scope.Get(target, "Parent"), "FullName")), Text(scope.Get(scope.Get(ws, "Parent"), "FullName")), StringComparison.OrdinalIgnoreCase))
+                    {
+                        address = "設定してあるが、別のシート（か別のブック）を指している（" + refersTo + "）。使っている範囲を基準にした";
+                        return null;
+                    }
+                    var areas = scope.Get(range, "Areas");
+                    var areaCount = Convert.ToInt32(scope.Get(areas, "Count"), CultureInfo.InvariantCulture);
+                    var first = areaCount > 1 ? scope.Pick(areas, "Item", 1) : range;
+                    var shown = Address(scope, first);
+                    var overlap = scope.Call(scope.Get(ws, "Application"), "Intersect", first, used);
+                    if (overlap == null)
+                    {
+                        address = shown + "（設定してあるが、使っている範囲の外で、中身が無い）。使っている範囲を基準にした";
+                        return null;
+                    }
+                    top = Convert.ToInt32(scope.Get(overlap, "Row"), CultureInfo.InvariantCulture);
+                    left = Convert.ToInt32(scope.Get(overlap, "Column"), CultureInfo.InvariantCulture);
+                    rows = Count(scope, overlap, "Rows");
+                    columns = Count(scope, overlap, "Columns");
+                    var basis = Address(scope, overlap);
+                    address = shown + "（作った人が印刷するように決めた範囲。大きさの見込みと画像の基準にした"
+                              + (basis != shown ? "。使っている範囲と重なる " + basis + " を基準にした" : string.Empty)
+                              + (areaCount > 1 ? "。印刷範囲は " + areaCount + " か所に分かれていて（" + refersTo + "）、最初の範囲だけを基準にした" : string.Empty) + "）";
+                    return overlap;
+                }
+            }
+            catch (Exception ex) when (!IsBusy(ex))
+            {
+                address = "読めなかった（使っている範囲を基準にした）";
+                top = left = rows = columns = 0;
+            }
+            return null;
+        }
+
+        /// <summary>印刷範囲を基準にしたときに、見込みの前に置く1行。</summary>
+        private const string PrintAreaNote = "印刷範囲が設定してあるので、印刷して使う書類・様式・表の本体かもしれない（範囲の外のセルは、メモや作業用のことが多い）。A4 の枚数を書くときは、幅・高さからの見積もりで、印刷の設定（用紙・倍率）は読んでいない\n";
 
         /// <summary>撮る範囲を、幅・高さが PicturePoints に収まる行・列までに縮める（行・列の大きさは平均とみなした、およその値）。</summary>
         private static void Fit(double width, double height, int rows, int columns, ref int pictureRows, ref int pictureColumns)
@@ -275,7 +362,7 @@ namespace Tsuzuri.Office
         }
 
         /// <summary>
-        /// 使っている範囲（多ければ左上から PictureRows 行 × PictureColumns 列まで）を、画面の見た目のまま PNG にする（Range.CopyPicture → クリップボード）。
+        /// 基準の範囲（印刷範囲か使っている範囲。多ければ左上から PictureRows 行 × PictureColumns 列まで）を、画面の見た目のまま PNG にする（Range.CopyPicture → クリップボード）。
         /// 撮れなければ範囲を半分にして、3回まで撮り直す。返すのは、概要に書く1行（画像のパスと範囲、か撮れなかったわけ）。
         /// </summary>
         private static string Picture(Scope scope, object ws, int top, int left, int takeRows, int takeColumns, int rows, int columns, string path, Job job)
@@ -342,7 +429,7 @@ namespace Tsuzuri.Office
                     using (var stream = System.IO.File.Create(path)) encoder.Save(stream);
                     var shown = RangeName(top, left, top + takeRows - 1, left + takeColumns - 1);
                     return path + "（" + shown + " を画面の見た目で。どういうファイルか・配置・色分けをつかむ用。字は小さくて読めないことがあるので、中身は下の文字で読む"
-                           + (shrunk ? "。撮れなかったので範囲を縮めた" : takeRows < rows || takeColumns < columns ? "。使っている範囲の左上のここだけ" : string.Empty)
+                           + (shrunk ? "。撮れなかったので範囲を縮めた" : takeRows < rows || takeColumns < columns ? "。基準の範囲（「## 大きさ」）の左上のここだけ" : string.Empty)
                            + "。真っ白・何も無いように見えたら、Excel の窓が隠れているなどで撮れていないので、空のシートと取り違えず、文字で判断する）";
                 }
                 catch (Exception ex) when (!IsBusy(ex))

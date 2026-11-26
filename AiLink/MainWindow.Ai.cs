@@ -118,6 +118,12 @@ namespace AiLink
             /// <summary>利用者がこのタブで最後にキーを打った時刻。</summary>
             public DateTime LastUserKey;
 
+            /// <summary>前の Enter から利用者が打った字の数（2 字以上を打って Enter なら、AI に話しかけたとみなす。確かめの「2」と Enter は数えない）。</summary>
+            public int TypedSinceEnter;
+
+            /// <summary>利用者がこのタブで最後に AI に話しかけた（2 字以上を打って Enter）時刻。まだなら既定の値。</summary>
+            public DateTime PromptedAt;
+
             /// <summary>
             /// このタブの AI からフックが一度でも来たか。来ていなければ（フックを信頼する前に始まった会話など）、頼みを受け付けたかが分からないので、
             /// 伝言は自動では渡さず、ボタンで渡す（MainWindow.AiTalk.cs）。
@@ -600,11 +606,13 @@ namespace AiLink
             {
                 foreach (var tab in _aiTabs)
                 {
-                    if (!tab.AgentStarted || tab.HooksSeen || tab.HookWarned || DateTime.UtcNow - tab.AgentStartedAt < TimeSpan.FromSeconds(20)) continue;
-                    // 起動して 20 秒たってもフックが一度も来ない: 信頼していない（Hooks need review で 3 を選んだ・Esc で飛ばした）か、サインインの途中
+                    // 話しかけて 20 秒たってもフックが一度も来ない: 信頼していない（Hooks need review で 3 を選んだ・Esc で飛ばした）。
+                    // 起動からは数えない（2026-11-26。Codex は最初に話しかけるまでフックを動かさないので、起動して 20 秒で出すと、動いているのに出た）
+                    if (!tab.AgentStarted || tab.HooksSeen || tab.HookWarned || tab.PromptedAt == default(DateTime)
+                        || DateTime.UtcNow - tab.PromptedAt < TimeSpan.FromSeconds(20)) continue;
                     tab.HookWarned = true;
-                    tab.ContextLine = "⚠ " + tab.Name + " はフックがまだ動いていません。AI に渡さない場所の見張りと、今の状態の受け渡しが効きません。"
-                                      + "サインインの途中ならそのまま進めてください。そうでなければ、このタブで /exit と打ってから codex と打ち、「Hooks need review」で 2 を選んでください";
+                    tab.ContextLine = "⚠ " + tab.Name + " は話しかけてもフックが動きません。AI に渡さない場所の見張りと、今の状態の受け渡しが効きません。"
+                                      + "このタブで /exit と打ってから codex と打ち、「Hooks need review」で 2 を選んでから、もう一度話しかけてください";
                     if (ReferenceEquals(tab, _aiTab)) AiContextText.Text = tab.ContextLine;
                     tab.Header.ToolTip = AiTabToolTip(tab);
                 }

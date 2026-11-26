@@ -279,6 +279,17 @@ namespace AiLink
                 if (data.Length == 0) return;
             }
             tab.LastUserKey = DateTime.UtcNow;
+            // 話しかけたか（2 字以上を打って Enter）を数える。フックの見張り（EnsureAiHookWatch）は、話しかけてからフックが来ないときだけ知らせる
+            if (data.IndexOf('\r') >= 0)
+            {
+                var before = data.Substring(0, data.IndexOf('\r')).Length;
+                if (tab.TypedSinceEnter + before >= 2) tab.PromptedAt = DateTime.UtcNow;
+                tab.TypedSinceEnter = 0;
+            }
+            else if (data != "\x1b")
+            {
+                tab.TypedSinceEnter += data.Length;
+            }
             // 利用者がこのタブで Enter を押した: 自分で話しかけたので、自動で渡した回数を数え直す（フックが来ないタブでは、話しかけたフックで数え直せないため）
             if (data == "\r" && !tab.HooksSeen) tab.AutoTalks = 0;
             if (data == "\x1b" || data.IndexOf('\x03') >= 0)

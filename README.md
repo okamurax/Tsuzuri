@@ -262,7 +262,7 @@ Windows で `powershell -NoProfile -ExecutionPolicy Bypass -File tools\excel-gua
 | `google-calendar.json` | Google に作った「Tsuzuri」カレンダーの ID と、最後に送った日。初めて送ったときに作る |
 | `ssh/` | AI の欄から SSH でつなぐ接続先の一覧 `config.txt` と鍵。使うときだけ自分で置く（Tsuzuri が `%LOCALAPPDATA%\Tsuzuri\ssh` に写して使う） |
 
-利用者ごとのもの: `%LOCALAPPDATA%\Tsuzuri\excel-notes.txt`・`outlook-notes.txt` は、Excel・Outlook の一覧の一番下の「Excel で AI にいつも伝えること」「Outlook で AI にいつも伝えること」で書くメモです（利用者ごとの前提なので exe の隣ではなくここに置き、アプリのフォルダを写し替えても残ります）。
+利用者ごとのもの: `%LOCALAPPDATA%\Tsuzuri\excel-notes.txt`・`outlook-notes.txt` は、Excel・Outlook の一覧の一番下の「Excel で AI にいつも伝えること」「Outlook で AI にいつも伝えること」で書くメモです（利用者ごとの前提なので exe の隣ではなくここに置き、アプリのフォルダを写し替えても残ります）。同じ所の `outlook-closed-stores.txt` は、Outlook の一覧で閉じたメールボックスの名前を覚えておくファイルです。
 
 文書ごとの状態（ページの並び、見出しのブックマーク、検索語のお気に入り、変更の記録）は、文書の隣の添付フォルダ `.ファイル名/` に置きます。
 

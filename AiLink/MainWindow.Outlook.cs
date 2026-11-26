@@ -23,7 +23,7 @@ namespace AiLink
             {
                 if (_outlook == null)
                 {
-                    _outlook = new OutlookLink(AiFolder, OutlookListName, () =>
+                    _outlook = new OutlookLink(AiFolder, OutlookListName, "AiLink", () =>
                     {
                         var part = _outlook.SummaryPart();
                         Status(part.Length == 0 ? "Outlook の選びを全部外しました。"

@@ -71,7 +71,10 @@ namespace Tsuzuri.Office
         /// <summary>選んだメール（選んだ順）。入れ替え方は _choices と同じ。</summary>
         private volatile OutlookBridge.Mail[] _mailChoices = new OutlookBridge.Mail[0];
 
-        /// <summary>閉じているストアの名前（画面のスレッドだけで使う。初めは全部開いている）。</summary>
+        /// <summary>
+        /// 閉じているストアの名前（画面のスレッドだけで使う。初めて見るストアは開いている）。
+        /// アプリを閉じても覚えておく（2026-11-27。利用者の判断。Outlook はいつもほぼ同じストアなので、毎回開け閉めし直さなくて済むように）。置き場所は _closedStoresFile。
+        /// </summary>
         private readonly HashSet<string> _closedStores = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
         /// <summary>開いているフォルダと、その読んだ分（画面のスレッドだけで使う）。</summary>
@@ -91,8 +94,11 @@ namespace Tsuzuri.Office
         /// <param name="aiFolder">結果のファイルを書く AI のフォルダ（台本を置いた所）。</param>
         /// <param name="listName">今の状態で一覧を指す呼び名（Tsuzuri は「ランチャーの Outlook の一覧」、AiLink は「Outlook の一覧」）。</param>
         /// <param name="changed">選んだフォルダ・メールが変わった（下端の行を出し直す）。画面のスレッドで呼ぶ。</param>
-        public OutlookLink(string aiFolder, string listName, Action changed)
+        /// <param name="appFolder">%LOCALAPPDATA% の下のアプリのフォルダの名前（Tsuzuri・AiLink）。閉じたストアを覚えるファイルを置く。</param>
+        public OutlookLink(string aiFolder, string listName, string appFolder, Action changed)
         {
+            _closedStoresFile = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), appFolder, "outlook-closed-stores.txt");
+            LoadClosedStores();
             _aiFolder = aiFolder;
             _listName = listName;
             _changed = changed;
@@ -186,18 +192,50 @@ namespace Tsuzuri.Office
             return key => chosen.Contains(key);
         }
 
+        /// <summary>閉じたストアの名前を覚えるファイル（1行に1つ。UTF-8）。</summary>
+        private readonly string _closedStoresFile;
+
+        private void LoadClosedStores()
+        {
+            try
+            {
+                if (!File.Exists(_closedStoresFile)) return;
+                foreach (var line in File.ReadAllLines(_closedStoresFile, Encoding.UTF8))
+                    if (line.Trim().Length > 0) _closedStores.Add(line.Trim());
+            }
+            catch (Exception)
+            {
+                // 読めなければ全部開いた形で始める（一覧は使える）
+            }
+        }
+
+        private void SaveClosedStores()
+        {
+            try
+            {
+                Directory.CreateDirectory(Path.GetDirectoryName(_closedStoresFile));
+                File.WriteAllLines(_closedStoresFile, _closedStores.OrderBy(name => name, StringComparer.OrdinalIgnoreCase), new UTF8Encoding(false));
+            }
+            catch (Exception)
+            {
+                // 書けなくても今の開け閉めは効いている（次に起動したときに覚えていないだけ）
+            }
+        }
+
         /// <summary>
-        /// ストアの「∨／＞」: 開いていれば閉じ、閉じていれば開く。閉じるときは、その中で選んでいたフォルダ・メールを外し、開いていたフォルダの箱も閉じる
+        /// ストアの開閉の矢印: 開いていれば閉じ、閉じていれば開く。閉じるときは、その中で選んでいたフォルダ・メールを外し、開いていたフォルダの箱も閉じる
         /// （見えない選びが AI に渡り続けないように。フォルダを閉じたときと同じ扱い）。
         /// </summary>
         private void ToggleStore(string name)
         {
             if (_closedStores.Remove(name))
             {
+                SaveClosedStores();
                 Show(null);
                 return;
             }
             _closedStores.Add(name);
+            SaveClosedStores();
             var store = _stores != null ? _stores.FirstOrDefault(item => string.Equals(item.Name, name, StringComparison.OrdinalIgnoreCase)) : null;
             var inside = new HashSet<string>(store != null ? store.Folders.Select(folder => folder.Path) : Enumerable.Empty<string>(), StringComparer.OrdinalIgnoreCase);
             foreach (var path in _pages.Keys.Where(inside.Contains).ToList()) _pages.Remove(path);

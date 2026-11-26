@@ -161,6 +161,7 @@ exe と同じフォルダの `ailink.json`。持ち運べるように `%AppData%
 | `%LOCALAPPDATA%\AiLink\work` | 会話を始めるフォルダ。AI への指示 `AGENTS.md`、Codex のフック `.codex\hooks.json` とルール `.codex\rules\ailink.rules`、AI が作る作業のファイル（`excel-write-tab1.tsv` など） |
 | `%LOCALAPPDATA%\AiLink\WebView2` | 端末の表示（WebView2）のデータ |
 | `%LOCALAPPDATA%\AiLink\excel-notes.txt`・`outlook-notes.txt` | Excel・Outlook の一覧の一番下の「Excel で AI にいつも伝えること」「Outlook で AI にいつも伝えること」で書く前提 |
+| `%LOCALAPPDATA%\AiLink\outlook-closed-stores.txt` | Outlook の一覧で閉じたメールボックスの名前（アプリを閉じても覚えておく） |
 
 会話の記録そのものは Codex が `%USERPROFILE%\.codex\sessions`（`CODEX_HOME` があればその下）に残します。AiLink は利用者の `~/.codex` には書きません。
 

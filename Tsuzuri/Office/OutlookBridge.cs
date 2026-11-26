@@ -207,49 +207,75 @@ namespace Tsuzuri.Office
                     string storeId;
                     var folder = FindFolder(scope, session, folderPath, out storeId, out problem);
                     if (folder == null) return null;
-                    var table = scope.Call(folder, "GetTable", "@SQL=\"http://schemas.microsoft.com/mapi/proptag/0x001A001F\" like 'IPM.Note%'", 0);
-                    var columns = scope.Get(table, "Columns");
-                    scope.Call(columns, "RemoveAll");
-                    foreach (var name in new[] { "EntryID", "Subject", "ReceivedTime" }) scope.Release(scope.Call(columns, "Add", name));
                     // 本文の頭も、同じ1回で読む（カーソルを当てたときのポップアップ用。当てるたびに Outlook を呼ばないように。2026-11-26。利用者の判断）。
-                    // 足せなければ（Outlook の版・ストアによって）、本文の頭なしで件名だけを出す
-                    var preview = false;
-                    try
+                    // 列を足すのは通っても、読むときに「操作は失敗しました」（0x80004005）になる Outlook がある（2026-11-27。利用者の Windows で）。
+                    // そのときは、次の読み方（MAPI の本文のプロパティ → 本文の頭なし）で読み直し、だめだった読み方はアプリを閉じるまで使わない
+                    while (true)
                     {
-                        scope.Release(scope.Call(columns, "Add", "Body"));
-                        preview = true;
-                    }
-                    catch (Exception ex) when (!IsBusy(ex) && !IsGone(ex) && !IsDenied(ex))
-                    {
-                    }
-                    scope.Call(table, "Sort", "[ReceivedTime]", true);
-                    total = ToInt(scope.Call(table, "GetRowCount"));
-                    var list = new List<Mail>();
-                    if (count <= 0 || total == 0) return list;
-                    // GetArray は行 × 列の2次元の配列（下の端は 0 とは限らない）
-                    var values = scope.Call(table, "GetArray", count) as Array;
-                    if (values == null || values.Rank != 2) return list;
-                    var r0 = values.GetLowerBound(0);
-                    var c0 = values.GetLowerBound(1);
-                    for (var r = r0; r <= values.GetUpperBound(0); r++)
-                    {
-                        var received = values.GetValue(r, c0 + 2);
-                        list.Add(new Mail
+                        var column = _previewStep < PreviewColumns.Length ? PreviewColumns[_previewStep] : null;
+                        if (column == null) return ReadMails(folder, folderPath, count, null, out total);
+                        try
                         {
-                            Folder = folderPath,
-                            EntryId = Text(values.GetValue(r, c0)),
-                            Subject = Line(Text(values.GetValue(r, c0 + 1))),
-                            Received = received is DateTime && ((DateTime)received).Year < 4500 ? (DateTime)received : DateTime.MinValue,
-                            Preview = preview && values.GetLength(1) > 3 ? Text(values.GetValue(r, c0 + 3)) : null,
-                        });
+                            return ReadMails(folder, folderPath, count, column, out total);
+                        }
+                        catch (Exception ex) when (!IsBusy(ex) && !IsGone(ex) && !IsDenied(ex))
+                        {
+                            _previewStep++;
+                            Check();
+                        }
                     }
-                    return list;
                 }
                 catch (Exception ex)
                 {
                     problem = Failure(ex);
                     return null;
                 }
+            }
+        }
+
+        /// <summary>本文の頭を読む列の候補（順に試す）。Body で読めない Outlook には、MAPI の本文のプロパティ（PR_BODY_W）を試す。</summary>
+        private static readonly string[] PreviewColumns = { "Body", "http://schemas.microsoft.com/mapi/proptag/0x1000001F" };
+
+        /// <summary>今使う PreviewColumns の番号（読めなかったら進める。PreviewColumns.Length 以上なら本文の頭を読まない）。</summary>
+        private static volatile int _previewStep;
+
+        /// <summary>
+        /// 一覧の Table を作って新しい順に count 通を読む。previewColumn が null でなければ、その列で本文の頭も読む。
+        /// 本文の頭の列のせいで読めないときに作り直せるように、Table は呼ぶたびに作る。
+        /// </summary>
+        private static List<Mail> ReadMails(object folder, string folderPath, int count, string previewColumn, out int total)
+        {
+            total = 0;
+            using (var scope = new Scope())
+            {
+                var table = scope.Call(folder, "GetTable", "@SQL=\"http://schemas.microsoft.com/mapi/proptag/0x001A001F\" like 'IPM.Note%'", 0);
+                var columns = scope.Get(table, "Columns");
+                scope.Call(columns, "RemoveAll");
+                foreach (var name in new[] { "EntryID", "Subject", "ReceivedTime" }) scope.Release(scope.Call(columns, "Add", name));
+                if (previewColumn != null) scope.Release(scope.Call(columns, "Add", previewColumn));
+                scope.Call(table, "Sort", "[ReceivedTime]", true);
+                total = ToInt(scope.Call(table, "GetRowCount"));
+                var list = new List<Mail>();
+                if (count <= 0 || total == 0) return list;
+                // GetArray は行 × 列の2次元の配列（下の端は 0 とは限らない）
+                var values = scope.Call(table, "GetArray", count) as Array;
+                if (values == null || values.Rank != 2) return list;
+                var r0 = values.GetLowerBound(0);
+                var c0 = values.GetLowerBound(1);
+                var preview = previewColumn != null && values.GetLength(1) > 3;
+                for (var r = r0; r <= values.GetUpperBound(0); r++)
+                {
+                    var received = values.GetValue(r, c0 + 2);
+                    list.Add(new Mail
+                    {
+                        Folder = folderPath,
+                        EntryId = Text(values.GetValue(r, c0)),
+                        Subject = Line(Text(values.GetValue(r, c0 + 1))),
+                        Received = received is DateTime && ((DateTime)received).Year < 4500 ? (DateTime)received : DateTime.MinValue,
+                        Preview = preview ? Text(values.GetValue(r, c0 + 3)) : null,
+                    });
+                }
+                return list;
             }
         }
 

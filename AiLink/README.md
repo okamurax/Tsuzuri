@@ -129,7 +129,7 @@ exe と同じフォルダの `ailink.json`。持ち運べるように `%AppData%
 | `agentExecutable` | codex.exe（か codex.cmd）の場所。空なら自動で探す。入れ場所が違う PC で手で書く（パスの `\` は `\\`。例 `"C:\\Tools\\codex.exe"`） |
 | `aiTabs` | 開いていた会話のタブ（会話の番号 `session`・フォルダ `folder`・名前 `name`・題 `topic`） |
 
-読めない `ailink.json` は、起動のときに尋ねて `ailink.json.bad` に退かし、初めの状態で起動します（「いいえ」なら起動しない）。
+中身が読めない `ailink.json` は、起動のときに尋ねて `ailink.json.bad-<日時>` に退かし、初めの状態で起動します（「いいえ」なら起動しない）。開けないとき（ほかのプログラムが使っている等）は、尋ねずに起動しません。
 思わぬエラーは、隣の `crash.log` に書きます（1MB を超えたら作り直す）。
 
 **`ailink.json` は人に渡したりリポジトリに入れたりしないでください**（`.gitignore` で除いてあります）。

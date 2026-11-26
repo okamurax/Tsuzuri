@@ -331,6 +331,7 @@ namespace Tsuzuri
     ランチャーの Excel の一覧で、保存していない変更があるブックは、名前の右に「※」が付いている（Claude の分も、手で直した分も。NOW・RAND などの式があると、開いただけでも付く）。
   - xlsx のファイルを直接書き換えない・作り直さない・直接読まない。Excel を excel.ps1（-Script を含む）のほかのやり方（自分の PowerShell で直接 COM を呼ぶなど）で操作しない
     （開いているブックと食い違い、利用者の作業を壊すため。Excel で保存していない変更があると、ファイルは古い。excel.ps1 を通せば、Tsuzuri が Excel への頼みを1つずつ順に流す）。
+    Excel を扱う頼みで、開いていないブックを、フォルダを見て回って .xlsx などのファイルから探さない（扱えるのは Excel で開いているブックだけ。目当てのブックが開いていなければ、利用者に Excel で開いてもらう）。利用者がファイルの場所や一覧を探すこと自体を頼んだときは探してよいが、見つけた .xlsx などの Excel のファイルの中身は直接読まない（文書などほかのファイルは、ふだんどおり読んでよい。どちらも AI に渡さない場所は除く）。
   - 段に「AI に渡さない場所のブック」とあれば、そのブックは扱わない（尋ねたり探したりしない）。excel.ps1 も、AI に渡さない場所のブックや、パスが https:// などの URL のブック（OneDrive・SharePoint の多く）、隠れたブックは読まない・書かない。どのブックが断られるかは、パスから自分で決めず、excel.ps1 で読んで確かめる（段に「AI に渡さない場所のブック」と出ているものは、確かめずに扱わない）。台本でも、AI に渡さない場所・URL の場所・隠れたブックには触らない（台本の中までは Tsuzuri が確かめられないので、自分で守る。触る前に excel.ps1 で読んで確かめれば、これらのブックなら断られる）。LAN の共有フォルダ・NAS（\\server\… や割り当てたドライブ）のブックは、AI に渡さない場所でなければ、ふつうのフォルダのブックと同じく読める・書ける（「ネットワークの場所だから読めない」と決めない）。
   - excel.ps1 が「今は応えない」「まだ前の頼みに応えていない」と返したら、Excel がセルの編集中・ダイアログ・重い計算やマクロの途中か、別の会話・前の台本を動かしている途中か、
     自分が前に頼んだ概要・読む・書くが時間切れのあとまだ動いている途中で、今回の頼みは何もしていない。
@@ -1360,10 +1361,20 @@ namespace Tsuzuri
             return CheckAiGuard(parts[0], parts[1], input);
         }
 
-        /// <summary>AiGuard で確かめる。断ったら、下端の状態の行でも知らせる。断るなら理由、よければ null。</summary>
+        /// <summary>AiGuard で確かめる。断ったら、下端の状態の行でも知らせる。断るなら理由、よければ null。HTTP のフックとパイプのフックの両方がここを通る。</summary>
         private string CheckAiGuard(string tool, string cwd, IList<KeyValuePair<string, string>> input)
         {
-            var answer = AiGuard.Check(tool, cwd, input);
+            string answer;
+            try
+            {
+                answer = AiGuard.Check(tool, cwd, input);
+            }
+            catch (Exception)
+            {
+                // 確かめられなければ断る（通さない。AiLink と同じ。2026-11-26。前は何も返さず、Claude Code が通していた）
+                Dispatcher.BeginInvoke(new Action(() => Status("AI に渡さない場所かを確かめられなかったので、断りました（" + tool + "）。")));
+                return "Tsuzuri が AI に渡さない場所かを確かめられなかったので、この操作は断った。少し待ってからやり直す。続くなら利用者に伝える。";
+            }
             if (answer != null)
                 Dispatcher.BeginInvoke(new Action(() => Status("Claude が AI に渡さない場所（" + AiGuard.MarkerName + "）を開こうとしたので、断りました（" + tool + "）。")));
             return answer;

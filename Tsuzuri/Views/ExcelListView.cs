@@ -133,7 +133,7 @@ namespace Tsuzuri.Views
                 _list.Children.Add(CreateRow(hidden ? null : key, null, book.Instance, book.Name + (book.Path == null ? "（未保存）" : string.Empty) + (book.Unsaved ? " ※" : string.Empty), 12, true, false,
                                              (book.Path ?? book.Name + "（まだ保存していない新しいブック）")
                                              + (book.Unsaved ? "\n※ 保存していない変更がある（Claude の分も、手で直した分も。保存せずに閉じれば、最後に保存したときに戻る。NOW・RAND などの式があると、開いただけでも付く）" : string.Empty)
-                                             + (hidden ? "\nAI に渡さない場所（か、確かめられないネットの場所）のブック。シートを選べない"
+                                             + (hidden ? "\nAI に渡さない場所（か、確かめられない https:// などの URL の場所）のブック。シートを選べない"
                                                 : "\n押すと、このブックのシートを全部選ぶ（ほかは外れる）。Ctrl を押しながらだと足す（全部選んでいれば外す）。Shift を押しながらだと範囲。何もない所を押すと全部外す")));
                 foreach (var sheet in book.Sheets)
                 {

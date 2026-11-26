@@ -13,7 +13,7 @@ namespace AiLink
 {
     // MainWindow の一部: 開いている Excel を読み書きする（Tsuzuri の MainWindow.Excel.cs から写したもの。2026-11-25）。
     // ・AI は、開いているブックのどのシートも読める・書ける（2026-11-25。利用者の判断。前は一覧で選んだ1つのシートだけ書けた）。
-    //   AI に渡さない場所・ネットの場所・隠れたブックは扱わない。書く前に、AI が利用者の許可を取る（AI に渡す文で指示する）。保存は利用者がする。
+    //   AI に渡さない場所・https:// などの URL の場所・隠れたブックは扱わない（LAN の共有フォルダ・NAS は扱う）。書く前に、AI が利用者の許可を取る（AI に渡す文で指示する）。保存は利用者がする。
     // ・左の列に、開いているブックとシートの一覧。選び方はエクスプローラーと同じ（押すとそれだけ・Ctrl で足す外す・Shift で範囲。ブックの行はシート全部。初めは何も選んでいない）。
     //   選んだシートが、AI への「このシート」になる。話しかけるたびの今の状態に、選んだブックとシートの名前だけを書く（中身・Excel で前に出ているもの・保存したかは渡さない）。
     // ・AI が範囲を指定して読む（excel.ps1 → パイプの excel-read）・書く（excel.ps1 -Write → パイプの excel-write）・COM の台本を動かす（excel.ps1 -Script → excel-script）。
@@ -678,7 +678,7 @@ namespace AiLink
             Task.Run(() =>
             {
                 var found = ExcelBridge.ListBooks(5000, out listProblem);
-                // AI に渡さない場所かは、ここ（裏）で決めておく（つながらないネットの場所で、画面を止めないように）
+                // AI に渡さない場所かは、ここ（裏）で決めておく（つながらない共有フォルダで、画面を止めないように）
                 if (found != null)
                     guarded = new HashSet<string>(found.Where(book => book.Path != null && IsGuardedBook(book.Path)).Select(book => book.Path), StringComparer.OrdinalIgnoreCase);
                 return found;

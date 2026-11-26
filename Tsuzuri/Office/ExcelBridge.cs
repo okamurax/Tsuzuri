@@ -10,7 +10,7 @@ namespace Tsuzuri.Office
 {
     /// <summary>
     /// 開いている Excel（Windows のデスクトップ版）を読み書きする（2026-11-24。利用者の考え。SPEC 19章）。
-    /// 開いているブックのどのシートにも書ける（AI に渡さない場所・ネットの場所・隠れたブックは除く。書く前に Claude が利用者の許可を取る）。保存はしない。
+    /// 開いているブックのどのシートにも書ける（AI に渡さない場所・URL の場所・隠れたブックは除く。書く前に Claude が利用者の許可を取る）。保存はしない。
     /// Claude の COM の台本（excel.ps1 -Script）は、別のプロセスで動かす。ここでは、Excel を呼ぶほかの処理と重ならないように順番を守る（RunExclusive）。
     ///
     /// Office のアプリとのやり取りは、この Office フォルダの中だけで行う（Tsuzuri の中で COM を使うのはここだけ。Claude の台本は別のプロセス）。
@@ -175,7 +175,7 @@ namespace Tsuzuri.Office
             // AI に渡さない場所かは、シートを探す前に確かめる（そのブックにどんなシートがあるかを、返すわけから漏らさない）
             if (guarded != null && Text(scope.Get(book, "Path")).Length > 0 && guarded(Text(scope.Get(book, "FullName"))))
             {
-                problem = "このブックは、AI に渡さない場所（利用者が決めた場所か、OneDrive・SharePoint などネットの場所）にある。何もしていない";
+                problem = "このブックは、利用者が決めた AI に渡さない場所か、https:// などの URL の場所にある。何もしていない";
                 return null;
             }
             try
@@ -626,7 +626,7 @@ namespace Tsuzuri.Office
                     bookShown = path ?? Text(scope.Get(book, "Name"));
                     if (path != null && guarded != null && guarded(path))
                     {
-                        problem = "このブックは、AI に渡さない場所（利用者が決めた場所か、OneDrive・SharePoint などネットの場所）にある。読まない";
+                        problem = "このブックは、利用者が決めた AI に渡さない場所か、https:// などの URL の場所にある。読まない";
                         bookShown = null;
                         return null;
                     }

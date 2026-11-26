@@ -8,7 +8,7 @@
 #
 #   powershell -NoProfile -ExecutionPolicy Bypass -File excel.ps1 -Write -Book "<book>" -Sheet "<sheet>" -Range "B3"
 #       writes the cells in excel-write-<TSUZURI_AI_NAME>.tsv next to this script (UTF-8, tab separated, one line = one row; removed once sent, kept when nothing was sent) from B3.
-#       -File <file> reads another file. Ask the user before writing (the instructions of the AI pane).
+#       Ask the user before writing (the instructions of the AI pane).
 #       Cells are entered as typed: "=" starts a formula (English function names, "," separators).
 #       It does not save the workbook. Excel loses its undo history (Ctrl+Z) when this writes.
 #       To throw changes away, the user closes the workbook without saving.
@@ -19,11 +19,15 @@
 #
 #   powershell -NoProfile -ExecutionPolicy Bypass -File excel.ps1 -Script [-Timeout 60]
 #       runs the PowerShell script in excel-script-<TSUZURI_AI_NAME>.ps1 next to this script (UTF-8; removed once sent, kept when nothing was sent) in another PowerShell process,
-#       with $excel = the running Excel.Application. Whatever the script prints is printed here. -File <file> reads another file.
-#       The editor refuses a script that contains save (as part of any word), Close, Quit, ChangeFileAccess, Stop-Process, taskkill,
-#       SendKeys, Kill, DisplayAlerts, .Open..., .Run, RunAutoMacros, ExecuteExcel4Macro, Workbooks.Add with a path, FollowHyperlink,
-#       Invoke-Item, Start-Process, or a method called by a quoted or variable name (the user saves, closes and opens workbooks
-#       and runs macros), or that names a folder the user keeps from the AI. -Timeout: up to 540.
+#       with $excel = the running Excel.Application. Whatever the script prints is printed here.
+#       The editor checks the script with the PowerShell parser first (Ai/excel-guard.ps1) and runs only allowed forms:
+#       variables, if/foreach/for/while/try, Excel members reached from $excel and called by a fixed name, a few commands
+#       (Write-Output, ForEach-Object { }, Where-Object { }, Select-Object, Sort-Object ...) and a few types (object[,] ...).
+#       Files, other programs, the network, & and Invoke-Expression, names built from strings or variables, and Excel members
+#       that save, close, open, run macros or reach files are refused. It also refuses the words in its list (save, Close, Quit ...)
+#       and full paths of folders the user keeps from the AI. -Timeout: up to 540.
+#   There is no -File: the AI always writes the file of its own conversation (removed 2026-11-26: it let a call send any file).
+#   A sheet or workbook name that starts with - is given as -Sheet:'-name'.
 #
 # Reading: the editor reads Excel and writes the cells to a file (tab separated); this prints the path of that file.
 # Writing: this prints what was written.
@@ -39,11 +43,13 @@ param(
     [switch]$Write,
     [switch]$Script,
     [switch]$Overview,
-    [int]$Timeout = 60,
-    [string]$File = ''
+    [int]$Timeout = 60
 )
 
 $ErrorActionPreference = 'Stop'
+# the tool that runs this waits -Timeout + 30 seconds for a script and 120 otherwise (the instructions): give up before it does,
+# counting from the start of this PowerShell process (its start-up can take seconds on a slow PC)
+$started = (Get-Process -Id $PID).StartTime
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 
 function Fail([string]$message) { [Console]::Error.WriteLine($message); exit 1 }
@@ -59,7 +65,6 @@ if ($Script) {
     if ($Timeout -lt 1 -or $Timeout -gt 540) { Fail '-Timeout is from 1 to 540 seconds. Nothing was sent' }
 } else {
     if ($given.ContainsKey('Timeout')) { Fail '-Timeout is only for -Script. Nothing was sent' }
-    if ($File -and -not $Write) { Fail '-File is only for -Write and -Script. Nothing was sent' }
 }
 if ($Overview -and $Range) { Fail '-Overview does not take -Range (it reads the whole sheet). Nothing was sent' }
 if ($Write -and (-not $Book -or -not $Sheet -or -not $Range)) { Fail '-Write needs -Book, -Sheet and -Range (the top left cell, such as B3). Nothing was sent' }
@@ -74,63 +79,59 @@ $suffix = if ($env:TSUZURI_AI_NAME) { '-' + $env:TSUZURI_AI_NAME } else { $null 
 $tab = [char]9
 # strict UTF-8: a file that is not UTF-8 is refused instead of sending broken characters to Excel
 $utf8 = New-Object System.Text.UTF8Encoding($false, $true)
-$default = $false
-if ($Write -or $Script) {
-    $default = -not $File
-    if ($default) {
-        if ($null -eq $suffix) { Fail ('TSUZURI_AI_NAME is not set: open a new conversation tab in the AI pane (a conversation started before this feature needs a restart), or give -File') }
-        $File = Join-Path $work ($(if ($Script) { 'excel-script' } else { 'excel-write' }) + $suffix + $(if ($Script) { '.ps1' } else { '.tsv' }))
-    }
-    if (-not (Test-Path -LiteralPath $File)) { Fail ('file not found: ' + $File + ' (write it first)') }
-}
-
 $unsure = ' (it may or may not have changed Excel: read it to check before trying again)'
 $changes = $Write -or $Script
+$File = $null
+$claimed = $null
+
+# put the work file back when nothing was sent, so the same call can be tried again (unless a new one was written meanwhile;
+# a taken file that could not be put back is cleaned up later)
+function Restore {
+    if ($script:claimed -and -not (Test-Path -LiteralPath $script:File)) {
+        try { [System.IO.File]::Move($script:claimed, $script:File) } catch { }
+    }
+    $script:claimed = $null
+}
+
+$content = $null
+if ($changes) {
+    if ($null -eq $suffix) { Fail 'TSUZURI_AI_NAME is not set: open a new conversation tab in the AI pane (a conversation started before this feature needs a restart)' }
+    $File = Join-Path $work ($(if ($Script) { 'excel-script' } else { 'excel-write' }) + $suffix + $(if ($Script) { '.ps1' } else { '.tsv' }))
+    if (-not (Test-Path -LiteralPath $File)) { Fail ('file not found: ' + $File + ' (write it first)') }
+    # take the work file by moving it to a name of its own: only the call that moved it sends it,
+    # and an old content is never sent again (it is removed after sending, whatever the answer)
+    $claimed = Join-Path $work ([System.IO.Path]::GetFileNameWithoutExtension($File) + '-sending-' + [Guid]::NewGuid().ToString('N').Substring(0, 12) + [System.IO.Path]::GetExtension($File))
+    try {
+        [System.IO.File]::Move($File, $claimed)
+    } catch {
+        $claimed = $null
+        Fail ('could not take ' + $File + ': ' + $_.Exception.Message + '. Nothing was sent')
+    }
+    try {
+        $content = [System.IO.File]::ReadAllText($claimed, $utf8)
+    } catch {
+        Restore
+        Fail ('could not read ' + $File + ' as UTF-8: ' + $_.Exception.Message + '. Nothing was sent (the file is kept)')
+    }
+}
+
 $client = New-Object System.IO.Pipes.NamedPipeClientStream('.', $pipe, [System.IO.Pipes.PipeDirection]::InOut)
 $sent = $false
-$claimed = $null
 try {
-    # connect first: when the editor cannot be reached, the file is left as it is and the same call can be tried again
+    # the file is taken and read before connecting: a call that connects always sends a request
     try {
         $client.Connect(15000)
     } catch {
-        Fail ('could not reach the editor: ' + $_.Exception.Message + '. Nothing was sent')
-    }
-
-    $content = $null
-    if ($Write -or $Script) {
-        $source = $File
-        if ($default) {
-            # take the default file by moving it to a name of its own: only the call that moved it sends it,
-            # and an old content is never sent again (it is removed after sending, whatever the answer)
-            $claimed = Join-Path $work ([System.IO.Path]::GetFileNameWithoutExtension($File) + '-sending-' + [Guid]::NewGuid().ToString('N').Substring(0, 12) + [System.IO.Path]::GetExtension($File))
-            try {
-                [System.IO.File]::Move($File, $claimed)
-            } catch {
-                $claimed = $null
-                Fail ('could not take ' + $File + ': ' + $_.Exception.Message + '. Nothing was sent')
-            }
-            $source = $claimed
-        }
-        try {
-            $content = [System.IO.File]::ReadAllText($source, $utf8)
-        } catch {
-            # put the default file back so it can be fixed (unless a new one was written meanwhile)
-            if ($claimed -and -not (Test-Path -LiteralPath $File)) {
-                try { [System.IO.File]::Move($claimed, $File) } catch { }
-            }
-            # not sent: keep it under either name (a moved file that could not be put back is cleaned up later)
-            $claimed = $null
-            Fail ('could not read ' + $File + ' as UTF-8: ' + $_.Exception.Message + '. Nothing was sent')
-        }
+        Restore
+        Fail ('could not reach the editor: ' + $_.Exception.Message + '. Nothing was sent' + $(if ($changes) { ' (the file is kept)' } else { '' }))
     }
 
     if ($Script) {
-        $request = 'excel-script' + $tab + (B64 $content) + $tab + (B64 ([string]$Timeout))
+        $request = 'excel-script' + $tab + (B64 $content) + $tab + (B64 ([string]$Timeout)) + $tab + 'end'
     } elseif ($Overview) {
         $request = 'excel-overview' + $tab + (B64 $Book) + $tab + (B64 $Sheet)
     } elseif ($Write) {
-        $request = 'excel-write' + $tab + (B64 $Book) + $tab + (B64 $Sheet) + $tab + (B64 $Range) + $tab + (B64 $content)
+        $request = 'excel-write' + $tab + (B64 $Book) + $tab + (B64 $Sheet) + $tab + (B64 $Range) + $tab + (B64 $content) + $tab + 'end'
     } else {
         $request = 'excel-read' + $tab + (B64 $Book) + $tab + (B64 $Sheet) + $tab + (B64 $Range)
     }
@@ -141,14 +142,16 @@ try {
     $writer.WriteLine($request)
     $writer.Flush()
     $reader = New-Object System.IO.StreamReader($client, [System.Text.Encoding]::UTF8)
-    # give up before the tool that runs this does (the instructions give it -Timeout + 30 seconds for a script, 120 otherwise),
-    # so the AI gets the message below instead of being cut off; the editor may still be working then
-    $limit = if ($Script) { $Timeout + 20 } else { 90 }
+    # give up before the tool that runs this does, so the AI gets the message below instead of being cut off;
+    # the editor may still be working then (an overview takes up to about 90 seconds when Excel is busy)
+    $limit = if ($Script) { $Timeout + 25 } elseif ($Overview) { 105 } else { 90 }
+    $left = [Math]::Max(1000, [int](($limit - ((Get-Date) - $started).TotalSeconds) * 1000))
     $pending = $reader.ReadLineAsync()
-    if (-not $pending.Wait($limit * 1000)) { Fail ('no answer from the editor in ' + $limit + ' seconds' + $(if ($changes) { $unsure } else { '' })) }
+    if (-not $pending.Wait($left)) { Fail ('no answer from the editor in ' + $limit + ' seconds' + $(if ($changes) { $unsure } else { '' })) }
     $answer = $pending.Result
 } catch {
     if ($sent) { Fail ('no answer from the editor: ' + $_.Exception.GetBaseException().Message + $(if ($changes) { $unsure } else { '' })) }
+    Restore
     Fail ('could not send to the editor: ' + $_.Exception.GetBaseException().Message + '. Nothing was sent')
 } finally {
     $client.Dispose()

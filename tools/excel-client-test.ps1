@@ -83,7 +83,7 @@ function Invoke-Case([string]$app, [string]$name, [string[]]$arguments, [hashtab
     if (-not $setup.Sent -and $request) { $problems += ('sent: ' + $request.Substring(0, [Math]::Min(40, $request.Length))) }
     if ($setup.Kept -and $left -notcontains (Split-Path -Leaf $file)) { $problems += 'the file was not kept' }
     if ($setup.Removed -and $left.Count -gt 0) { $problems += ('files left: ' + ($left -join ', ')) }
-    if ($setup.Request -and ($null -eq $request -or -not $request.EndsWith([char]9 + $setup.Request))) { $problems += 'the request does not carry the file content' }
+    if ($setup.Request -and ($null -eq $request -or -not $request.EndsWith([char]9 + $setup.Request + [char]9 + 'end'))) { $problems += 'the request does not carry the file content' }
     if ($setup.Error -and $err -notmatch $setup.Error) { $problems += ('message: ' + $err.Trim()) }
     if ($problems.Count -gt 0) {
         $script:failures++
@@ -100,7 +100,7 @@ foreach ($app in 'AiLink', 'Tsuzuri') {
     Invoke-Case $app 'two modes' @('-Overview', '-Write', '-Book', 'b', '-Sheet', 's', '-Range', 'B3') @{ Bytes = $tsv; Server = $true; Answer = 'ok'; Exit = 1; Kept = $true; Error = 'only one' }
     Invoke-Case $app 'misspelled -Wirte' @('-Wirte', '-Book', 'b', '-Sheet', 's') @{ Bytes = $tsv; Server = $true; Answer = 'ok'; Exit = 1; Kept = $true; Error = 'Wirte' }
     Invoke-Case $app 'write without target' @('-Write') @{ Bytes = $tsv; Server = $true; Answer = 'ok'; Exit = 1; Kept = $true; Error = 'needs -Book' }
-    Invoke-Case $app 'read with -File' @('-File', 'x.tsv') @{ Server = $true; Answer = 'ok'; Exit = 1; Error = 'only for -Write' }
+    Invoke-Case $app 'no -File any more' @('-Write', '-Book', 'b', '-Sheet', 's', '-Range', 'B3', '-File', 'x.tsv') @{ Bytes = $tsv; Server = $true; Answer = 'ok'; Exit = 1; Kept = $true; Error = 'File' }
     Invoke-Case $app 'timeout over 540' @('-Script', '-Timeout', '541') @{ Script = $true; Bytes = $tsv; Server = $true; Answer = 'ok'; Exit = 1; Kept = $true; Error = '1 to 540' }
     Invoke-Case $app 'timeout with read' @('-Timeout', '5') @{ Server = $true; Answer = 'ok'; Exit = 1; Error = 'only for -Script' }
     Invoke-Case $app 'value without a parameter name' @('-Book', 'b', 'extra') @{ Server = $true; Answer = 'ok'; Exit = 1; Error = 'extra' }

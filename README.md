@@ -209,7 +209,9 @@ Tsuzuri には埋め込んでいません（公開しているリポジトリに
 2. NuGet パッケージを復元する（PackageReference 方式）
 3. ビルドする（`Tsuzuri\bin\Release\Tsuzuri.exe` ができる）
 
-Mac では、XAML を除いた C# のコンパイルだけを `bash tools/check-build.sh` で確かめられます（.NET SDK が要ります）。
+AI連携ツール（`AiLink/`）は別のソリューション `AiLink\AiLink.sln` で開いてビルドします（`AiLink\bin\Release\AiLink.exe`。Tsuzuri と更新の時期がずれるため、別の Visual Studio で扱う）。Excel の台本の確かめ（`Tsuzuri/Ai/excel-guard.ps1`）は AiLink も同じファイルを使います。
+
+Mac では、XAML を除いた C# のコンパイルだけを `bash tools/check-build.sh` で確かめられます（.NET SDK が要ります。AiLink は `bash tools/check-build-ailink.sh`）。
 
 ### WordPress の変換を変えるとき
 
@@ -241,6 +243,8 @@ Mac では、XAML を除いた C# のコンパイルだけを `bash tools/check-
 `bash tools/replace-fuzz.sh [でたらめの数] [種]` で、検索の置換が、別に書いた素直な置換と1文字も違わないか、改行を変えないか、置き換えた本文を保存して読み直してもページが変わらないか（閉じていないコードブロックで保存を断るときはファイルを変えないか）を確かめます。`Tsuzuri/Markdown/SearchReplace.cs` や `MarkdownView` の置換を変えたら回してください。
 
 Windows で `powershell -NoProfile -ExecutionPolicy Bypass -File tools\excel-client-test.ps1` を回すと、Excel の読み書きの `excel.ps1`（Tsuzuri と AiLink）を、偽のパイプを相手に確かめます（呼び方を間違えたら何も送らずファイルを残すか、既定のファイルを一度だけ送って消すか、壊れた答えを失敗にするか）。`excel.ps1` を変えたら回してください。
+
+Windows で `powershell -NoProfile -ExecutionPolicy Bypass -File tools\excel-guard-test.ps1` を回すと、AI の Excel の台本の書き方の確かめ（`Tsuzuri/Ai/excel-guard.ps1`。Tsuzuri と AiLink で同じ）が、ふつうの台本を通し、ファイル・ほかのプログラム・ネット・保存や閉じる・マクロに触る台本を断るかを確かめます。`excel-guard.ps1` を変えたら回してください。
 
 `bash tools/text-file.sh [でたらめの数] [種]` で、テキストファイル（.txt）を UTF-8・BOM 付き・Shift_JIS で読んで直さずに保存したときにバイト列が変わらないか、ページの印の形の行も本文のままか、Shift_JIS で書けない文字や読めない文字コードを断るかを確かめます。
 
@@ -277,7 +281,7 @@ Tsuzuri/
 └ ConPty/                AI の欄の端末で使う ConPTY（conpty.dll・OpenConsole.exe）
 TableEditor/             表エディタ（WPF。本体から DLL として読み込む）
 DrawingEditor/           図エディタ（WPF。本体から DLL として読み込む）
-tools/                   Mac でのコンパイル確認、WordPress の変換の確かめ（wp-check）、部分解析の確かめ（parse-fuzz）、アウトラインの操作の確かめ（struct-fuzz）、崩れた文書での読み書きの確かめ（page-fuzz）、AI に渡さない場所の確かめ（ai-guard）、カレンダーの予定の保存先と Google へ送る形の確かめ（schedule-file・schedule-fuzz）、テキストファイルの読み書きの確かめ（text-file）、検索の置換の確かめ（replace-fuzz）、Excel の読み書きの excel.ps1 の確かめ（excel-client-test）、コミット前のフック、アイコンの生成
+tools/                   Mac でのコンパイル確認、WordPress の変換の確かめ（wp-check）、部分解析の確かめ（parse-fuzz）、アウトラインの操作の確かめ（struct-fuzz）、崩れた文書での読み書きの確かめ（page-fuzz）、AI に渡さない場所の確かめ（ai-guard）、カレンダーの予定の保存先と Google へ送る形の確かめ（schedule-file・schedule-fuzz）、テキストファイルの読み書きの確かめ（text-file）、検索の置換の確かめ（replace-fuzz）、Excel の読み書きの excel.ps1 の確かめ（excel-client-test）と台本の書き方の確かめ（excel-guard-test）、コミット前のフック、アイコンの生成
 sample/                  動作確認用の文書
 ```
 

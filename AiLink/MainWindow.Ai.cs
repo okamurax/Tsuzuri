@@ -533,7 +533,8 @@ namespace AiLink
 
             // AiLink の台本（state.ps1・excel.ps1・talk.ps1）は、Codex に毎回は確かめさせない（2026-11-25。excel.ps1 のたびに
             // 「囲いの外で動かしてよいか」と聞かれた）。プロジェクトの単位のルール（work\.codex\rules）で、この形のコマンドだけを許す。
-            // 許したコマンドは囲いの外で動くが、台本はパイプで AiLink に頼むだけで、Excel に触るのは AiLink（台本の中の禁止の語も AiLink が断る）
+            // 許したコマンドは囲いの外で動く。台本はパイプで AiLink に頼むだけで、Excel に触るのは AiLink。ただし excel.ps1 -Script は AI が書いた PowerShell を
+            // 利用者の権限で動かすので、AiLink が動かす前に書き方を構文解析で調べ、決まった形（Excel の COM など）だけを動かす（Ai/excel-guard.ps1。2026-11-26）
             Directory.CreateDirectory(Path.Combine(work, ".codex", "rules"));
             WriteIfChanged(Path.Combine(work, ".codex", "rules", "ailink.rules"), AiRules());
 

@@ -117,7 +117,7 @@ excel.ps1 に -Timeout を付けたら、待ち時間は（その秒＋30）秒�
   ブックは Workbooks.Item('名前')、シートは Worksheets.Item('名前') で指す。前に出ているものを指す ActiveWorkbook・ActiveSheet・ActiveCell・ActiveWindow・Selection・
   $excel.Range(…)・$excel.Cells は使わない（前に出ているものは、扱ってほしいものとは限らない）。Workbooks を全部たどったり、ブックの名前・パスを並べて出したりしない。
   台本で触るブックは、先に excel.ps1 で読むか概要を読んで確かめる（AI に渡さない場所・ネットの場所・隠れたブックなら、そこで断られる）。
-  台本では Excel の COM だけを使い、ファイル・ほかのプログラム・ネットには触らない（AI に渡さない場所のフォルダの名前を含む台本は、AI連携ツールが断る）。
+  台本では Excel の COM だけを使い、ファイル・ほかのプログラム・ネットには触らない。AI連携ツールは動かす前に台本の書き方を調べ、決まった形だけを動かす。使えるのは、変数・代入・if/foreach/for/while/switch/try/throw、$excel からたどる Excel のプロパティとメソッドのうち、セル・書式・シート・テーブル・グラフ・ピボットテーブル（範囲から作るもの）を扱う決まったもの（名前をそのまま書く）と、文字・数・日付・配列のもの、Write-Output・ForEach-Object { }・Where-Object { }・Select-Object・Sort-Object・Measure-Object・Group-Object・Format-Table・Out-String・Out-Null・Get-Date（Select-Object などに渡すプロパティの名前も、そのまま書く）、New-Object 'object[,]' などの決まった型、[Type]::Missing（省く引数）。Workbooks・Worksheets・Sheets などのコレクションは変数に入れず、同じ式の中で使う（$wb.Worksheets.Item('明細')・foreach ($s in $wb.Worksheets)）。Item には名前か番号をそのまま書き、変数や式なら [string]$name・[int]$i・[int]$wb.Worksheets.Count のように型を付ける。ピボットテーブル・テーブルの元は $ws.Range('A1:D20') のように範囲（Range・UsedRange・CurrentRegion などで終わる式）で渡す（文字や .Value2 で渡さない）。台本の中で作る表はハッシュ表にして $h['名前'] で読む（自分で付けた名前を $x.名前 で読むのも、Select-Object・Sort-Object に渡すのも断られる。ハッシュ表の鍵はそのまま書く）。貼り付け（Paste・PasteSpecial）は使えない（利用者のクリップボードを読むため）。写すのは Copy(写し先) か Value2 で。ForEach-Object・Where-Object には { } を渡し、コマンドに -OutVariable などの共通のパラメーターは付けない。関数の定め・exit・ほかのコマンド・& や Invoke-Expression・> でのファイルへの書き出し・$env: などのドライブの変数・名前を文字や変数で組み立てた呼び出し（$x.$name・ForEach-Object Name）・-as や -is に文字で書いた型・GetType や PSObject・Excel の保存・閉じる・開く・マクロ・VBA・Evaluate・ファイル・印刷・ネット・接続のメンバー・ファイルを渡す Workbooks.Add と Sheets.Add・switch -File・$PSDefaultParameterValues は断られる。save を含む語（Saved なども）・Close・Quit などは、文字やコメントの中でも断られる（セルに書く文字にこれらの語が入るなら、-Write で書く）（断られたら、返ったわけを見て、使える形で書き直す。使える形で書けない操作なら、利用者に伝える）。セルに書く式でも、外のブックやフォルダを指す参照・WEBSERVICE などネットに触れる関数は書かない（式は確かめられないので、書く前に自分で避ける）。AI に渡さない場所のフォルダのフルパスを書いた台本も断られる（それ以外の書き方でも、そこには触らない）。
   たくさんのセルは、1つずつではなく範囲でまとめて読み書きする（1つずつは遅い）。結果は Write-Output で出す。
   セルを別の場所へ写すのは台本でする（値だけでも、書式ごとでも）。写すのも Excel を変える操作なので、下の決まりのとおり、写し先を先に読んで上書きする中身を確かめ、何をどこへ写すかを示して許可をもらう。
     利用者が「値だけ」と言っていなければ、見た目も写す: $excel.Workbooks.Item('見積.xlsx').Worksheets.Item('明細').Range('A1:D20').Copy($excel.Workbooks.Item('見積.xlsx').Worksheets.Item('集計').Range('F1'))（写し先を渡すとクリップボードを使わない）。Copy は式も写し、参照はずれて写る（別のブックへ写すと、元のブックを指す参照になる）ので、そうなる式があれば示すときに伝える。値だけなら、写し先の Value2 に元の Value2 を入れる。
@@ -188,8 +188,9 @@ AI の欄には会話のタブがいくつもあり、タブごとに別の AI �
             return AiInstructions
                 .Replace("{state}", Path.Combine(AiFolder, "state.ps1"))
                 .Replace("{excel}", Path.Combine(AiFolder, "excel.ps1"))
-                .Replace("{excel-write}", Path.Combine(work, "excel-write-tab<n>.tsv"))
-                .Replace("{excel-script}", Path.Combine(work, "excel-script-tab<n>.ps1"))
+                // <n> は Path.Combine に渡さない（.NET Framework は < > を無効な文字として例外にする。Mac のコンパイルでは気づけない）
+                .Replace("{excel-write}", work.TrimEnd('\\') + "\\excel-write-tab<n>.tsv")
+                .Replace("{excel-script}", work.TrimEnd('\\') + "\\excel-script-tab<n>.ps1")
                 .Replace("{talk}", Path.Combine(AiFolder, "talk.ps1"))
                 .Replace("{work}", work);
         }

@@ -365,6 +365,9 @@ namespace AiLink
             {
                 return "error\t頼みを読めなかった。";
             }
+            // 終わりの印（excel.ps1 が最後に付ける）が無ければ、途中で切れた頼み（送る途中で excel.ps1 が止められた）。途中までの中身を書かない
+            if (parts.Length != 6 || parts[5] != ExcelRequestEnd)
+                return "error\t頼みが途中で切れていた（終わりの印が無い）。何も書いていない";
 
             if (book.Length == 0 || sheet.Length == 0)
                 return "error\t書くときは -Book と -Sheet を両方付ける（許可をもらうときに示したブックとシート）。何も書いていない";
@@ -444,6 +447,18 @@ namespace AiLink
         /// <summary>包みが「Excel が動いていない」ときに使う終わりの番号（台本自身の exit と取り違えにくい番号）。</summary>
         private const int ExcelNotRunningExit = 87;
 
+        /// <summary>包みが「台本が決まりの外の書き方をしている（excel-guard.ps1 が断った）」ときに使う終わりの番号。</summary>
+        private const int ExcelRefusedExit = 86;
+
+        /// <summary>excel.ps1 が書く・台本の頼みの最後に付ける終わりの印（送る途中で切れた頼みを、そろった頼みと取り違えないため。サーバーは改行が来なくても切れ目までを1行として読む）。</summary>
+        private const string ExcelRequestEnd = "end";
+
+        /// <summary>
+        /// 台本の書き方の確かめ（2026-11-26。利用者の判断）。台本は利用者の権限で囲いの外で動くので、語で見るだけでは足りない（'Sa'+'ve'・[IO.File]::Delete・&amp; cmd など）。
+        /// PowerShell の構文解析で、許した形（変数・制御文・$excel からたどる COM・決まった名前のメソッド・一部のコマンドと型）だけを通す。中身は Ai/excel-guard.ps1（Tsuzuri と AiLink で同じファイル）。
+        /// </summary>
+        private static readonly string ExcelGuardFile = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Ai", "excel-guard.ps1");
+
         /// <summary>
         /// パイプの「excel-script→台本→待つ秒」（どれも Base64）。答えは「ok→出力」「error→わけ」で、どちらも Base64（台本の出力は何行にもなるため）。
         /// </summary>
@@ -463,6 +478,8 @@ namespace AiLink
             {
                 return ExcelScriptAnswer(false, "頼みを読めなかった。何もしていない");
             }
+            // 終わりの印が無ければ、途中で切れた頼み。途中までの台本を動かさない
+            if (parts.Length != 4 || parts[3] != ExcelRequestEnd) return ExcelScriptAnswer(false, "頼みが途中で切れていた（終わりの印が無い）。何もしていない");
             if (script.Trim().Length == 0) return ExcelScriptAnswer(false, "台本が空。何もしていない");
 
             var forbidden = ExcelForbidden.Match(script);
@@ -500,22 +517,27 @@ namespace AiLink
         private static string RunExcelScript(string script, int seconds)
         {
             var id = Guid.NewGuid().ToString("N");
-            var body = Path.Combine(AiFolder, "excel-script-" + id + ".ps1");
             var wrapper = Path.Combine(AiFolder, "excel-script-run-" + id + ".ps1");
             try
             {
+                // 書き方の確かめは包みの中に写す（置いたファイルを読み込まない）。台本の文字も包みに埋め、確かめたその文字をそのまま動かす（確かめたあとに差し替えられないように）
+                var guard = File.ReadAllText(ExcelGuardFile, Encoding.UTF8);
                 // PowerShell 5.1 は BOM の無い台本を ANSI の文字コードで読むので、BOM を付けて書く（日本語のシート名・文字を化けさせない）
-                File.WriteAllText(body, script, new UTF8Encoding(true));
                 File.WriteAllText(wrapper,
                     "$ErrorActionPreference = 'Stop'\r\n"
                     + "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8\r\n"
+                    + guard + "\r\n"
+                    // 台本の文字は包みの中に埋める（ファイルから読み直すと、C# で確かめたあとに差し替えられる）
+                    + "$__text = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String('" + Convert.ToBase64String(Encoding.UTF8.GetBytes(script)) + "'))\r\n"
+                    + "$__problem = Test-ExcelScript $__text\r\n"
+                    + "if ($__problem) { [Console]::Error.WriteLine($__problem); exit " + ExcelRefusedExit + " }\r\n"
                     + "try { $excel = [Runtime.InteropServices.Marshal]::GetActiveObject('Excel.Application') } catch { [Console]::Error.WriteLine('Excel is not running'); exit " + ExcelNotRunningExit + " }\r\n"
-                    + ". '" + body.Replace("'", "''") + "'\r\n",
+                    + "Remove-Item -Path Function:\\Test-ExcelScript\r\n"
+                    + ". ([ScriptBlock]::Create($__text))\r\n",
                     new UTF8Encoding(true));
             }
             catch (Exception ex)
             {
-                TryDelete(body);
                 TryDelete(wrapper);
                 return ExcelScriptAnswer(false, "台本を置けなかった: " + ex.Message + "。何もしていない");
             }
@@ -563,6 +585,10 @@ namespace AiLink
                 System.Threading.WaitHandle.WaitAll(new System.Threading.WaitHandle[] { outputDone, errorDone }, 5000);
                 var text = Clipped(output, gate);
                 if (process.ExitCode == ExcelNotRunningExit) return ExcelScriptAnswer(false, "Excel が動いていない。何もしていない");
+                if (process.ExitCode == ExcelRefusedExit)
+                    return ExcelScriptAnswer(false, "台本を動かさなかった（台本で使えない書き方: " + text + "）。何もしていない。"
+                                                    + "台本で使える形は、指示の「COM の台本」の段のとおり（決まった Excel のメンバーと決まったコマンド・型だけ。コレクションは変数に入れない。"
+                                                    + "台本の中で作る表はハッシュ表にして $h['名前'] で読む）。返ったわけを見て、使える形で書き直す。使える形で書けない操作なら、利用者に伝える");
                 if (process.ExitCode != 0)
                     return ExcelScriptAnswer(false, "台本がエラーで止まった（終わりの番号 " + process.ExitCode + "）。止まるまでの操作は Excel に残っているので、読んで確かめる。出力:\n" + text);
                 return ExcelScriptAnswer(true, text.Length == 0 ? "台本が終わった（出力なし）。保存はしていない" : text);
@@ -576,7 +602,6 @@ namespace AiLink
                 if (process != null) process.Dispose();
                 outputDone.Dispose();
                 errorDone.Dispose();
-                TryDelete(body);
                 TryDelete(wrapper);
             }
         }

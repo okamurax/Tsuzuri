@@ -77,6 +77,7 @@
     <Content Include="Ai\ssh-session.ps1"><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory></Content>
     <Content Include="Ai\terminal.ps1"><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory></Content>
     <Content Include="Ai\excel.ps1"><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory></Content>
+    <Content Include="Ai\excel-guard.ps1"><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory></Content>
     <Content Include="Terminal\terminal.html"><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory></Content>
     <Content Include="Terminal\xterm.js"><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory></Content>
     <Content Include="Terminal\xterm.css"><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory></Content>

@@ -61,6 +61,8 @@
   </ItemGroup>
   <ItemGroup>
     <Content Include="Ai\excel.ps1"><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory></Content>
+    <!-- 台本の書き方の確かめは Tsuzuri と同じファイルを使う（写しを作らない） -->
+    <Content Include="..\Tsuzuri\Ai\excel-guard.ps1"><Link>Ai\excel-guard.ps1</Link><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory></Content>
     <Content Include="Ai\hook.ps1"><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory></Content>
     <Content Include="Ai\talk.ps1"><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory></Content>
     <Content Include="Ai\state.ps1"><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory></Content>

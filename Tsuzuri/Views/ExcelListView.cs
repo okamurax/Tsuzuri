@@ -40,7 +40,7 @@ namespace Tsuzuri.Views
             var title = new TextBlock
             {
                 Text = "Excel",
-                FontSize = 12,
+                FontSize = 13,
                 FontWeight = FontWeights.SemiBold,
                 Foreground = Brush("SidebarText"),
                 VerticalAlignment = VerticalAlignment.Center,
@@ -76,7 +76,7 @@ namespace Tsuzuri.Views
             var notes = new TextBlock
             {
                 Text = "Excel で AI にいつも伝えること",
-                FontSize = 12,
+                FontSize = 13,
                 Foreground = Brush("AccentBrush"),
                 Margin = new Thickness(12, 4, 8, 6),
                 Cursor = Cursors.Hand,
@@ -167,7 +167,7 @@ namespace Tsuzuri.Views
             _list.Children.Add(new TextBlock
             {
                 Text = message,
-                FontSize = 12,
+                FontSize = 13,
                 Foreground = Brush("TextMuted"),
                 TextWrapping = TextWrapping.Wrap,
                 Margin = new Thickness(12, 4, 8, 4),
@@ -179,7 +179,7 @@ namespace Tsuzuri.Views
             var text = new TextBlock
             {
                 Text = label,
-                FontSize = isBook ? 13 : 12,
+                FontSize = isBook ? 14 : 13,
                 FontWeight = chosen ? FontWeights.SemiBold : FontWeights.Normal,
                 Foreground = chosen ? Brush("TextPrimary") : Brush("SidebarText"),
                 TextTrimming = TextTrimming.CharacterEllipsis,

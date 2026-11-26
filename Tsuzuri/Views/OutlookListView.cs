@@ -72,7 +72,7 @@ namespace Tsuzuri.Views
             var title = new TextBlock
             {
                 Text = "Outlook",
-                FontSize = 12,
+                FontSize = 13,
                 FontWeight = FontWeights.SemiBold,
                 Foreground = Brush("SidebarText"),
                 VerticalAlignment = VerticalAlignment.Center,
@@ -108,7 +108,7 @@ namespace Tsuzuri.Views
             var notes = new TextBlock
             {
                 Text = "Outlook で AI にいつも伝えること",
-                FontSize = 12,
+                FontSize = 13,
                 Foreground = Brush("AccentBrush"),
                 Margin = new Thickness(12, 4, 8, 6),
                 Cursor = Cursors.Hand,
@@ -242,7 +242,7 @@ namespace Tsuzuri.Views
             var text = new TextBlock
             {
                 Text = _bodyLoading ? _bodyText : Clean(_bodyText),
-                FontSize = 12,
+                FontSize = 13,
                 TextWrapping = TextWrapping.Wrap,
                 Foreground = _bodyLoading ? Brush("TextMuted") : Brush("TextPrimary"),
             };
@@ -294,7 +294,7 @@ namespace Tsuzuri.Views
             _list.Children.Add(new TextBlock
             {
                 Text = message,
-                FontSize = 12,
+                FontSize = 13,
                 Foreground = Brush("TextMuted"),
                 TextWrapping = TextWrapping.Wrap,
                 Margin = new Thickness(12, 4, 8, 4),
@@ -308,7 +308,7 @@ namespace Tsuzuri.Views
             var text = new TextBlock
             {
                 Text = store.Name,
-                FontSize = 13,
+                FontSize = 14,
                 Foreground = Brush("SidebarText"),
                 TextTrimming = TextTrimming.CharacterEllipsis,
                 VerticalAlignment = VerticalAlignment.Center,
@@ -391,7 +391,7 @@ namespace Tsuzuri.Views
             var text = new TextBlock
             {
                 Text = label,
-                FontSize = isStore ? 13 : 12,
+                FontSize = isStore ? 14 : 13,
                 Foreground = isStore || key != null ? Brush("SidebarText") : Brush("TextMuted"),
                 TextTrimming = TextTrimming.CharacterEllipsis,
                 VerticalAlignment = VerticalAlignment.Center,
@@ -475,7 +475,7 @@ namespace Tsuzuri.Views
                 _owner = owner;
                 _folder = folder;
                 _indent = indent;
-                _foot = new TextBlock { FontSize = 11, Foreground = Brush("TextMuted"), Margin = new Thickness(indent, 3, 8, 4), TextWrapping = TextWrapping.Wrap };
+                _foot = new TextBlock { FontSize = 12, Foreground = Brush("TextMuted"), Margin = new Thickness(indent, 3, 8, 4), TextWrapping = TextWrapping.Wrap };
                 var inner = new StackPanel();
                 inner.Children.Add(_mails);
                 inner.Children.Add(_foot);

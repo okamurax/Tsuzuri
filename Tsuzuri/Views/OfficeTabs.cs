@@ -77,7 +77,7 @@ namespace Tsuzuri.Views
             var text = new TextBlock
             {
                 Text = label,
-                FontSize = 12,
+                FontSize = 13,
                 VerticalAlignment = VerticalAlignment.Center,
             };
             var border = new Border

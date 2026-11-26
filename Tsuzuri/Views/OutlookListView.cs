@@ -23,6 +23,9 @@ namespace Tsuzuri.Views
         /// <summary>メールの箱の高さの上限。</summary>
         private const double MailBoxHeight = 240;
 
+        /// <summary>本文を開いている間の、箱の高さの上限。</summary>
+        private const double MailBoxTallHeight = 440;
+
         private readonly StackPanel _list = new StackPanel();
         private readonly ScrollViewer _scroll = new ScrollViewer();
 
@@ -31,6 +34,12 @@ namespace Tsuzuri.Views
 
         /// <summary>開いているフォルダの箱（パス → 箱）。</summary>
         private readonly Dictionary<string, MailBox> _boxes = new Dictionary<string, MailBox>(StringComparer.OrdinalIgnoreCase);
+
+        /// <summary>本文を開いているメールのキー（無ければ null）と、出している文・読んでいる途中か。一覧を作り直しても、その行の下に出し直す。</summary>
+        private string _bodyKey;
+        private string _bodyText;
+        private bool _bodyLoading;
+        private Border _bodyPanel;
 
         private Func<string, bool> _chosen = key => false;
 
@@ -164,6 +173,7 @@ namespace Tsuzuri.Views
             _list.Children.Clear();
             _rows.Clear();
             _boxes.Clear();
+            _bodyPanel = null;   // 前の一覧に入っていた本文の欄は捨てる（開いたままなら、作り直す箱の中に出し直す）
             if (stores == null)
             {
                 ShowNote(string.IsNullOrEmpty(problem) ? "Outlook を読めませんでした" : problem);
@@ -205,6 +215,69 @@ namespace Tsuzuri.Views
             if (_boxes.TryGetValue(folder, out box)) box.Fill(page);
         }
 
+        /// <summary>
+        /// メールの本文を、そのメールの行のすぐ下に開く（2026-11-27。利用者の考え）。key が null なら閉じる。loading なら「読んでいます」の形で出す。
+        /// 本文は自分のスクロールバーを持たず、メールの箱のスクロールで読む（箱の中にもう一段スクロールする場所を作らないように）。
+        /// </summary>
+        public void ShowBody(string key, string text, bool loading)
+        {
+            _bodyKey = key;
+            _bodyText = text;
+            _bodyLoading = loading;
+            if (_bodyPanel != null)
+            {
+                var parent = _bodyPanel.Parent as Panel;
+                if (parent != null) parent.Children.Remove(_bodyPanel);
+                _bodyPanel = null;
+            }
+            foreach (var box in _boxes.Values) box.Tall(false);
+            if (key == null) return;
+            foreach (var box in _boxes.Values)
+                if (box.PlaceBody(key)) return;
+        }
+
+        /// <summary>本文の欄を作る。</summary>
+        private Border BodyPanel(double indent)
+        {
+            var text = new TextBlock
+            {
+                Text = _bodyLoading ? _bodyText : Clean(_bodyText),
+                FontSize = 12,
+                TextWrapping = TextWrapping.Wrap,
+                Foreground = _bodyLoading ? Brush("TextMuted") : Brush("TextPrimary"),
+            };
+            var panel = new Border
+            {
+                Child = text,
+                Padding = new Thickness(indent, 6, 10, 8),
+                Background = Brush("HoverFill"),
+                ToolTip = _bodyLoading ? null : "利用者が見るためだけの本文（AI には渡さない）。もう一度メールを押すと閉じる",
+            };
+            // 本文の中を押しても、何もない所を押したこと（全部外す）にしない
+            panel.MouseLeftButtonDown += (sender, e) => e.Handled = true;
+            _bodyPanel = panel;
+            return panel;
+        }
+
+        /// <summary>本文を見せる形に: 制御文字を空白にし、3つ以上続く空の行を1つにし、長ければ切る。</summary>
+        private static string Clean(string text)
+        {
+            if (string.IsNullOrWhiteSpace(text)) return "（本文は空）";
+            var lines = new List<string>();
+            var blank = 0;
+            foreach (var raw in text.Replace("\r\n", "\n").Replace('\r', '\n').Split('\n'))
+            {
+                var line = new string(Array.ConvertAll(raw.ToCharArray(), c => char.IsControl(c) && c != '\t' ? ' ' : c)).TrimEnd();
+                blank = line.Trim().Length == 0 ? blank + 1 : 0;
+                if (blank <= 1) lines.Add(line);
+            }
+            var joined = string.Join("\n", lines).Trim('\n');
+            if (joined.Length <= OutlookBridge.MaxShownBody) return joined;
+            var cut = OutlookBridge.MaxShownBody;
+            if (char.IsHighSurrogate(joined[cut - 1])) cut--;
+            return joined.Substring(0, cut) + "\n\n…（長いので先頭の " + OutlookBridge.MaxShownBody + " 字だけ。続きは Outlook で）";
+        }
+
         /// <summary>選んでいる行の色を塗り直す（一覧は作り直さない）。</summary>
         public void RefreshSelection(Func<string, bool> chosen)
         {
@@ -217,6 +290,7 @@ namespace Tsuzuri.Views
             _list.Children.Clear();
             _rows.Clear();
             _boxes.Clear();
+            _bodyPanel = null;   // 前の一覧に入っていた本文の欄は捨てる（開いたままなら、作り直す箱の中に出し直す）
             _list.Children.Add(new TextBlock
             {
                 Text = message,
@@ -389,6 +463,7 @@ namespace Tsuzuri.Views
             private readonly TextBlock _foot;
             private readonly ScrollViewer _scroll;
             private readonly HashSet<string> _shown = new HashSet<string>(StringComparer.Ordinal);
+            private readonly Dictionary<string, Border> _mailRows = new Dictionary<string, Border>(StringComparer.Ordinal);
             private bool _more;
             private string _first;
             private bool _retry;
@@ -454,6 +529,7 @@ namespace Tsuzuri.Views
                     foreach (UIElement child in _mails.Children) _owner._rows.RemoveAll(row => ReferenceEquals(row.Value, child));
                     _mails.Children.Clear();
                     _shown.Clear();
+                    _mailRows.Clear();
                 }
                 if (page.Mails.Count > 0) _first = page.Mails[0].EntryId;
                 foreach (var mail in page.Mails)
@@ -461,10 +537,16 @@ namespace Tsuzuri.Views
                     if (!_shown.Add(mail.EntryId)) continue;
                     var when = mail.Received == DateTime.MinValue ? string.Empty : mail.Received.ToString("M/d HH:mm", CultureInfo.InvariantCulture) + "  ";
                     var subject = mail.Subject.Length == 0 ? "（件名なし）" : mail.Subject;
-                    var row = _owner.Row(MailKey(_folder, mail.EntryId), mail, when + subject, _indent, false, true, null);
+                    var key = MailKey(_folder, mail.EntryId);
+                    var row = _owner.Row(key, mail, when + subject, _indent, false, true, null);
                     row.ToolTip = MailTip(mail, subject);
-                    ToolTipService.SetShowDuration(row, 60000);
                     _mails.Children.Add(row);
+                    _mailRows[key] = row;
+                    if (key == _owner._bodyKey && (_owner._bodyPanel == null || _owner._bodyPanel.Parent == null))
+                    {
+                        _mails.Children.Add(_owner.BodyPanel(_indent));
+                        Tall(true);
+                    }
                 }
                 var shown = _shown.Count;
                 // 続きがあれば、一番下まで来たら読む。読めなかったときは、利用者が一番下までスクロールしたときだけやり直す
@@ -478,27 +560,16 @@ namespace Tsuzuri.Views
                 _owner.Dispatcher.BeginInvoke(new Action(() => AskMoreIfAtEnd(false)), System.Windows.Threading.DispatcherPriority.Background);
             }
 
-            /// <summary>
-            /// メールの行のポップアップ: 件名・日時と、本文の頭（一覧を読んだときに一緒に読んだもの。カーソルを当てても Outlook は呼ばない）。
-            /// 本文の頭は利用者が見るためだけで、AI には渡さない。
-            /// </summary>
+            /// <summary>メールの行のポップアップ: 件名・日時と、押したときのこと。</summary>
             private static object MailTip(OutlookBridge.Mail mail, string subject)
             {
                 var panel = new StackPanel { MaxWidth = 420 };
                 panel.Children.Add(new TextBlock { Text = subject, FontWeight = FontWeights.SemiBold, TextWrapping = TextWrapping.Wrap });
                 if (mail.Received != DateTime.MinValue)
                     panel.Children.Add(new TextBlock { Text = mail.Received.ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture), Opacity = 0.7, Margin = new Thickness(0, 2, 0, 0) });
-                var preview = Preview(mail.Preview);
                 panel.Children.Add(new TextBlock
                 {
-                    Text = preview ?? "（本文の頭は読めなかった）",
-                    TextWrapping = TextWrapping.Wrap,
-                    Margin = new Thickness(0, 6, 0, 0),
-                    Opacity = preview == null ? 0.7 : 1,
-                });
-                panel.Children.Add(new TextBlock
-                {
-                    Text = "押すとこのメールだけを選んで、件名・日時・ID を AI に渡す（本文は渡さない）。Ctrl を押しながらだと足す・外す",
+                    Text = "押すと、このメールだけを選んで件名・日時・ID を AI に渡し、すぐ下に本文を開く（本文は AI に渡さない。もう一度押すと本文を閉じる）。Ctrl を押しながらだと、選びに足す・外すだけ",
                     TextWrapping = TextWrapping.Wrap,
                     Opacity = 0.7,
                     Margin = new Thickness(0, 6, 0, 0),
@@ -506,19 +577,28 @@ namespace Tsuzuri.Views
                 return panel;
             }
 
-            /// <summary>本文の頭を見せる形に: 空の行を詰め、制御文字を空白にし、長ければ切る。空なら null。</summary>
-            private static string Preview(string text)
+            /// <summary>key のメールがこの箱にあれば、その行のすぐ下に本文の欄を入れる（見える所までスクロールする）。</summary>
+            public bool PlaceBody(string key)
             {
-                if (string.IsNullOrWhiteSpace(text)) return null;
-                var lines = new List<string>();
-                foreach (var raw in text.Replace("\r\n", "\n").Replace('\r', '\n').Split('\n'))
+                Border row;
+                if (!_mailRows.TryGetValue(key, out row)) return false;
+                var index = _mails.Children.IndexOf(row);
+                if (index < 0) return false;
+                var panel = _owner.BodyPanel(_indent);
+                _mails.Children.Insert(index + 1, panel);
+                Tall(true);
+                // 本文の頭が見える所まで（長い本文の終わりまで飛ばないように、頭の分だけ）
+                panel.Dispatcher.BeginInvoke(new Action(() =>
                 {
-                    var line = new string(Array.ConvertAll(raw.ToCharArray(), c => char.IsControl(c) ? ' ' : c)).Trim();
-                    if (line.Length > 0) lines.Add(line);
-                }
-                var joined = string.Join("\n", lines);
-                if (joined.Length == 0) return null;
-                return joined.Length > 300 ? joined.Substring(0, 300) + "…" : joined + (text.Length >= 250 ? "…" : string.Empty);
+                    if (panel.IsVisible) panel.BringIntoView(new Rect(0, 0, panel.ActualWidth, Math.Min(panel.ActualHeight, 80)));
+                }), System.Windows.Threading.DispatcherPriority.Background);
+                return true;
+            }
+
+            /// <summary>本文を開いている間は箱を高くする（狭い箱の中で本文を読まなくて済むように）。</summary>
+            public void Tall(bool tall)
+            {
+                _scroll.MaxHeight = tall ? MailBoxTallHeight : MailBoxHeight;
             }
 
             /// <summary>一番下まで来ていて、続きがあれば頼む（中身が箱より短くて、スクロールできないときも）。byUser は利用者がスクロールしたとき（失敗のあとのやり直しはそのときだけ）。</summary>

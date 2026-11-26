@@ -170,6 +170,8 @@ namespace Tsuzuri.Office
 
         private void Show(string problem)
         {
+            // 本文を開いていたメールのフォルダを閉じた（ストアを閉じた・フォルダが無くなった）なら、本文も閉じる（開き直したときに古い本文が出ないように）
+            if (_bodyKey != null && !_pages.ContainsKey(_bodyKey.Substring(0, Math.Max(0, _bodyKey.IndexOf('\u0001'))))) CloseBody();
             // 一覧に出す知らせは利用者向けに（台本への答えは AI 向けの言い方なので、「開いてもらう」を言い換える）
             View.Show(_stores, Chosen(), path => _pages.ContainsKey(path), path => { MailPage page; return _pages.TryGetValue(path, out page) ? page : null; },
                       name => _closedStores.Contains(name),
@@ -307,9 +309,60 @@ namespace Tsuzuri.Office
             if (!ctrl)
             {
                 SetChoices(new string[0], new[] { mail });
+                ToggleBody(mail);
                 return;
             }
             SetChoices(_choices, current.Any(same) ? current.Where(item => !same(item)).ToArray() : current.Concat(new[] { mail }).ToArray());
+        }
+
+        /// <summary>本文を開いているメールのキー（無ければ null）と、本文の頼みの番号（新しい頼みが来たら、古い頼みの結果を捨てる）。画面のスレッドだけで使う。</summary>
+        private string _bodyKey;
+        private int _bodyRequest;
+
+        /// <summary>
+        /// メールを（Ctrl なしで）押した: そのメールの本文を行のすぐ下に開く。開いていれば閉じる（2026-11-27。利用者の考え）。
+        /// 本文は裏で読み、まず「読んでいます」を出す。読めたら本文を、読めなければわけを出す（Outlook が空くのは 2 秒だけ待ち、読むのは 8 秒まで）。
+        /// 本文は利用者が見るためだけで、AI には渡さない（今の状態に書かない）。
+        /// </summary>
+        private void ToggleBody(OutlookBridge.Mail mail)
+        {
+            var key = OutlookListView.MailKey(mail.Folder, mail.EntryId);
+            var request = ++_bodyRequest;
+            if (key == _bodyKey)
+            {
+                CloseBody();
+                return;
+            }
+            _bodyKey = key;
+            View.ShowBody(key, "本文を読んでいます…", true);
+            var dispatcher = View.Dispatcher;
+            Task.Run(() =>
+            {
+                string text = null;
+                string problem;
+                try
+                {
+                    text = OutlookBridge.ReadBody(mail.Folder, mail.EntryId, 8000, out problem);
+                }
+                catch (Exception ex)
+                {
+                    problem = ex.Message;
+                }
+                dispatcher.BeginInvoke(new Action(() =>
+                {
+                    if (request != _bodyRequest || key != _bodyKey) return;   // その間に閉じた・別のメールを押した
+                    if (text != null) View.ShowBody(key, text, false);
+                    else View.ShowBody(key, "本文を読めませんでした（" + UserText(problem) + "）。もう一度押すと閉じ、また押すと読み直します", true);
+                }));
+            });
+        }
+
+        private void CloseBody()
+        {
+            if (_bodyKey == null) return;
+            _bodyKey = null;
+            _bodyRequest++;
+            View.ShowBody(null, null, false);
         }
 
         private void SetChoices(string[] folders, OutlookBridge.Mail[] mails, bool rebuild = false)

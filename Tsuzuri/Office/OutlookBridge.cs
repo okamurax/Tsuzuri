@@ -171,8 +171,6 @@ namespace Tsuzuri.Office
             public string Subject;
             /// <summary>受け取った日時（ローカル。無ければ DateTime.MinValue）。</summary>
             public DateTime Received;
-            /// <summary>本文の頭（Table の Body の列。Outlook が返すのは頭の約 255 字まで）。読めなければ null。一覧のポップアップに出すだけで、AI には渡さない。</summary>
-            public string Preview;
         }
 
         /// <summary>一覧で読む件数の上限（スクロールで読み足していっても、ここまで）。</summary>
@@ -207,23 +205,7 @@ namespace Tsuzuri.Office
                     string storeId;
                     var folder = FindFolder(scope, session, folderPath, out storeId, out problem);
                     if (folder == null) return null;
-                    // 本文の頭も、同じ1回で読む（カーソルを当てたときのポップアップ用。当てるたびに Outlook を呼ばないように。2026-11-26。利用者の判断）。
-                    // 列を足すのは通っても、読むときに「操作は失敗しました」（0x80004005）になる Outlook がある（2026-11-27。利用者の Windows で）。
-                    // そのときは、次の読み方（MAPI の本文のプロパティ → 本文の頭なし）で読み直し、だめだった読み方はアプリを閉じるまで使わない
-                    while (true)
-                    {
-                        var column = _previewStep < PreviewColumns.Length ? PreviewColumns[_previewStep] : null;
-                        if (column == null) return ReadMails(folder, folderPath, count, null, out total);
-                        try
-                        {
-                            return ReadMails(folder, folderPath, count, column, out total);
-                        }
-                        catch (Exception ex) when (!IsBusy(ex) && !IsGone(ex) && !IsDenied(ex))
-                        {
-                            _previewStep++;
-                            Check();
-                        }
-                    }
+                    return ReadMails(folder, folderPath, count, out total);
                 }
                 catch (Exception ex)
                 {
@@ -233,17 +215,10 @@ namespace Tsuzuri.Office
             }
         }
 
-        /// <summary>本文の頭を読む列の候補（順に試す）。Body で読めない Outlook には、MAPI の本文のプロパティ（PR_BODY_W）を試す。</summary>
-        private static readonly string[] PreviewColumns = { "Body", "http://schemas.microsoft.com/mapi/proptag/0x1000001F" };
-
-        /// <summary>今使う PreviewColumns の番号（読めなかったら進める。PreviewColumns.Length 以上なら本文の頭を読まない）。</summary>
-        private static volatile int _previewStep;
-
         /// <summary>
-        /// 一覧の Table を作って新しい順に count 通を読む。previewColumn が null でなければ、その列で本文の頭も読む。
-        /// 本文の頭の列のせいで読めないときに作り直せるように、Table は呼ぶたびに作る。
+        /// 一覧の Table を作って新しい順に count 通を読む（件名・受け取った日時・ID の列だけ。本文の列を足すと読めない Outlook があった。2026-11-27）。
         /// </summary>
-        private static List<Mail> ReadMails(object folder, string folderPath, int count, string previewColumn, out int total)
+        private static List<Mail> ReadMails(object folder, string folderPath, int count, out int total)
         {
             total = 0;
             using (var scope = new Scope())
@@ -252,7 +227,6 @@ namespace Tsuzuri.Office
                 var columns = scope.Get(table, "Columns");
                 scope.Call(columns, "RemoveAll");
                 foreach (var name in new[] { "EntryID", "Subject", "ReceivedTime" }) scope.Release(scope.Call(columns, "Add", name));
-                if (previewColumn != null) scope.Release(scope.Call(columns, "Add", previewColumn));
                 scope.Call(table, "Sort", "[ReceivedTime]", true);
                 total = ToInt(scope.Call(table, "GetRowCount"));
                 var list = new List<Mail>();
@@ -262,7 +236,6 @@ namespace Tsuzuri.Office
                 if (values == null || values.Rank != 2) return list;
                 var r0 = values.GetLowerBound(0);
                 var c0 = values.GetLowerBound(1);
-                var preview = previewColumn != null && values.GetLength(1) > 3;
                 for (var r = r0; r <= values.GetUpperBound(0); r++)
                 {
                     var received = values.GetValue(r, c0 + 2);
@@ -272,7 +245,6 @@ namespace Tsuzuri.Office
                         EntryId = Text(values.GetValue(r, c0)),
                         Subject = Line(Text(values.GetValue(r, c0 + 1))),
                         Received = received is DateTime && ((DateTime)received).Year < 4500 ? (DateTime)received : DateTime.MinValue,
-                        Preview = preview ? Text(values.GetValue(r, c0 + 3)) : null,
                     });
                 }
                 return list;
@@ -505,6 +477,46 @@ namespace Tsuzuri.Office
 
         /// <summary>本文の字数の上限（これを超えたら切る）。</summary>
         private const int MaxBody = 60000;
+
+        /// <summary>一覧で開く本文の字数の上限（利用者が一覧で読むためだけ。続きは Outlook で読む）。</summary>
+        public const int MaxShownBody = 4000;
+
+        /// <summary>
+        /// 一覧でメールを押したときに出す、差出人の名前と本文（2026-11-27。利用者の考え）。利用者が見るためだけで、AI には渡さない。
+        /// 読めなければ null（problem にわけ）。画面の読み込みなので、Outlook が空くのは短くだけ待つ。
+        /// </summary>
+        public static string ReadBody(string folderPath, string entryId, int timeout, out string problem)
+        {
+            string text = null;
+            string why = null;
+            var outcome = RunSta(() => text = ReadBodyCore(folderPath, entryId, out why), timeout, 2000);
+            problem = outcome == Outcome.Done ? why ?? Unknown : outcome == Outcome.Previous ? StillBusy : NotAnsweringGuard;
+            return outcome == Outcome.Done ? text : null;
+        }
+
+        private static string ReadBodyCore(string folderPath, string entryId, out string problem)
+        {
+            problem = null;
+            using (var scope = new Scope())
+            {
+                var session = Session(scope, out problem);
+                if (session == null) return null;
+                try
+                {
+                    var mail = FindMail(scope, session, folderPath, entryId, out problem);
+                    if (mail == null) return null;
+                    var sender = Line(Text(scope.Get(mail, "SenderName")));
+                    var body = Text(scope.Get(mail, "Body"));
+                    if (body.Length == 0 && ToInt(scope.Get(mail, "DownloadState")) == 0) body = "（本文をまだ受け取っていない。Outlook でこのメールを開くと受け取る）";
+                    return (sender.Length > 0 ? "差出人: " + sender + "\n\n" : string.Empty) + body;
+                }
+                catch (Exception ex)
+                {
+                    problem = Failure(ex);
+                    return null;
+                }
+            }
+        }
 
         /// <summary>1通を読み、ファイルに書く文を返す。読めなければ null（problem にわけ）。</summary>
         public static string Read(string folderPath, string entryId, int timeout, out string problem)

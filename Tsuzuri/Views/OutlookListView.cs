@@ -10,7 +10,7 @@ namespace Tsuzuri.Views
 {
     /// <summary>
     /// 開いている Outlook（classic）のメールのフォルダの一覧（2026-11-26。利用者の考え。Tsuzuri と AiLink で同じファイルを使う。AiLink はリンクしてコンパイルする）。
-    /// Excel の一覧の下に置く（Stack）。ストア（メールボックス・PST など）を見出しに、その下にメールのフォルダを字下げして並べる。
+    /// Excel の一覧と同じ所に、タブで切り替えて出す（OfficeTabs）。ストア（メールボックス・PST など）を見出しに、その下にメールのフォルダを字下げして並べる。
     /// 選び方はエクスプローラーと同じ: 押すとそれだけを選び（ほかは外れる）、Ctrl を押しながらだと足す・外す、何もない所を押すと全部外す。ストアの行は押せない。
     /// 選んだフォルダ（パスだけ。中身は渡さない）が AI への「このフォルダ」になる（OutlookLink）。Outlook の側は何も切り替えない。
     /// </summary>
@@ -27,6 +27,9 @@ namespace Tsuzuri.Views
 
         /// <summary>「更新」を押した。</summary>
         public event Action RefreshRequested;
+
+        /// <summary>一番下の「Outlook で AI にいつも伝えること」を押した（メモ帳で開く。OfficeNotes）。</summary>
+        public event Action NotesRequested;
 
         public OutlookListView()
         {
@@ -58,10 +61,34 @@ namespace Tsuzuri.Views
             DockPanel.SetDock(refresh, Dock.Right);
 
             var head = new DockPanel { Margin = new Thickness(12, 0, 6, 0), Height = 28 };
+            _head = head;
+            _refresh = refresh;
             head.Children.Add(refresh);
             head.Children.Add(title);
             DockPanel.SetDock(head, Dock.Top);
             Children.Add(head);
+
+            // 一番下に1行: Outlook を扱うときに AI へいつも伝える前提（ExcelListView と同じ形）
+            var notes = new TextBlock
+            {
+                Text = "Outlook で AI にいつも伝えること",
+                FontSize = 12,
+                Foreground = Brush("AccentBrush"),
+                Margin = new Thickness(12, 4, 8, 6),
+                Cursor = Cursors.Hand,
+                TextTrimming = TextTrimming.CharacterEllipsis,
+                ToolTip = "メールを探す・読む・下書きを作るときに AI へいつも伝える前提（言葉の意味・下書きの書き方の好み・宛名や結び・署名・社内の決まりなど）を、メモ帳で書く。\n次に開く会話から AI に渡る（今の会話には渡らない）",
+            };
+            notes.MouseEnter += delegate { notes.TextDecorations = TextDecorations.Underline; };
+            notes.MouseLeave += delegate { notes.TextDecorations = null; };
+            notes.MouseLeftButtonDown += (sender, e) =>
+            {
+                e.Handled = true;
+                var requested = NotesRequested;
+                if (requested != null) requested();
+            };
+            DockPanel.SetDock(notes, Dock.Bottom);
+            Children.Add(notes);
 
             _scroll.Content = _list;
             _scroll.VerticalScrollBarVisibility = ScrollBarVisibility.Auto;
@@ -78,6 +105,20 @@ namespace Tsuzuri.Views
             Children.Add(_scroll);
 
             ShowNote("押すと読みます（「更新」）");
+        }
+
+        private DockPanel _head;
+        private Button _refresh;
+
+        /// <summary>
+        /// 見出しの段（題と「更新」）を外し、「更新」のボタンを返す（OfficeTabs がタブの段に置く。2026-11-26。Excel と Outlook をタブで切り替えるため）。
+        /// </summary>
+        public Button DetachHead()
+        {
+            Children.Remove(_head);
+            _head.Children.Remove(_refresh);
+            DockPanel.SetDock(_refresh, Dock.Right);
+            return _refresh;
         }
 
         /// <summary>一覧を出し直す。null なら読めなかった（problem にわけ）。</summary>
@@ -167,34 +208,6 @@ namespace Tsuzuri.Views
                 if (clicked != null) clicked(path, (Keyboard.Modifiers & ModifierKeys.Control) != 0);
             };
             return row;
-        }
-
-        /// <summary>Excel の一覧（上）と Outlook の一覧（下）を、仕切りで高さを変えられる形に重ねる。</summary>
-        public static Grid Stack(UIElement top, UIElement bottom)
-        {
-            var grid = new Grid();
-            grid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star), MinHeight = 60 });
-            grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-            grid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star), MinHeight = 60 });
-            var splitter = new GridSplitter
-            {
-                Height = 5,
-                HorizontalAlignment = HorizontalAlignment.Stretch,
-                ResizeDirection = GridResizeDirection.Rows,
-                ResizeBehavior = GridResizeBehavior.PreviousAndNext,
-                Focusable = false,
-            };
-            // 上下の境界の見た目（アプリの RowSplitter。無ければ薄い線）
-            var rowStyle = Application.Current != null ? Application.Current.TryFindResource("RowSplitter") as Style : null;
-            if (rowStyle != null) splitter.Style = rowStyle;
-            else splitter.Background = Brush("BorderBrushSoft");
-            Grid.SetRow(top, 0);
-            Grid.SetRow(splitter, 1);
-            Grid.SetRow(bottom, 2);
-            grid.Children.Add(top);
-            grid.Children.Add(splitter);
-            grid.Children.Add(bottom);
-            return grid;
         }
 
         private static Brush Brush(string key)

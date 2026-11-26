@@ -133,6 +133,8 @@
     <Compile Include="..\Tsuzuri\Office\OutlookInstructions.cs"><Link>Office\OutlookInstructions.cs</Link></Compile>
     <Compile Include="..\Tsuzuri\Office\OutlookLink.cs"><Link>Office\OutlookLink.cs</Link></Compile>
     <Compile Include="..\Tsuzuri\Views\OutlookListView.cs"><Link>Views\OutlookListView.cs</Link></Compile>
+    <Compile Include="..\Tsuzuri\Views\OfficeTabs.cs"><Link>Views\OfficeTabs.cs</Link></Compile>
+    <Compile Include="..\Tsuzuri\Office\OfficeNotes.cs"><Link>Office\OfficeNotes.cs</Link></Compile>
     <Compile Include="..\Tsuzuri\Views\ExcelListView.cs"><Link>Views\ExcelListView.cs</Link></Compile>
     <Compile Include="..\Tsuzuri\Views\FileIcon.cs"><Link>Views\FileIcon.cs</Link></Compile>
     <Compile Include="Properties\AssemblyInfo.cs" />

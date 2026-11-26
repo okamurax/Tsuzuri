@@ -7,12 +7,15 @@ namespace Tsuzuri
 {
     // MainWindow の一部: Outlook（classic）を AI に扱わせるつなぎ（2026-11-26。利用者の考え）。
     // 中身（一覧・選んだフォルダ・今の状態の段・outlook.ps1 の頼みに答える所）は Office/OutlookLink.cs（AiLink と共通）。ここは Tsuzuri に置く所だけ。
-    // 一覧はランチャーのファイラーの下の段で、Excel の一覧の下に置く（MainWindow.Excel.cs の RefreshExcelList）。
+    // 一覧はランチャーのファイラーの下の段で、Excel の一覧とタブで切り替える（Views/OfficeTabs.cs。MainWindow.Excel.cs の RefreshExcelList で作る）。
     public partial class MainWindow
     {
         private const string OutlookListName = "ランチャーの Outlook の一覧";
 
         private OutlookLink _outlook;
+
+        /// <summary>「Outlook で AI にいつも伝えること」（中身は Office/OfficeNotes.cs。Excel と共通）。</summary>
+        private static readonly OfficeNotes OutlookNotes = new OfficeNotes("Tsuzuri", "Outlook", "Claude");
 
         /// <summary>Outlook のつなぎ（初めて要るときに作る。画面のスレッドで）。</summary>
         private OutlookLink Outlook
@@ -27,6 +30,7 @@ namespace Tsuzuri
                         Status(part.Length == 0 ? "Outlook のフォルダを全部外しました。"
                                                 : "Outlook のフォルダを選んでいます:" + part.Replace("  ・Outlook", string.Empty) + "（話しかけると、パスを Claude に渡します）");
                     });
+                    _outlook.View.NotesRequested += () => Status(OutlookNotes.Open());
                 }
                 return _outlook;
             }

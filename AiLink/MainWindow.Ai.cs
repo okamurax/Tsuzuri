@@ -501,7 +501,7 @@ namespace AiLink
                            + " -c " + Quote("shell_environment_policy.set.AILINK_WORK=" + AiWorkFolder)
                            + " -c " + Quote("shell_environment_policy.set.AILINK_NAME=" + AiTabFileName(tab))
                            // AGENTS.md を読む量の上限を上げる（2026-11-26。Codex は初めの値 32KiB を超えた分を黙って捨てる。AiLink の指示だけで約 39KB あり、
-                           // 終わりの段（伝言・ファイル・Excel で AI にいつも伝えること）が渡っていなかった）
+                           // 終わりの段（伝言・ファイル・Excel と Outlook で AI にいつも伝えること）が渡っていなかった）
                            + " -c " + Quote("project_doc_max_bytes=262144")
                            + " @args }";
                 if (!tab.AgentStarted)
@@ -534,7 +534,7 @@ namespace AiLink
             // 指示は会話を始めるフォルダの AGENTS.md に書く（Codex が自分で読む。MainWindow.AiInstructions.cs）
             var work = AiWorkFolder;
             Directory.CreateDirectory(work);
-            WriteIfChanged(Path.Combine(work, "AGENTS.md"), AiInstructionsText(work) + ExcelNotesSection());   // 利用者が書いた「Excel で AI にいつも伝えること」（MainWindow.Excel.cs）
+            WriteIfChanged(Path.Combine(work, "AGENTS.md"), AiInstructionsText(work) + ExcelNotesSection() + OutlookNotes.Section());   // 利用者が書いた「Excel・Outlook で AI にいつも伝えること」（MainWindow.Excel.cs）
 
             // フック（MainWindow.AiHooks.cs）。プロジェクトの単位のフック（work\.codex\hooks.json）にする（利用者の ~/.codex には書かない）。
             // 中身が変わると、Codex が利用者に信頼するかを尋ねる（信頼するまでは動かない）

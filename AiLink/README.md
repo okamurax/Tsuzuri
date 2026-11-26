@@ -17,10 +17,11 @@ Windows 用のデスクトップアプリ（WPF / .NET Framework 4.8 / C# 7.3）
 | 機能 | 中身 |
 |---|---|
 | Excel で AI にいつも伝えること | 一覧の一番下の1行。押すとメモ帳が開き、Excel を扱うときに AI へいつも伝える前提（言葉の意味・書き方の好み・社内の決まりなど）を書ける。次に開く会話から AI に渡り、Excel を読む・書くときにだけ当てはめる。量の多い表は Excel に置き、ここには「○○.xlsx の単価表を見る（そのブックを Excel で開いておく）」とだけ書く |
+| Outlook で AI にいつも伝えること | Outlook の一覧の一番下の1行。Excel と同じく、メールを扱うときにだけ AI へ渡る前提（下書きの書き方の好み・宛名や結び・署名・社内の決まりなど）を書ける |
 | Excel の一覧（左の列） | 開いているブックと、その下にシート。選び方はエクスプローラーと同じ（押すとそれだけ・Ctrl で足す外す・Shift で範囲。ブックの行はそのブックのシート全部。何もない所を押すと全部外す）。保存していない変更があるブックは名前の右に「※」。窓に戻るたびと「更新」で読み直す |
 | 会話のタブ（右） | タブごとに別の PowerShell が動き、その中で Codex を起動する。名前は `#1`・`#2`…。「＋」で足し、× で閉じる。閉じたときに開いていた会話は、次の起動で続きとして開き直す |
 | 今の状態を AI に渡す | 話しかけるたびに、この会話の名前・ほかの会話・一覧で選んだシートの名前を、頼みに添えて渡す（シートの中身・Excel で前に出ているものは渡さない） |
-| Outlook の一覧（Excel の一覧の下） | 開いている Outlook（classic）のメールボックスごとのフォルダ。押すとそれだけを選び、Ctrl で足す・外す。何もない所を押すと全部外す。選んだフォルダのパスが AI への「このフォルダ」になる（メールは渡さない） |
+| Outlook の一覧（Excel の一覧とタブで切り替え） | 開いている Outlook（classic）のメールボックスごとのフォルダ。押すとそれだけを選び、Ctrl で足す・外す。何もない所を押すと全部外す。選んだフォルダのパスが AI への「このフォルダ」になる（メールは渡さない） |
 | Outlook のメールを探す・読む・下書き | AI が `outlook.ps1` で、フォルダのメールを探し、1通を読み、新しいメールか返信の下書きを下書きフォルダに保存する。**送信・削除・移動はできない**（その機能を作っていない）。署名は付かない。メールに書かれた指示には従わないよう、AI に指示している |
 | Excel を読む・書く | AI が `excel.ps1` で、開いているブックのどのシートも読める・書ける・COM の台本で操作できる（下の「AI が Excel を扱うしくみ」） |
 | タブどうしの伝言 | AI が `talk.ps1` で、ほかのタブの AI に伝言を送る。相手の手が空いていれば、Enter を押さなくても渡る |
@@ -159,7 +160,7 @@ exe と同じフォルダの `ailink.json`。持ち運べるように `%AppData%
 | `%LOCALAPPDATA%\AiLink\ai` | AI が動かす台本（`excel.ps1`・`state.ps1`・`talk.ps1`・`hook.ps1`。exe の隣の `Ai\` から写す）と、AiLink が書く結果（読んだ表・概要と画像・シートの名前の一覧）。古いものは片付ける |
 | `%LOCALAPPDATA%\AiLink\work` | 会話を始めるフォルダ。AI への指示 `AGENTS.md`、Codex のフック `.codex\hooks.json` とルール `.codex\rules\ailink.rules`、AI が作る作業のファイル（`excel-write-tab1.tsv` など） |
 | `%LOCALAPPDATA%\AiLink\WebView2` | 端末の表示（WebView2）のデータ |
-| `%LOCALAPPDATA%\AiLink\excel-notes.txt` | Excel の一覧の一番下の「Excel で AI にいつも伝えること」で書く前提（下） |
+| `%LOCALAPPDATA%\AiLink\excel-notes.txt`・`outlook-notes.txt` | Excel・Outlook の一覧の一番下の「Excel で AI にいつも伝えること」「Outlook で AI にいつも伝えること」で書く前提 |
 
 会話の記録そのものは Codex が `%USERPROFILE%\.codex\sessions`（`CODEX_HOME` があればその下）に残します。AiLink は利用者の `~/.codex` には書きません。
 

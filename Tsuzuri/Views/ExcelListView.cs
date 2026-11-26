@@ -65,6 +65,8 @@ namespace Tsuzuri.Views
             DockPanel.SetDock(refresh, Dock.Right);
 
             var head = new DockPanel { Margin = new Thickness(12, 0, 6, 0), Height = 28 };
+            _head = head;
+            _refresh = refresh;
             head.Children.Add(refresh);
             head.Children.Add(title);
             DockPanel.SetDock(head, Dock.Top);
@@ -108,6 +110,20 @@ namespace Tsuzuri.Views
             Children.Add(_scroll);
 
             ShowNote("読んでいます…");
+        }
+
+        private DockPanel _head;
+        private Button _refresh;
+
+        /// <summary>
+        /// 見出しの段（題と「更新」）を外し、「更新」のボタンを返す（OfficeTabs がタブの段に置く。2026-11-26。Excel と Outlook をタブで切り替えるため）。
+        /// </summary>
+        public Button DetachHead()
+        {
+            Children.Remove(_head);
+            _head.Children.Remove(_refresh);
+            DockPanel.SetDock(_refresh, Dock.Right);
+            return _refresh;
         }
 
         /// <summary>一覧を出し直す。null なら読めなかった（problem にわけ）。</summary>

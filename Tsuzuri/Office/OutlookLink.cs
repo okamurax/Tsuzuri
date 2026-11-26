@@ -31,7 +31,7 @@ namespace Tsuzuri.Office
         private DateTime _readAt = DateTime.MinValue;
         private bool _reading;
 
-        /// <summary>一覧の表示。アプリが Excel の一覧の下に置く（OutlookListView.Stack）。</summary>
+        /// <summary>一覧の表示。アプリが Excel の一覧とタブで切り替える（OfficeTabs）。</summary>
         public OutlookListView View { get; private set; }
 
         /// <param name="aiFolder">結果のファイルを書く AI のフォルダ（台本を置いた所）。</param>

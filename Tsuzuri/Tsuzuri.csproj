@@ -233,6 +233,8 @@
     <Compile Include="Office\OutlookInstructions.cs" />
     <Compile Include="Office\OutlookLink.cs" />
     <Compile Include="Views\OutlookListView.cs" />
+    <Compile Include="Views\OfficeTabs.cs" />
+    <Compile Include="Office\OfficeNotes.cs" />
     <Compile Include="Office\ExcelBridge.Overview.cs">
       <DependentUpon>ExcelBridge.cs</DependentUpon>
     </Compile>

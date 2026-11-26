@@ -56,6 +56,9 @@ namespace Tsuzuri.Office
         /// <summary>選んだメール（選んだ順）。入れ替え方は _choices と同じ。</summary>
         private volatile OutlookBridge.Mail[] _mailChoices = new OutlookBridge.Mail[0];
 
+        /// <summary>閉じているストアの名前（画面のスレッドだけで使う。初めは全部開いている）。</summary>
+        private readonly HashSet<string> _closedStores = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
         /// <summary>開いているフォルダと、その読んだ分（画面のスレッドだけで使う）。</summary>
         private readonly Dictionary<string, MailPage> _pages = new Dictionary<string, MailPage>(StringComparer.OrdinalIgnoreCase);
 
@@ -79,6 +82,7 @@ namespace Tsuzuri.Office
             View.RowClicked += Choose;
             View.MailClicked += ChooseMail;
             View.ToggleRequested += Toggle;
+            View.StoreToggleRequested += ToggleStore;
             View.MoreRequested += folder => LoadMails(folder, false);
             View.EmptyClicked += () => SetChoices(new string[0], new OutlookBridge.Mail[0]);
         }
@@ -144,6 +148,7 @@ namespace Tsuzuri.Office
         {
             // 一覧に出す知らせは利用者向けに（台本への答えは AI 向けの言い方なので、「開いてもらう」を言い換える）
             View.Show(_stores, Chosen(), path => _pages.ContainsKey(path), path => { MailPage page; return _pages.TryGetValue(path, out page) ? page : null; },
+                      name => _closedStores.Contains(name),
                       _stores == null && problem != null ? problem.Replace("開いてもらう", "開いてください") : null);
         }
 
@@ -153,6 +158,27 @@ namespace Tsuzuri.Office
             var chosen = new HashSet<string>(_choices, StringComparer.OrdinalIgnoreCase);
             foreach (var mail in _mailChoices) chosen.Add(OutlookListView.MailKey(mail.Folder, mail.EntryId));
             return key => chosen.Contains(key);
+        }
+
+        /// <summary>
+        /// ストアの「∨／＞」: 開いていれば閉じ、閉じていれば開く。閉じるときは、その中で選んでいたフォルダ・メールを外し、開いていたフォルダの箱も閉じる
+        /// （見えない選びが AI に渡り続けないように。フォルダを閉じたときと同じ扱い）。
+        /// </summary>
+        private void ToggleStore(string name)
+        {
+            if (_closedStores.Remove(name))
+            {
+                Show(null);
+                return;
+            }
+            _closedStores.Add(name);
+            var store = _stores != null ? _stores.FirstOrDefault(item => string.Equals(item.Name, name, StringComparison.OrdinalIgnoreCase)) : null;
+            var inside = new HashSet<string>(store != null ? store.Folders.Select(folder => folder.Path) : Enumerable.Empty<string>(), StringComparer.OrdinalIgnoreCase);
+            foreach (var path in _pages.Keys.Where(inside.Contains).ToList()) _pages.Remove(path);
+            var folders = _choices.Where(path => !inside.Contains(path)).ToArray();
+            var mails = _mailChoices.Where(mail => !inside.Contains(mail.Folder)).ToArray();
+            if (folders.Length != _choices.Length || mails.Length != _mailChoices.Length) SetChoices(folders, mails, true);
+            else Show(null);
         }
 
         /// <summary>フォルダの「＞」: 開いていれば閉じ、閉じていれば開いて先頭の分を読む。</summary>

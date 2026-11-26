@@ -43,6 +43,9 @@ namespace Tsuzuri.Views
         /// <summary>フォルダの「＞」を押した（開く・閉じる）。</summary>
         public event Action<string> ToggleRequested;
 
+        /// <summary>ストアの「∨／＞」を押した（フォルダを隠す・出す）。引数はストアの名前。</summary>
+        public event Action<string> StoreToggleRequested;
+
         /// <summary>開いた箱を一番下までスクロールした（次の分を読む）。</summary>
         public event Action<string> MoreRequested;
 
@@ -155,7 +158,7 @@ namespace Tsuzuri.Views
         /// 一覧を出し直す。null なら読めなかった（problem にわけ）。chosen はフォルダのパスかメールのキーを選んでいるか、
         /// expanded は開いているフォルダか、pageOf は開いたフォルダの読んだ分（無ければ null）。
         /// </summary>
-        public void Show(List<OutlookBridge.Store> stores, Func<string, bool> chosen, Func<string, bool> expanded, Func<string, OutlookLink.MailPage> pageOf, string problem)
+        public void Show(List<OutlookBridge.Store> stores, Func<string, bool> chosen, Func<string, bool> expanded, Func<string, OutlookLink.MailPage> pageOf, Func<string, bool> storeClosed, string problem)
         {
             _chosen = chosen ?? (key => false);
             _list.Children.Clear();
@@ -174,7 +177,9 @@ namespace Tsuzuri.Views
 
             foreach (var store in stores)
             {
-                _list.Children.Add(Row(null, null, store.Name, 12, true, false, store.Name + (string.IsNullOrEmpty(store.Problem) ? string.Empty : "\n" + store.Problem)));
+                var closed = storeClosed != null && storeClosed(store.Name);
+                _list.Children.Add(StoreRow(store, closed));
+                if (closed) continue;   // 閉じたストアのフォルダは出さない
                 if (!string.IsNullOrEmpty(store.Problem) && store.Folders.Count == 0)
                 {
                     _list.Children.Add(Row(null, null, store.Problem, 34, false, false, store.Problem));
@@ -220,6 +225,50 @@ namespace Tsuzuri.Views
                 TextWrapping = TextWrapping.Wrap,
                 Margin = new Thickness(12, 4, 8, 4),
             });
+        }
+
+        /// <summary>ストアの見出しの行: 頭に「∨」（開いている）か「＞」（閉じている）。行のどこを押しても開く・閉じる（ストアは選べない）。</summary>
+        private UIElement StoreRow(OutlookBridge.Store store, bool closed)
+        {
+            var arrow = new TextBlock
+            {
+                Text = closed ? "＞" : "∨",
+                FontSize = 11,
+                Width = 18,
+                Foreground = Brush("TextMuted"),
+                VerticalAlignment = VerticalAlignment.Center,
+            };
+            var text = new TextBlock
+            {
+                Text = store.Name,
+                FontSize = 13,
+                Foreground = Brush("SidebarText"),
+                TextTrimming = TextTrimming.CharacterEllipsis,
+                VerticalAlignment = VerticalAlignment.Center,
+            };
+            var content = new DockPanel();
+            DockPanel.SetDock(arrow, Dock.Left);
+            content.Children.Add(arrow);
+            content.Children.Add(text);
+            var row = new Border
+            {
+                Child = content,
+                Padding = new Thickness(6, 3, 8, 3),
+                Background = Brushes.Transparent,
+                Cursor = Cursors.Hand,
+                ToolTip = store.Name + (string.IsNullOrEmpty(store.Problem) ? string.Empty : "\n" + store.Problem)
+                          + (closed ? "\n押すと、このメールボックスのフォルダを出す" : "\n押すと、このメールボックスのフォルダを隠す（中で選んでいたフォルダ・メールは外れる）"),
+            };
+            row.MouseEnter += delegate { row.Background = Brush("HoverFill"); };
+            row.MouseLeave += delegate { row.Background = Brushes.Transparent; };
+            row.MouseLeftButtonDown += (sender, e) =>
+            {
+                e.Handled = true;   // 何もない所を押したこと（全部外す）にしない
+                if (e.ClickCount > 1) return;
+                var toggle = StoreToggleRequested;
+                if (toggle != null) toggle(store.Name);
+            };
+            return row;
         }
 
         /// <summary>フォルダの行: 頭に「＞」（開く・閉じる）、その右に名前（押すと選ぶ）。</summary>

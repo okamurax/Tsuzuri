@@ -25,6 +25,13 @@ mkdir -p "$work/main"
     cp "$root/AiLink/$file" "$work/main/src/$file"
 done
 
+# Tsuzuri と同じファイルを使う分（AiLink.csproj の <Compile Include="..\Tsuzuri\…"><Link>…）も写す（2026-11-26）
+grep -o 'Compile Include="\.\.\\Tsuzuri\\[^"]*"' "$root/AiLink/AiLink.csproj" | sed 's/^Compile Include="\.\.\\//; s/"$//; s#\\#/#g' | while read -r file; do
+    [ -f "$root/$file" ] || { echo "AiLink.csproj がつなぐファイルが無い: $file" >&2; exit 1; }
+    mkdir -p "$work/main/src/shared/$(dirname "$file")"
+    cp "$root/$file" "$work/main/src/shared/$file"
+done
+
 python3 - "$root/AiLink/MainWindow.xaml" > "$work/main/src/XamlStub.cs" <<'PY'
 import re, sys
 xaml = open(sys.argv[1], encoding="utf-8").read()

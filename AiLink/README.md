@@ -82,7 +82,7 @@ Excel への頼みは AiLink が1つずつ順に流します。xlsx のファイ
 
 1. 保存・閉じる・Excel を終える・開く・マクロを動かすなどの語（`save` を含む語・`Close`・`Quit`・`.Open`・`.Run`・`DisplayAlerts`・`Start-Process` など）があれば動かさない（コメントや文字の中でも）
 2. AI に渡さない場所のフォルダのフルパスを書いた台本は動かさない
-3. PowerShell の構文解析で、許した形だけを通す（`Tsuzuri/Ai/excel-guard.ps1`。Tsuzuri と同じファイルをリンクして使う）。変数・制御文・`$excel` からたどる決まった Excel のメンバー・一部のコマンドと型だけ。ファイル・ほかのプログラム・ネット・`&`・`Invoke-Expression`・名前の組み立て・関数の定め・`exit` などは断る
+3. PowerShell の構文解析で、許した形だけを通す（`Tsuzuri/Ai/excel-guard.ps1`。Tsuzuri と同じファイルをリンクして使う。下の「ビルド」）。変数・制御文・`$excel` からたどる決まった Excel のメンバー・一部のコマンドと型だけ。ファイル・ほかのプログラム・ネット・`&`・`Invoke-Expression`・名前の組み立て・関数の定め・`exit` などは断る
 
 台本は時間を過ぎると止めます（既定 60 秒、`-Timeout` で 540 秒まで）。AiLink が終わると、動いている台本も一緒に終わります。
 
@@ -168,7 +168,7 @@ $ExecutionContext.SessionState.LanguageMode   # FullLanguage でなければ、�
 2. NuGet パッケージを復元する（PackageReference 方式）
 3. ビルドする（`AiLink\bin\Release\AiLink.exe` ができる。台本 `Ai\`・端末の `Terminal\`・`ConPty\` も隣に写る）
 
-台本の書き方の確かめ `Tsuzuri\Ai\excel-guard.ps1` は、写しを作らずリンクして使います（出力では `Ai\excel-guard.ps1`）。
+Excel を扱う部分は Tsuzuri と同じファイルを、写しを作らずリンクして使います（2026-11-26）: `Tsuzuri/Office/ExcelBridge.cs`・`ExcelBridge.Overview.cs`・`ExcelInstructions.cs`、`Tsuzuri/Views/ExcelListView.cs`・`FileIcon.cs`、`Tsuzuri/Ai/excel.ps1`・`excel-guard.ps1`。Excel の COM・左の一覧・`excel.ps1`・AI への指示の Excel の段・台本の書き方の確かめです。直すときは Tsuzuri の側を直し、両方をビルドして確かめます。
 `ConPty\` の `conpty.dll`・`OpenConsole.exe` は `Tsuzuri\ConPty\` と同じもの（NuGet の Microsoft.Windows.Console.ConPTY 1.24.261001001）です。
 
 Mac では、XAML を除いた C# のコンパイルだけを `bash tools/check-build-ailink.sh` で確かめられます（.NET SDK が要ります）。`AiLink.csproj` は古い形で、コンパイルするファイルを1つずつ並べているので、並べ忘れもここで見つけます。XAML は Windows のビルドでしか確かめられません。
@@ -179,7 +179,7 @@ Mac では、XAML を除いた C# のコンパイルだけを `bash tools/check-
 
 | 試験 | 確かめること |
 |---|---|
-| `powershell -NoProfile -ExecutionPolicy Bypass -File tools\excel-client-test.ps1` | `excel.ps1`（AiLink と Tsuzuri）を偽のパイプを相手に動かし、呼び方の誤りでは何も送らずファイルを残すか、作業のファイルを一度だけ送って消すか、壊れた答えを失敗にするか。`excel.ps1` を変えたら回す（3 分ほど） |
+| `powershell -NoProfile -ExecutionPolicy Bypass -File tools\excel-client-test.ps1` | `excel.ps1`（両方のアプリで同じファイル）を、AiLink として・Tsuzuri として、偽のパイプを相手に動かし、呼び方の誤りでは何も送らずファイルを残すか、作業のファイルを一度だけ送って消すか、壊れた答えを失敗にするか。`excel.ps1` を変えたら回す（3 分ほど） |
 | `powershell -NoProfile -ExecutionPolicy Bypass -File tools\excel-guard-test.ps1` | 台本の書き方の確かめ（`excel-guard.ps1`）が、ふつうの台本を通し、ファイル・ほかのプログラム・ネット・保存や閉じる・マクロに触る台本を断るか。`excel-guard.ps1` を変えたら回す |
 
 AI に渡す文（`MainWindow.AiInstructions.cs` の指示と今の状態）を変えたら、別のエージェントに、指示と今の状態・コードの動きとの食い違いが無いかを見てもらってからコミットします（リポジトリの `CLAUDE.md`）。

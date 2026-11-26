@@ -1,13 +1,16 @@
-# Tsuzuri: read and write the Excel workbooks the user has open (SPEC 19).
+# Tsuzuri and AiLink: read and write the Excel workbooks the user has open (SPEC 19, AiLink SPEC).
+# One file for both apps (AiLink links this file). The environment tells which app runs it:
+#   Tsuzuri: TSUZURI_AI_PIPE, TSUZURI_AI_NAME; the AI writes its files next to this script. Messages call it 'the editor'.
+#   AiLink: AILINK_PIPE, AILINK_NAME, AILINK_WORK; the AI writes its files in AILINK_WORK. Messages call it 'AiLink'.
 #
 #   powershell -NoProfile -ExecutionPolicy Bypass -File excel.ps1 -Book "<name or full path>" -Sheet "<sheet>" -Range "B3:F20"
 #       any sheet of any open workbook (not the ones the user keeps from the AI, on the web, or hidden)
-#   When reading, -Book and -Sheet may be left out only when the user chose exactly one sheet in the Excel list of the launcher.
+#   When reading, -Book and -Sheet may be left out only when the user chose exactly one sheet in the Excel list.
 #   When writing, both are required.
 #   Without -Range: the used range of the sheet. The workbook and sheet in front in Excel are never used.
 #
 #   powershell -NoProfile -ExecutionPolicy Bypass -File excel.ps1 -Write -Book "<book>" -Sheet "<sheet>" -Range "B3"
-#       writes the cells in excel-write-<TSUZURI_AI_NAME>.tsv next to this script (UTF-8, tab separated, one line = one row; removed once sent, kept when nothing was sent) from B3.
+#       writes the cells in excel-write-<name>.tsv in the work folder (see above) (UTF-8, tab separated, one line = one row; removed once sent, kept when nothing was sent) from B3.
 #       Ask the user before writing (the instructions of the AI pane).
 #       Cells are entered as typed: "=" starts a formula (English function names, "," separators).
 #       It does not save the workbook. Excel loses its undo history (Ctrl+Z) when this writes.
@@ -15,12 +18,12 @@
 #
 #   powershell -NoProfile -ExecutionPolicy Bypass -File excel.ps1 -Overview -Book "<book>" -Sheet "<sheet>"
 #       an overview of the sheet: formats, merged cells, shapes, charts, tables, names, conditional formats, comments, links, and the cells.
-#       The editor writes it to a file and this prints the path (-Book and -Sheet as when reading).
+#       The app writes it to a file and this prints the path (-Book and -Sheet as when reading).
 #
 #   powershell -NoProfile -ExecutionPolicy Bypass -File excel.ps1 -Script [-Timeout 60]
-#       runs the PowerShell script in excel-script-<TSUZURI_AI_NAME>.ps1 next to this script (UTF-8; removed once sent, kept when nothing was sent) in another PowerShell process,
+#       runs the PowerShell script in excel-script-<name>.ps1 in the work folder (see above) (UTF-8; removed once sent, kept when nothing was sent) in another PowerShell process,
 #       with $excel = the running Excel.Application. Whatever the script prints is printed here.
-#       The editor checks the script with the PowerShell parser first (Ai/excel-guard.ps1) and runs only allowed forms:
+#       The app checks the script with the PowerShell parser first (Ai/excel-guard.ps1) and runs only allowed forms:
 #       variables, if/foreach/for/while/try, Excel members reached from $excel and called by a fixed name, a few commands
 #       (Write-Output, ForEach-Object { }, Where-Object { }, Select-Object, Sort-Object ...) and a few types (object[,] ...).
 #       Files, other programs, the network, & and Invoke-Expression, names built from strings or variables, and Excel members
@@ -29,9 +32,9 @@
 #   There is no -File: the AI always writes the file of its own conversation (removed 2026-11-26: it let a call send any file).
 #   A sheet or workbook name that starts with - is given as -Sheet:'-name'.
 #
-# Reading: the editor reads Excel and writes the cells to a file (tab separated); this prints the path of that file.
+# Reading: the app reads Excel and writes the cells to a file (tab separated); this prints the path of that file.
 # Writing: this prints what was written.
-# It goes through the pipe of the window (TSUZURI_AI_PIPE, set for the claude of the AI pane). Exit code 1 when it could not read or write.
+# It goes through the pipe of the window (TSUZURI_AI_PIPE or AILINK_PIPE, set for the AI of the AI pane). Exit code 1 when it could not read or write.
 # A wrong call (two modes, an unknown parameter, -Write without -Book/-Sheet/-Range, a -Timeout over 540) fails before sending anything.
 # Keep this file ASCII only: PowerShell 5.1 reads a script without BOM as the ANSI code page.
 
@@ -69,12 +72,25 @@ if ($Script) {
 if ($Overview -and $Range) { Fail '-Overview does not take -Range (it reads the whole sheet). Nothing was sent' }
 if ($Write -and (-not $Book -or -not $Sheet -or -not $Range)) { Fail '-Write needs -Book, -Sheet and -Range (the top left cell, such as B3). Nothing was sent' }
 
-$pipe = $env:TSUZURI_AI_PIPE
-if (-not $pipe) { Fail 'TSUZURI_AI_PIPE is not set. Run this from claude in the AI pane of Tsuzuri (a conversation started before this feature needs a restart).' }
-
-$work = $PSScriptRoot
-# one file per conversation (TSUZURI_AI_NAME, e.g. tab1): two conversations writing at once never swap their cells or scripts
-$suffix = if ($env:TSUZURI_AI_NAME) { '-' + $env:TSUZURI_AI_NAME } else { $null }
+# which app: AiLink sets AILINK_PIPE, Tsuzuri sets TSUZURI_AI_PIPE (the words below are the ones the instructions of each app quote)
+if ($env:AILINK_PIPE) {
+    $pipe = $env:AILINK_PIPE
+    $app = 'AiLink'
+    $name = $env:AILINK_NAME
+    $noName = 'AILINK_NAME is not set: open a new conversation tab in AiLink'
+    # the files the AI writes are in the working folder of the conversation (AILINK_WORK), where the AI may write; next to this script otherwise
+    $work = if ($env:AILINK_WORK) { $env:AILINK_WORK } else { $PSScriptRoot }
+} elseif ($env:TSUZURI_AI_PIPE) {
+    $pipe = $env:TSUZURI_AI_PIPE
+    $app = 'the editor'
+    $name = $env:TSUZURI_AI_NAME
+    $noName = 'TSUZURI_AI_NAME is not set: open a new conversation tab in the AI pane (a conversation started before this feature needs a restart)'
+    $work = $PSScriptRoot
+} else {
+    Fail 'TSUZURI_AI_PIPE is not set and AILINK_PIPE is not set. Run this from the AI pane of Tsuzuri or AiLink (a conversation started before this feature needs a restart).'
+}
+# one file per conversation (e.g. tab1): two conversations writing at once never swap their cells or scripts
+$suffix = if ($name) { '-' + $name } else { $null }
 
 $tab = [char]9
 # strict UTF-8: a file that is not UTF-8 is refused instead of sending broken characters to Excel
@@ -95,7 +111,7 @@ function Restore {
 
 $content = $null
 if ($changes) {
-    if ($null -eq $suffix) { Fail 'TSUZURI_AI_NAME is not set: open a new conversation tab in the AI pane (a conversation started before this feature needs a restart)' }
+    if ($null -eq $suffix) { Fail $noName }
     $File = Join-Path $work ($(if ($Script) { 'excel-script' } else { 'excel-write' }) + $suffix + $(if ($Script) { '.ps1' } else { '.tsv' }))
     if (-not (Test-Path -LiteralPath $File)) { Fail ('file not found: ' + $File + ' (write it first)') }
     # take the work file by moving it to a name of its own: only the call that moved it sends it,
@@ -123,7 +139,7 @@ try {
         $client.Connect(15000)
     } catch {
         Restore
-        Fail ('could not reach the editor: ' + $_.Exception.Message + '. Nothing was sent' + $(if ($changes) { ' (the file is kept)' } else { '' }))
+        Fail ('could not reach ' + $app + ': ' + $_.Exception.Message + '. Nothing was sent' + $(if ($changes) { ' (the file is kept)' } else { '' }))
     }
 
     if ($Script) {
@@ -136,43 +152,43 @@ try {
         $request = 'excel-read' + $tab + (B64 $Book) + $tab + (B64 $Sheet) + $tab + (B64 $Range)
     }
 
-    # from here a failure may come after the editor got the request: a change may or may not have been made
+    # from here a failure may come after the app got the request: a change may or may not have been made
     $sent = $true
     $writer = New-Object System.IO.StreamWriter($client, (New-Object System.Text.UTF8Encoding($false)))
     $writer.WriteLine($request)
     $writer.Flush()
     $reader = New-Object System.IO.StreamReader($client, [System.Text.Encoding]::UTF8)
     # give up before the tool that runs this does, so the AI gets the message below instead of being cut off;
-    # the editor may still be working then (an overview takes up to about 90 seconds when Excel is busy)
+    # the app may still be working then (an overview takes up to about 90 seconds when Excel is busy)
     $limit = if ($Script) { $Timeout + 25 } elseif ($Overview) { 105 } else { 90 }
     $left = [Math]::Max(1000, [int](($limit - ((Get-Date) - $started).TotalSeconds) * 1000))
     $pending = $reader.ReadLineAsync()
-    if (-not $pending.Wait($left)) { Fail ('no answer from the editor in ' + $limit + ' seconds' + $(if ($changes) { $unsure } else { '' })) }
+    if (-not $pending.Wait($left)) { Fail ('no answer from ' + $app + ' in ' + $limit + ' seconds' + $(if ($changes) { $unsure } else { '' })) }
     $answer = $pending.Result
 } catch {
-    if ($sent) { Fail ('no answer from the editor: ' + $_.Exception.GetBaseException().Message + $(if ($changes) { $unsure } else { '' })) }
+    if ($sent) { Fail ('no answer from ' + $app + ': ' + $_.Exception.GetBaseException().Message + $(if ($changes) { $unsure } else { '' })) }
     Restore
-    Fail ('could not send to the editor: ' + $_.Exception.GetBaseException().Message + '. Nothing was sent')
+    Fail ('could not send to ' + $app + ': ' + $_.Exception.GetBaseException().Message + '. Nothing was sent')
 } finally {
     $client.Dispose()
     if ($claimed) { Remove-Item -LiteralPath $claimed -ErrorAction SilentlyContinue }
 }
 
-if (-not $answer) { Fail ('no answer from the editor' + $(if ($changes) { $unsure } else { '' })) }
+if (-not $answer) { Fail ('no answer from ' + $app + $(if ($changes) { $unsure } else { '' })) }
 $parts = $answer.Split([char]9, 2)
-if ($parts[0] -ne 'ok' -and $parts[0] -ne 'error') { Fail ('an answer from the editor that could not be read' + $(if ($changes) { $unsure } else { '' })) }
+if ($parts[0] -ne 'ok' -and $parts[0] -ne 'error') { Fail ('an answer from ' + $app + ' that could not be read' + $(if ($changes) { $unsure } else { '' })) }
 $message = if ($parts.Count -gt 1) { $parts[1] } else { '' }
 # the answer to a script is Base64 (its output has many lines)
 if ($Script -and $message) {
     try {
         $message = $utf8.GetString([Convert]::FromBase64String($message))
     } catch {
-        Fail ('an answer from the editor that could not be read' + $unsure)
+        Fail ('an answer from ' + $app + ' that could not be read' + $unsure)
     }
 }
 if ($parts[0] -eq 'ok') {
     # reading and the overview answer with the path of the file; a script may print nothing
-    if (-not $Script -and -not $Write -and -not $message) { Fail 'an answer from the editor without the file path' }
+    if (-not $Script -and -not $Write -and -not $message) { Fail ('an answer from ' + $app + ' without the file path') }
     [Console]::Out.WriteLine($message)
     exit 0
 }

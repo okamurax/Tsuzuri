@@ -60,7 +60,8 @@
     </PackageReference>
   </ItemGroup>
   <ItemGroup>
-    <Content Include="Ai\excel.ps1"><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory></Content>
+    <!-- excel.ps1 も Tsuzuri と同じファイル（環境変数でどちらのアプリから呼ばれたかを見分ける。2026-11-26） -->
+    <Content Include="..\Tsuzuri\Ai\excel.ps1"><Link>Ai\excel.ps1</Link><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory></Content>
     <!-- 台本の書き方の確かめは Tsuzuri と同じファイルを使う（写しを作らない） -->
     <Content Include="..\Tsuzuri\Ai\excel-guard.ps1"><Link>Ai\excel-guard.ps1</Link><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory></Content>
     <Content Include="Ai\hook.ps1"><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory></Content>
@@ -119,13 +120,13 @@
     <Compile Include="MainWindow.xaml.cs">
       <DependentUpon>MainWindow.xaml</DependentUpon>
     </Compile>
-    <Compile Include="Office\ExcelBridge.Overview.cs">
-      <DependentUpon>ExcelBridge.cs</DependentUpon>
-    </Compile>
-    <Compile Include="Office\ExcelBridge.cs" />
+    <!-- Excel を読み書きする部分・一覧・AI への指示の Excel の段は、Tsuzuri と同じファイルを使う（写しを作らない。2026-11-26） -->
+    <Compile Include="..\Tsuzuri\Office\ExcelBridge.cs"><Link>Office\ExcelBridge.cs</Link></Compile>
+    <Compile Include="..\Tsuzuri\Office\ExcelBridge.Overview.cs"><Link>Office\ExcelBridge.Overview.cs</Link></Compile>
+    <Compile Include="..\Tsuzuri\Office\ExcelInstructions.cs"><Link>Office\ExcelInstructions.cs</Link></Compile>
+    <Compile Include="..\Tsuzuri\Views\ExcelListView.cs"><Link>Views\ExcelListView.cs</Link></Compile>
+    <Compile Include="..\Tsuzuri\Views\FileIcon.cs"><Link>Views\FileIcon.cs</Link></Compile>
     <Compile Include="Properties\AssemblyInfo.cs" />
-    <Compile Include="Views\ExcelListView.cs" />
-    <Compile Include="Views\FileIcon.cs" />
     <Compile Include="Views\ProcessTree.cs" />
     <Compile Include="Views\PseudoConsole.cs" />
     <Compile Include="Views\ScrollThumbLength.cs" />

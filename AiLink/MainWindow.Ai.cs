@@ -482,7 +482,8 @@ namespace AiLink
 
             StartAiListener();
 
-            var command = "$env:AILINK_TAB=" + Quote(tab.Id) + ";$env:AILINK_PIPE=" + Quote(AiPipeName) + ";$env:AILINK_WORK=" + Quote(AiWorkFolder)
+            // Tsuzuri の環境変数は消す（Tsuzuri から起動したときに受け継がないように。excel.ps1 は Tsuzuri と同じファイル。2026-11-26）
+            var command = "Remove-Item Env:TSUZURI_AI_PIPE,Env:TSUZURI_AI_NAME,Env:MDEDITOR_AI_TAB -ErrorAction SilentlyContinue;$env:AILINK_TAB=" + Quote(tab.Id) + ";$env:AILINK_PIPE=" + Quote(AiPipeName) + ";$env:AILINK_WORK=" + Quote(AiWorkFolder)
                           + ";$env:AILINK_NAME=" + Quote(AiTabFileName(tab));
 
             // AI を起動する（2026-11-25。第3段の最初。指示・フック・会話の続きはまだ渡さない）。

@@ -4,20 +4,19 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
-using Tsuzuri.Markdown;
 using Tsuzuri.Office;
 
 namespace Tsuzuri.Views
 {
     /// <summary>
-    /// ランチャーのファイラーの下の段の、開いている Excel の一覧（2026-11-24。利用者の考え。SPEC 4章・19章）。
+    /// 開いている Excel の一覧（2026-11-24。利用者の考え。SPEC 4章・19章）。Tsuzuri ではランチャーのファイラーの下の段、AiLink では左の列（Tsuzuri と AiLink で同じファイルを使う。AiLink はリンクしてコンパイルする。2026-11-26）。
     /// ブックを並べ、その下に字下げしてシートを並べる。選び方はエクスプローラーと同じ（2026-11-26。利用者の判断）: 押すとそれだけを選び（ほかは外れる）、
     /// Ctrl を押しながらだと足す・外す、Shift を押しながらだと前に押した所からの範囲。ブックの行は、そのブックのシート全部として扱う。何もない所を押すと全部外す。初めは何も選んでいない。
-    /// 選んだブックとシート（名前だけ。中身は渡さない）が AI の欄の Claude に渡り、AI への「このシート」になる（MainWindow.Excel.cs）。Excel の側は何も切り替えない。
+    /// 選んだブックとシート（名前だけ。中身は渡さない）が AI の欄の AI に渡り、AI への「このシート」になる（MainWindow.Excel.cs）。Excel の側は何も切り替えない。
     /// Excel でどのブック・シートが前に出ているかは使わない（手で作業しているシートが、AI に扱ってほしいシートとは限らないため。利用者の判断）。
-    /// 保存していない変更があるブックは、名前の右に「※」（2026-11-25。利用者の判断。Claude の分も、手で直した分も。保存した直後は付かない。
+    /// 保存していない変更があるブックは、名前の右に「※」（2026-11-25。利用者の判断。AI の分も、手で直した分も。保存した直後は付かない。
     /// NOW・RAND などの式があるブックは、開いただけで計算し直されて付くことがある）。
-    /// 一覧は MainWindow.Excel.cs が読み直して Show に渡す（ランチャーを出したとき・窓に戻ったとき・話しかけたとき・「更新」）。
+    /// 一覧は MainWindow.Excel.cs が読み直して Show に渡す（Tsuzuri はランチャーを出したとき・窓に戻ったとき・話しかけたとき・「更新」、AiLink は窓が出たとき・窓に戻ったとき・「更新」）。
     /// </summary>
     public sealed class ExcelListView : DockPanel
     {
@@ -132,7 +131,7 @@ namespace Tsuzuri.Views
                 var hidden = guarded != null && guarded(book.Path);
                 _list.Children.Add(CreateRow(hidden ? null : key, null, book.Instance, book.Name + (book.Path == null ? "（未保存）" : string.Empty) + (book.Unsaved ? " ※" : string.Empty), 12, true, false,
                                              (book.Path ?? book.Name + "（まだ保存していない新しいブック）")
-                                             + (book.Unsaved ? "\n※ 保存していない変更がある（Claude の分も、手で直した分も。保存せずに閉じれば、最後に保存したときに戻る。NOW・RAND などの式があると、開いただけでも付く）" : string.Empty)
+                                             + (book.Unsaved ? "\n※ 保存していない変更がある（AI の分も、手で直した分も。保存せずに閉じれば、最後に保存したときに戻る。NOW・RAND などの式があると、開いただけでも付く）" : string.Empty)
                                              + (hidden ? "\nAI に渡さない場所（か、確かめられない https:// などの URL の場所）のブック。シートを選べない"
                                                 : "\n押すと、このブックのシートを全部選ぶ（ほかは外れる）。Ctrl を押しながらだと足す（全部選んでいれば外す）。Shift を押しながらだと範囲。何もない所を押すと全部外す")));
                 foreach (var sheet in book.Sheets)
@@ -140,8 +139,8 @@ namespace Tsuzuri.Views
                     var chosen = chosenOf != null && chosenOf(book, sheet);
                     _list.Children.Add(CreateRow(key, hidden ? null : sheet, book.Instance, sheet, 34, false, chosen,
                                                  (hidden ? "AI に渡さない場所のブックなので、選べない"
-                                                  : chosen ? "選んでいるシート（Claude への「このシート」。ブックとシートの名前だけを渡し、中身は渡さない）。Ctrl を押しながら押すと外す"
-                                                  : "押すとこのシートだけを選んで、ブックとシートの名前を Claude に渡す（「このシート」になる。中身は渡さない）。Ctrl を押しながらだと足す。Shift を押しながらだと範囲")));
+                                                  : chosen ? "選んでいるシート（AI への「このシート」。ブックとシートの名前だけを渡し、中身は渡さない）。Ctrl を押しながら押すと外す"
+                                                  : "押すとこのシートだけを選んで、ブックとシートの名前を AI に渡す（「このシート」になる。中身は渡さない）。Ctrl を押しながらだと足す。Shift を押しながらだと範囲")));
                 }
             }
         }

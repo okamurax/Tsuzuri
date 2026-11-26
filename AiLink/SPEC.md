@@ -29,7 +29,7 @@ Tsuzuri の AI の欄（会話のタブ・今の状態の渡し方）と Excel �
 | 言語 | C# 7.3 |
 | UI | WPF。プロジェクトは古い形の csproj で、コンパイルするファイルを1つずつ並べる |
 | ソリューション | `AiLink/AiLink.sln`（Tsuzuri とは別。2026-11-26。利用者の判断。Tsuzuri と更新の時期がずれるので、同じ Visual Studio では不便。前は `Tsuzuri.sln` に入れていた） |
-| Tsuzuri との関わり | Tsuzuri のプロジェクトは参照しない。`Tsuzuri/Ai/excel-guard.ps1` だけはファイルをリンクして同じものを使う（写しを作らない） |
+| Tsuzuri との関わり | Tsuzuri のプロジェクトは参照しない。Excel を扱う部分（`Tsuzuri/Office/ExcelBridge.cs`・`ExcelBridge.Overview.cs`・`ExcelInstructions.cs`、`Tsuzuri/Views/ExcelListView.cs`・`FileIcon.cs`、`Tsuzuri/Ai/excel.ps1`・`excel-guard.ps1`）はファイルをリンクして同じものを使う（写しを作らない。2026-11-26。前は写しで、直すたびに両方へ写していた）。名前空間は `Tsuzuri.Office`・`Tsuzuri.Views` のまま |
 | 外部ライブラリ | WebView2（NuGet の Microsoft.Web.WebView2 1.0.4258.31。版は Tsuzuri とそろえる）、xterm.js、ConPTY（conpty.dll・OpenConsole.exe） |
 | 32 ビット | 優先しない（`Prefer32Bit` false。32 ビットだと ConPTY が裏で使う conhost.exe が見つからない） |
 | 名前 | 画面に出す名前は「AI連携ツール」（`App.DisplayName`） |
@@ -49,13 +49,14 @@ Tsuzuri の AI の欄（会話のタブ・今の状態の渡し方）と Excel �
 | `MainWindow.Excel.cs` | Excel の一覧と選び方・今の状態の Excel の段・読む・書く・概要・台本 |
 | `Agents/IAgent.cs`・`CodexAgent.cs` | AI のつなぎ口と Codex の分（探し方・入れ方・画面の印・会話の番号） |
 | `Agents/AiGuard.cs` | AI に渡さない場所（目印 `.ailink-no-ai`） |
-| `Office/ExcelBridge.cs`・`ExcelBridge.Overview.cs` | Excel の COM（AiLink の中で COM を使うのはここだけ） |
+| `Office/ExcelBridge.cs`・`ExcelBridge.Overview.cs` | Excel の COM（AiLink の中で COM を使うのはここだけ）。`Tsuzuri/Office/` へのリンク |
+| `Office/ExcelInstructions.cs` | AI への指示の Excel の段（Tsuzuri と同じ型の文から作る。`⟦T:…⟧` は Tsuzuri だけ、`⟦A:…⟧` は AiLink だけ）。`Tsuzuri/Office/` へのリンク |
 | `Views/TerminalView.cs`・`PseudoConsole.cs` | 端末（WebView2 の xterm.js と ConPTY）。アプリのジョブ |
-| `Views/ExcelListView.cs` | 左の列の Excel の一覧 |
+| `Views/ExcelListView.cs` | 左の列の Excel の一覧。`Tsuzuri/Views/` へのリンク |
 | `Views/ProcessTree.cs` | プロセスの親子（タブの PowerShell の下で AI が動いているか） |
-| `Views/FileIcon.cs`・`ShellIcons.cs`・`ScrollThumbLength.cs` | アイコン・スクロールバー |
+| `Views/FileIcon.cs`・`ShellIcons.cs`・`ScrollThumbLength.cs` | アイコン・スクロールバー（`FileIcon.cs` は `Tsuzuri/Views/` へのリンク） |
 | `GitLocator.cs` | exe の隣の git（MinGit）の場所 |
-| `Ai/excel.ps1`・`state.ps1`・`talk.ps1`・`hook.ps1` | AI（とフック）が動かす台本。ASCII だけで書く（PowerShell 5.1 は BOM の無い台本を ANSI の文字コードで読む） |
+| `Ai/excel.ps1`・`state.ps1`・`talk.ps1`・`hook.ps1` | AI（とフック）が動かす台本（`excel.ps1` は `Tsuzuri/Ai/` へのリンク。`AILINK_PIPE` があれば AiLink として動く）。ASCII だけで書く（PowerShell 5.1 は BOM の無い台本を ANSI の文字コードで読む） |
 | `Ai/excel-guard.ps1` | `Tsuzuri/Ai/excel-guard.ps1` へのリンク（台本の書き方の確かめ） |
 | `Terminal/` | 端末の画面（terminal.html・xterm.js と addon） |
 | `ConPty/` | 新しい ConPTY（`x64\`・`arm64\` の conpty.dll と、その下の Windows の種類ごとの OpenConsole.exe） |
@@ -350,7 +351,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File "<ai>\talk.ps1" -To "#1" -Te
 AI が動かす台本。パイプで AiLink に頼むだけ。
 
 - **呼び方の誤りは、何も送らずに断る**（ファイルも残す）: `-Write`・`-Script`・`-Overview` を2つ以上・知らないパラメーターや名前の無い値（`[CmdletBinding(PositionalBinding = $false)]`。打ち間違えた `-Wirte` で読むことにならないように）・`-Script` に `-Book`/`-Sheet`/`-Range`・`-Script` 以外に `-Timeout`・1〜540 の外の `-Timeout`・`-Overview` に `-Range`・`-Book`/`-Sheet`/`-Range` の無い `-Write`
-- `AILINK_PIPE` が無ければ「AILINK_PIPE is not set」。書く・台本で `AILINK_NAME` が無ければ断る
+- Tsuzuri と同じファイル（`Tsuzuri/Ai/excel.ps1`。2026-11-26）。`AILINK_PIPE` があれば AiLink として動き（呼び名は「AiLink」）、無くて `TSUZURI_AI_PIPE` があれば Tsuzuri として動く（呼び名は「the editor」、作業のファイルは台本の隣）。AiLink は会話のタブを開くときに `TSUZURI_AI_*` を消し、Tsuzuri は `AILINK_*` を消す（片方から片方を起動しても取り違えない）
+- どちらも無ければ「TSUZURI_AI_PIPE is not set and AILINK_PIPE is not set…」。書く・台本で `AILINK_NAME` が無ければ断る
 - **作業のファイル**: `AILINK_WORK`（無ければ台本の隣）の `excel-write-<AILINK_NAME>.tsv`・`excel-script-<AILINK_NAME>.ps1`。`-File` は無い（2026-11-26 に外した。許された場所の外のファイルを送る抜け道だった）
 - **ファイルを取る**: つなぐ前に、作業のファイルを自分だけの名前（`…-sending-<12 桁>.tsv`）に移してから読む（移せた呼び出しだけが送る。古い中身を二度送らない）。UTF-8 として厳しく読み、読めなければ元の名前に戻して断る。つなげなかった・送る前に失敗したときも、元の名前に戻す（その間に新しいファイルができていれば戻さない）。送り始めたら、答えによらず消す。消せずに残った `excel-*-sending-*` は、AiLink が次に起動したとき半日より古ければ消す
 - つなぐのを待つのは 15 秒
@@ -455,7 +457,7 @@ PowerShell の構文解析で、許した形だけを通す（断る一覧では
 | 試験 | どこで | 中身 |
 |---|---|---|
 | `bash tools/check-build-ailink.sh` | Mac | `AiLink.csproj` に並べ忘れた `.cs` が無いか。XAML の部品の代わり（XamlStub.cs）を作って C# をコンパイルする。XAML そのものは Windows のビルドで確かめる |
-| `tools\excel-client-test.ps1` | Windows | `excel.ps1`（AiLink と Tsuzuri）を偽のパイプ（別のプロセス）を相手に動かす。呼び方の誤りで何も送らずファイルを残すか・作業のファイルを一度だけ送って消すか・壊れた答えを失敗にするか |
+| `tools\excel-client-test.ps1` | Windows | `excel.ps1`（両方のアプリで同じファイル。AiLink として・Tsuzuri として）を偽のパイプ（別のプロセス）を相手に動かす。呼び方の誤りで何も送らずファイルを残すか・作業のファイルを一度だけ送って消すか・壊れた答えを失敗にするか |
 | `tools\excel-guard-test.ps1` | Windows | `excel-guard.ps1` が、ふつうの台本を通し、ファイル・ほかのプログラム・ネット・リフレクション・マクロ・保存や閉じる・開くに触る台本を断るか |
 
 `AiGuard`（AI に渡さない場所）と `ChainsCommands`（台本へのつなぎ）の AiLink 用の試験は、まだ無い。

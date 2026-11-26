@@ -1,4 +1,4 @@
-# Tests excel.ps1 (Tsuzuri/Ai and AiLink/Ai) against a fake pipe server, without Excel.
+# Tests excel.ps1 (Tsuzuri/Ai, used by both apps) as Tsuzuri and as AiLink against a fake pipe server, without Excel.
 # Run on Windows (Windows PowerShell 5.1), from the repository root:
 #   powershell -NoProfile -ExecutionPolicy Bypass -File tools\excel-client-test.ps1
 # Checks that a wrong call sends nothing and keeps the file, that the default file is sent once and removed,
@@ -41,7 +41,8 @@ try {
 function Invoke-Case([string]$app, [string]$name, [string[]]$arguments, [hashtable]$setup) {
     $dir = Join-Path ([System.IO.Path]::GetTempPath()) ('excel-client-test-' + [Guid]::NewGuid().ToString('N').Substring(0, 8))
     New-Item -ItemType Directory -Path $dir | Out-Null
-    Copy-Item -LiteralPath (Join-Path $root ($app + '\Ai\excel.ps1')) -Destination $dir
+    # one excel.ps1 for both apps (2026-11-26): the environment variables tell which app runs it
+    Copy-Item -LiteralPath (Join-Path $root 'Tsuzuri\Ai\excel.ps1') -Destination $dir
     $pipe = 'excel-client-test-' + [Guid]::NewGuid().ToString('N').Substring(0, 8)
     $log = Join-Path $dir 'request.log'
     $prefix = if ($app -eq 'AiLink') { 'AILINK_' } else { 'TSUZURI_AI_' }
@@ -58,6 +59,8 @@ function Invoke-Case([string]$app, [string]$name, [string[]]$arguments, [hashtab
         $start.UseShellExecute = $false
         $start.RedirectStandardError = $true
         $start.RedirectStandardOutput = $true
+        # clear what the shell running this test may have (the AI pane of either app)
+        foreach ($inherited in 'AILINK_PIPE', 'AILINK_NAME', 'AILINK_WORK', 'TSUZURI_AI_PIPE', 'TSUZURI_AI_NAME') { $start.EnvironmentVariables.Remove($inherited) }
         $start.EnvironmentVariables[$(if ($app -eq 'AiLink') { 'AILINK_PIPE' } else { 'TSUZURI_AI_PIPE' })] = $(if ($setup.NoPipe) { 'excel-client-test-nobody' } else { $pipe })
         $start.EnvironmentVariables[$(if ($app -eq 'AiLink') { 'AILINK_NAME' } else { 'TSUZURI_AI_NAME' })] = 'tab1'
         if ($app -eq 'AiLink') { $start.EnvironmentVariables['AILINK_WORK'] = $dir }

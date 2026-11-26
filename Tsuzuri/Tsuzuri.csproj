@@ -224,6 +224,7 @@
     <Compile Include="Views\FilerView.cs" />
     <Compile Include="Views\FilerGit.cs" />
     <Compile Include="Office\ExcelBridge.cs" />
+    <Compile Include="Office\ExcelInstructions.cs" />
     <Compile Include="Office\ExcelBridge.Overview.cs">
       <DependentUpon>ExcelBridge.cs</DependentUpon>
     </Compile>

@@ -209,7 +209,7 @@ Tsuzuri には埋め込んでいません（公開しているリポジトリに
 2. NuGet パッケージを復元する（PackageReference 方式）
 3. ビルドする（`Tsuzuri\bin\Release\Tsuzuri.exe` ができる）
 
-AI連携ツール（`AiLink/`。説明は [AiLink/README.md](AiLink/README.md)）は別のソリューション `AiLink\AiLink.sln` で開いてビルドします（`AiLink\bin\Release\AiLink.exe`。Tsuzuri と更新の時期がずれるため、別の Visual Studio で扱う）。Excel の台本の確かめ（`Tsuzuri/Ai/excel-guard.ps1`）は AiLink も同じファイルを使います。
+AI連携ツール（`AiLink/`。説明は [AiLink/README.md](AiLink/README.md)）は別のソリューション `AiLink\AiLink.sln` で開いてビルドします（`AiLink\bin\Release\AiLink.exe`。Tsuzuri と更新の時期がずれるため、別の Visual Studio で扱う）。Excel を扱う部分（Excel の COM・Excel の一覧・`excel.ps1`・台本の確かめ・AI への指示の Excel の段）は、AiLink も Tsuzuri と同じファイルをリンクして使います（`Tsuzuri/Office/`・`Tsuzuri/Views/ExcelListView.cs`・`Tsuzuri/Ai/excel*.ps1`）。直したら両方をビルドしてください。
 
 Mac では、XAML を除いた C# のコンパイルだけを `bash tools/check-build.sh` で確かめられます（.NET SDK が要ります。AiLink は `bash tools/check-build-ailink.sh`）。
 
@@ -242,7 +242,7 @@ Mac では、XAML を除いた C# のコンパイルだけを `bash tools/check-
 
 `bash tools/replace-fuzz.sh [でたらめの数] [種]` で、検索の置換が、別に書いた素直な置換と1文字も違わないか、改行を変えないか、置き換えた本文を保存して読み直してもページが変わらないか（閉じていないコードブロックで保存を断るときはファイルを変えないか）を確かめます。`Tsuzuri/Markdown/SearchReplace.cs` や `MarkdownView` の置換を変えたら回してください。
 
-Windows で `powershell -NoProfile -ExecutionPolicy Bypass -File tools\excel-client-test.ps1` を回すと、Excel の読み書きの `excel.ps1`（Tsuzuri と AiLink）を、偽のパイプを相手に確かめます（呼び方を間違えたら何も送らずファイルを残すか、既定のファイルを一度だけ送って消すか、壊れた答えを失敗にするか）。`excel.ps1` を変えたら回してください。
+Windows で `powershell -NoProfile -ExecutionPolicy Bypass -File tools\excel-client-test.ps1` を回すと、Excel の読み書きの `excel.ps1`（Tsuzuri と AiLink で同じファイル）を、両方のアプリとして、偽のパイプを相手に確かめます（呼び方を間違えたら何も送らずファイルを残すか、既定のファイルを一度だけ送って消すか、壊れた答えを失敗にするか）。`excel.ps1` を変えたら回してください。
 
 Windows で `powershell -NoProfile -ExecutionPolicy Bypass -File tools\excel-guard-test.ps1` を回すと、AI の Excel の台本の書き方の確かめ（`Tsuzuri/Ai/excel-guard.ps1`。Tsuzuri と AiLink で同じ）が、ふつうの台本を通し、ファイル・ほかのプログラム・ネット・保存や閉じる・マクロに触る台本を断るかを確かめます。`excel-guard.ps1` を変えたら回してください。
 

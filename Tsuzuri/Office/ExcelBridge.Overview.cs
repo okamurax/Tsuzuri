@@ -54,6 +54,7 @@ namespace Tsuzuri.Office
         /// <summary>シートの概要を文字で返し、シートの画像を picture に書く。読めなければ problem にわけを入れて null。</summary>
         public static string Overview(string book, string sheet, Func<string, bool> guarded, string picture, int timeout, out string bookShown, out string sheetShown, out string problem)
         {
+            book = UncPath(book);
             string text = null, why = null, shownBook = null, shownSheet = null;
             var outcome = RunSta(job => text = OverviewCore(book, sheet, guarded, picture, job, out shownBook, out shownSheet, out why), timeout, null);
             var done = outcome == Outcome.Done;

@@ -77,6 +77,7 @@ namespace Tsuzuri.Office
         /// </summary>
         public static Grid ReadRange(string book, string sheet, string range, int timeout, Func<string, bool> guarded, out string bookShown, out string sheetShown, out string problem)
         {
+            book = UncPath(book);
             Grid grid = null;
             string shownBook = null, shownSheet = null, why = null;
             var outcome = RunSta(job => grid = ReadRangeCore(book, sheet, range, guarded, out shownBook, out shownSheet, out why), timeout, null);
@@ -108,6 +109,7 @@ namespace Tsuzuri.Office
         /// </summary>
         public static Written Write(string book, string sheet, string at, List<string[]> cells, long instance, Func<string, bool> guarded, int timeout, Action<Written> late, out string problem)
         {
+            book = UncPath(book);
             Written written = null;
             string why = null;
             var outcome = RunSta(job => written = WriteCore(book, sheet, at, cells, instance, guarded, job, out why), timeout,
@@ -511,6 +513,16 @@ namespace Tsuzuri.Office
         private static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint processId);
 
         /// <summary>保存していない新しいブック（フルパスでなく名前だけ）か。</summary>
+        /// <summary>
+        /// ネットワークの場所のブック（\\server\…）のパスの頭が \ 1つになっていれば、\\ に戻す（2026-11-26）。Tsuzuri の Claude は Git Bash でコマンドを動かし、
+        /// 二重引用符の中の \\ が \ になって届く（AiLink の Codex は PowerShell なので起きない）。ドライブの付いたパス・名前だけのブックはそのまま。
+        /// </summary>
+        internal static string UncPath(string book)
+        {
+            if (book == null) return book;
+            return book.StartsWith("\\", StringComparison.Ordinal) && !book.StartsWith("\\\\", StringComparison.Ordinal) ? "\\" + book : book;
+        }
+
         private static bool Unsaved(string book)
         {
             return book.IndexOf('\\') < 0 && book.IndexOf('/') < 0;

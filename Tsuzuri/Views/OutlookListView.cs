@@ -12,7 +12,7 @@ namespace Tsuzuri.Views
     /// <summary>
     /// 開いている Outlook（classic）のメールのフォルダの一覧（2026-11-26。利用者の考え。Tsuzuri と AiLink で同じファイルを使う。AiLink はリンクしてコンパイルする）。
     /// Excel の一覧と同じ所に、タブで切り替えて出す（OfficeTabs）。ストア（メールボックス・PST など）を見出しに、その下にメールのフォルダを字下げして並べる。
-    /// フォルダの行の頭の「＞」を押すと、その下にフォルダのメールを件名だけで並べる箱を開く（初めは閉じている。利用者の考え）。箱は高さに上限があって自分のスクロールバーを持ち、
+    /// フォルダの行の頭の開閉の矢印を押すと、その下にフォルダのメールを件名だけで並べる箱を開く（初めは閉じている。利用者の考え）。箱は高さに上限があって自分のスクロールバーを持ち、
     /// 一番下までスクロールすると次の分を読む（読むのは OutlookLink）。
     /// 選び方はエクスプローラーと同じ: 押すとそれだけを選び（ほかは外れる）、Ctrl を押しながらだと足す・外す、何もない所を押すと全部外す。ストアの行は押せない。
     /// 選んだフォルダ（パス）とメール（フォルダ・件名・日時・ID）が AI に渡る（OutlookLink）。Outlook の側は何も切り替えない。
@@ -40,10 +40,10 @@ namespace Tsuzuri.Views
         /// <summary>メールの行を押した: メール、Ctrl を押していたか。</summary>
         public event Action<OutlookBridge.Mail, bool> MailClicked;
 
-        /// <summary>フォルダの「＞」を押した（開く・閉じる）。</summary>
+        /// <summary>フォルダの開閉の矢印を押した（開く・閉じる）。</summary>
         public event Action<string> ToggleRequested;
 
-        /// <summary>ストアの「∨／＞」を押した（フォルダを隠す・出す）。引数はストアの名前。</summary>
+        /// <summary>ストアの開閉の矢印を押した（フォルダを隠す・出す）。引数はストアの名前。</summary>
         public event Action<string> StoreToggleRequested;
 
         /// <summary>開いた箱を一番下までスクロールした（次の分を読む）。</summary>
@@ -227,17 +227,10 @@ namespace Tsuzuri.Views
             });
         }
 
-        /// <summary>ストアの見出しの行: 頭に「∨」（開いている）か「＞」（閉じている）。行のどこを押しても開く・閉じる（ストアは選べない）。</summary>
+        /// <summary>ストアの見出しの行: 頭に開閉の矢印（開いていれば下向き）。行のどこを押しても開く・閉じる（ストアは選べない）。</summary>
         private UIElement StoreRow(OutlookBridge.Store store, bool closed)
         {
-            var arrow = new TextBlock
-            {
-                Text = closed ? "＞" : "∨",
-                FontSize = 11,
-                Width = 18,
-                Foreground = Brush("TextMuted"),
-                VerticalAlignment = VerticalAlignment.Center,
-            };
+            var arrow = Arrow(!closed);
             var text = new TextBlock
             {
                 Text = store.Name,
@@ -271,22 +264,14 @@ namespace Tsuzuri.Views
             return row;
         }
 
-        /// <summary>フォルダの行: 頭に「＞」（開く・閉じる）、その右に名前（押すと選ぶ）。</summary>
+        /// <summary>フォルダの行: 頭に開閉の矢印、その右に名前（押すと選ぶ）。</summary>
         private UIElement FolderRow(OutlookBridge.Folder folder, bool open)
         {
             var row = Row(folder.Path, null, folder.Name, 34 + 14 * folder.Depth, false, true,
                           folder.Path + "\n押すとこのフォルダだけを選んで、パスを AI に渡す（「このフォルダ」になる。メールは渡さない）。Ctrl を押しながらだと足す・外す。何もない所を押すと全部外す");
-            var arrow = new TextBlock
-            {
-                Text = open ? "∨" : "＞",
-                FontSize = 11,
-                Width = 18,
-                Foreground = Brush("TextMuted"),
-                VerticalAlignment = VerticalAlignment.Center,
-                Background = Brushes.Transparent,
-                Cursor = Cursors.Hand,
-                ToolTip = open ? "メールの一覧を閉じる" : "このフォルダのメールを件名で並べる（新しい順。スクロールすると続きを読む）",
-            };
+            var arrow = Arrow(open);
+            arrow.Cursor = Cursors.Hand;
+            arrow.ToolTip = open ? "メールの一覧を閉じる" : "このフォルダのメールを件名で並べる（新しい順。スクロールすると続きを読む）";
             arrow.MouseLeftButtonDown += (sender, e) =>
             {
                 e.Handled = true;   // 行を押したこと（選ぶ）にしない
@@ -299,6 +284,29 @@ namespace Tsuzuri.Views
             content.Children.Insert(0, arrow);
             row.Padding = new Thickness(Math.Max(0, row.Padding.Left - 18), row.Padding.Top, row.Padding.Right, row.Padding.Bottom);
             return row;
+        }
+
+        /// <summary>
+        /// 開閉の矢印（Tsuzuri のアウトラインの開閉 App.xaml の ExpandToggle と同じ形。2026-11-27。利用者の判断）: 右向きの「›」を線で描き、開いていれば 90 度回して下向きにする。
+        /// AiLink にはその Style が無いので、ここで同じ形を描く。
+        /// </summary>
+        private static Border Arrow(bool open)
+        {
+            var path = new System.Windows.Shapes.Path
+            {
+                Data = Geometry.Parse("M 5,3 L 10,8 L 5,13"),
+                Stroke = Brush("TextMuted"),
+                StrokeThickness = 1.3,
+                StrokeStartLineCap = PenLineCap.Round,
+                StrokeEndLineCap = PenLineCap.Round,
+                Width = 16,
+                Height = 16,
+                RenderTransformOrigin = new Point(0.5, 0.5),
+                RenderTransform = open ? new RotateTransform(90) : null,
+                HorizontalAlignment = HorizontalAlignment.Left,
+                VerticalAlignment = VerticalAlignment.Center,
+            };
+            return new Border { Child = path, Width = 18, Background = Brushes.Transparent, VerticalAlignment = VerticalAlignment.Stretch };
         }
 
         /// <summary>
@@ -365,7 +373,7 @@ namespace Tsuzuri.Views
             foreach (var child in content.Children)
             {
                 var text = child as TextBlock;
-                if (text == null || text.Text == "＞" || text.Text == "∨") continue;
+                if (text == null) continue;   // 開閉の矢印（Border）は塗り替えない
                 text.FontWeight = chosen ? FontWeights.SemiBold : FontWeights.Normal;
                 text.Foreground = chosen ? Brush("TextPrimary") : Brush("SidebarText");
             }

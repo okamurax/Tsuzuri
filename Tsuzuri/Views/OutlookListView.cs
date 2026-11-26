@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
@@ -11,18 +12,41 @@ namespace Tsuzuri.Views
     /// <summary>
     /// 開いている Outlook（classic）のメールのフォルダの一覧（2026-11-26。利用者の考え。Tsuzuri と AiLink で同じファイルを使う。AiLink はリンクしてコンパイルする）。
     /// Excel の一覧と同じ所に、タブで切り替えて出す（OfficeTabs）。ストア（メールボックス・PST など）を見出しに、その下にメールのフォルダを字下げして並べる。
+    /// フォルダの行の頭の「＞」を押すと、その下にフォルダのメールを件名だけで並べる箱を開く（初めは閉じている。利用者の考え）。箱は高さに上限があって自分のスクロールバーを持ち、
+    /// 一番下までスクロールすると次の分を読む（読むのは OutlookLink）。
     /// 選び方はエクスプローラーと同じ: 押すとそれだけを選び（ほかは外れる）、Ctrl を押しながらだと足す・外す、何もない所を押すと全部外す。ストアの行は押せない。
-    /// 選んだフォルダ（パスだけ。中身は渡さない）が AI への「このフォルダ」になる（OutlookLink）。Outlook の側は何も切り替えない。
+    /// 選んだフォルダ（パス）とメール（フォルダ・件名・日時・ID）が AI に渡る（OutlookLink）。Outlook の側は何も切り替えない。
+    /// 選び直したときは色だけを塗り直す（作り直すと、開いた箱のスクロールの位置が戻るため）。
     /// </summary>
     public sealed class OutlookListView : DockPanel
     {
+        /// <summary>メールの箱の高さの上限。</summary>
+        private const double MailBoxHeight = 240;
+
         private readonly StackPanel _list = new StackPanel();
         private readonly ScrollViewer _scroll = new ScrollViewer();
+
+        /// <summary>選べる行（フォルダとメール）。キーはフォルダならパス、メールなら MailKey。色を塗り直すのに使う。</summary>
+        private readonly List<KeyValuePair<string, Border>> _rows = new List<KeyValuePair<string, Border>>();
+
+        /// <summary>開いているフォルダの箱（パス → 箱）。</summary>
+        private readonly Dictionary<string, MailBox> _boxes = new Dictionary<string, MailBox>(StringComparer.OrdinalIgnoreCase);
+
+        private Func<string, bool> _chosen = key => false;
 
         /// <summary>フォルダの行を押した: フォルダのパス（\\ストア\受信トレイ\…）、Ctrl を押していたか。</summary>
         public event Action<string, bool> RowClicked;
 
-        /// <summary>一覧の何もない所を押した（選んでいるフォルダを全部外す）。</summary>
+        /// <summary>メールの行を押した: メール、Ctrl を押していたか。</summary>
+        public event Action<OutlookBridge.Mail, bool> MailClicked;
+
+        /// <summary>フォルダの「＞」を押した（開く・閉じる）。</summary>
+        public event Action<string> ToggleRequested;
+
+        /// <summary>開いた箱を一番下までスクロールした（次の分を読む）。</summary>
+        public event Action<string> MoreRequested;
+
+        /// <summary>一覧の何もない所を押した（選んでいるものを全部外す）。</summary>
         public event Action EmptyClicked;
 
         /// <summary>「更新」を押した。</summary>
@@ -49,7 +73,7 @@ namespace Tsuzuri.Views
                 Padding = new Thickness(6, 2, 6, 2),
                 Focusable = false,
                 VerticalAlignment = VerticalAlignment.Center,
-                ToolTip = "Outlook のフォルダの一覧を読み直す",
+                ToolTip = "Outlook のフォルダの一覧を読み直す（開いているフォルダのメールも）",
             };
             var style = Application.Current != null ? Application.Current.TryFindResource("ToolButton") as Style : null;
             if (style != null) refresh.Style = style;
@@ -121,10 +145,22 @@ namespace Tsuzuri.Views
             return _refresh;
         }
 
-        /// <summary>一覧を出し直す。null なら読めなかった（problem にわけ）。</summary>
-        public void Show(List<OutlookBridge.Store> stores, Func<string, bool> chosenOf, string problem)
+        /// <summary>メールの行のキー（フォルダのパスと ID）。</summary>
+        public static string MailKey(string folder, string entryId)
         {
+            return folder + "\u0001" + entryId;
+        }
+
+        /// <summary>
+        /// 一覧を出し直す。null なら読めなかった（problem にわけ）。chosen はフォルダのパスかメールのキーを選んでいるか、
+        /// expanded は開いているフォルダか、pageOf は開いたフォルダの読んだ分（無ければ null）。
+        /// </summary>
+        public void Show(List<OutlookBridge.Store> stores, Func<string, bool> chosen, Func<string, bool> expanded, Func<string, OutlookLink.MailPage> pageOf, string problem)
+        {
+            _chosen = chosen ?? (key => false);
             _list.Children.Clear();
+            _rows.Clear();
+            _boxes.Clear();
             if (stores == null)
             {
                 ShowNote(string.IsNullOrEmpty(problem) ? "Outlook を読めませんでした" : problem);
@@ -138,27 +174,44 @@ namespace Tsuzuri.Views
 
             foreach (var store in stores)
             {
-                _list.Children.Add(CreateRow(null, store.Name, 12, true, false,
-                                             store.Name + (string.IsNullOrEmpty(store.Problem) ? string.Empty : "\n" + store.Problem)));
+                _list.Children.Add(Row(null, null, store.Name, 12, true, false, store.Name + (string.IsNullOrEmpty(store.Problem) ? string.Empty : "\n" + store.Problem)));
                 if (!string.IsNullOrEmpty(store.Problem) && store.Folders.Count == 0)
                 {
-                    _list.Children.Add(CreateRow(null, store.Problem, 34, false, false, store.Problem));
+                    _list.Children.Add(Row(null, null, store.Problem, 34, false, false, store.Problem));
                     continue;
                 }
                 foreach (var folder in store.Folders)
                 {
-                    var chosen = chosenOf != null && chosenOf(folder.Path);
-                    _list.Children.Add(CreateRow(folder.Path, folder.Name, 34 + 14 * folder.Depth, false, chosen,
-                                                 folder.Path + "\n"
-                                                 + (chosen ? "選んでいるフォルダ（AI への「このフォルダ」。フォルダのパスだけを渡し、メールは渡さない）。Ctrl を押しながら押すと外す"
-                                                    : "押すとこのフォルダだけを選んで、パスを AI に渡す（「このフォルダ」になる。メールは渡さない）。Ctrl を押しながらだと足す。何もない所を押すと全部外す")));
+                    var open = expanded != null && expanded(folder.Path);
+                    _list.Children.Add(FolderRow(folder, open));
+                    if (!open) continue;
+                    var box = new MailBox(this, folder.Path, 34 + 14 * folder.Depth + 18);
+                    _boxes[folder.Path] = box;
+                    _list.Children.Add(box.Root);
+                    box.Fill(pageOf != null ? pageOf(folder.Path) : null);
                 }
             }
+        }
+
+        /// <summary>開いたフォルダの箱を、読んだ分で出し直す（新しく読んだ行を足す。スクロールの位置はそのまま）。</summary>
+        public void SetMails(string folder, OutlookLink.MailPage page)
+        {
+            MailBox box;
+            if (_boxes.TryGetValue(folder, out box)) box.Fill(page);
+        }
+
+        /// <summary>選んでいる行の色を塗り直す（一覧は作り直さない）。</summary>
+        public void RefreshSelection(Func<string, bool> chosen)
+        {
+            _chosen = chosen ?? (key => false);
+            foreach (var row in _rows) Paint(row.Value, _chosen(row.Key));
         }
 
         private void ShowNote(string message)
         {
             _list.Children.Clear();
+            _rows.Clear();
+            _boxes.Clear();
             _list.Children.Add(new TextBlock
             {
                 Text = message,
@@ -169,45 +222,215 @@ namespace Tsuzuri.Views
             });
         }
 
-        /// <summary>行。path が null なら押せない（ストアの見出し・知らせ）。</summary>
-        private Border CreateRow(string path, string label, double indent, bool isStore, bool chosen, string tip)
+        /// <summary>フォルダの行: 頭に「＞」（開く・閉じる）、その右に名前（押すと選ぶ）。</summary>
+        private UIElement FolderRow(OutlookBridge.Folder folder, bool open)
+        {
+            var row = Row(folder.Path, null, folder.Name, 34 + 14 * folder.Depth, false, true,
+                          folder.Path + "\n押すとこのフォルダだけを選んで、パスを AI に渡す（「このフォルダ」になる。メールは渡さない）。Ctrl を押しながらだと足す・外す。何もない所を押すと全部外す");
+            var arrow = new TextBlock
+            {
+                Text = open ? "∨" : "＞",
+                FontSize = 11,
+                Width = 18,
+                Foreground = Brush("TextMuted"),
+                VerticalAlignment = VerticalAlignment.Center,
+                Background = Brushes.Transparent,
+                Cursor = Cursors.Hand,
+                ToolTip = open ? "メールの一覧を閉じる" : "このフォルダのメールを件名で並べる（新しい順。スクロールすると続きを読む）",
+            };
+            arrow.MouseLeftButtonDown += (sender, e) =>
+            {
+                e.Handled = true;   // 行を押したこと（選ぶ）にしない
+                if (e.ClickCount > 1) return;   // 2度押しで開いてすぐ閉じないように
+                var toggle = ToggleRequested;
+                if (toggle != null) toggle(folder.Path);
+            };
+            var content = (DockPanel)row.Child;
+            DockPanel.SetDock(arrow, Dock.Left);
+            content.Children.Insert(0, arrow);
+            row.Padding = new Thickness(Math.Max(0, row.Padding.Left - 18), row.Padding.Top, row.Padding.Right, row.Padding.Bottom);
+            return row;
+        }
+
+        /// <summary>
+        /// 行。key が null なら押せない（ストアの見出し・知らせ）。mail があればメールの行。selectable なら選んだ色を塗る（_rows に覚える）。
+        /// </summary>
+        private Border Row(string key, OutlookBridge.Mail mail, string label, double indent, bool isStore, bool selectable, string tip)
         {
             var text = new TextBlock
             {
                 Text = label,
                 FontSize = isStore ? 13 : 12,
-                FontWeight = chosen ? FontWeights.SemiBold : FontWeights.Normal,
-                Foreground = chosen ? Brush("TextPrimary") : isStore || path != null ? Brush("SidebarText") : Brush("TextMuted"),
+                Foreground = isStore || key != null ? Brush("SidebarText") : Brush("TextMuted"),
                 TextTrimming = TextTrimming.CharacterEllipsis,
                 VerticalAlignment = VerticalAlignment.Center,
             };
-
-            var normal = chosen ? Brush("SelectionFill") : Brushes.Transparent;
+            var content = new DockPanel { LastChildFill = true };
+            content.Children.Add(text);
             var row = new Border
             {
-                Child = text,
+                Child = content,
                 Padding = new Thickness(indent, 3, 8, 3),
-                Background = normal,
+                Background = Brushes.Transparent,
                 ToolTip = tip,
             };
-            if (path == null)
+            if (key == null)
             {
                 // 押せない行（ストアの見出し・知らせ）を押しても、何もない所を押したことにしない（選びを外さない）
                 row.MouseLeftButtonDown += (sender, e) => e.Handled = true;
                 return row;
             }
 
+            if (selectable)
+            {
+                _rows.Add(new KeyValuePair<string, Border>(key, row));
+                Paint(row, _chosen(key));
+            }
             row.Cursor = Cursors.Hand;
-            row.MouseEnter += delegate { if (!chosen) row.Background = Brush("HoverFill"); };
-            row.MouseLeave += delegate { row.Background = normal; };
+            row.MouseEnter += delegate { if (!_chosen(key)) row.Background = Brush("HoverFill"); };
+            row.MouseLeave += delegate { Paint(row, _chosen(key)); };
             row.MouseLeftButtonDown += (sender, e) =>
             {
                 e.Handled = true;
                 if (e.ClickCount > 1) return;
-                var clicked = RowClicked;
-                if (clicked != null) clicked(path, (Keyboard.Modifiers & ModifierKeys.Control) != 0);
+                var ctrl = (Keyboard.Modifiers & ModifierKeys.Control) != 0;
+                if (mail != null)
+                {
+                    var clicked = MailClicked;
+                    if (clicked != null) clicked(mail, ctrl);
+                }
+                else
+                {
+                    var clicked = RowClicked;
+                    if (clicked != null) clicked(key, ctrl);
+                }
             };
             return row;
+        }
+
+        private void Paint(Border row, bool chosen)
+        {
+            row.Background = chosen ? Brush("SelectionFill") : Brushes.Transparent;
+            var content = row.Child as DockPanel;
+            if (content == null) return;
+            foreach (var child in content.Children)
+            {
+                var text = child as TextBlock;
+                if (text == null || text.Text == "＞" || text.Text == "∨") continue;
+                text.FontWeight = chosen ? FontWeights.SemiBold : FontWeights.Normal;
+                text.Foreground = chosen ? Brush("TextPrimary") : Brush("SidebarText");
+            }
+        }
+
+        /// <summary>開いたフォルダのメールの箱（高さに上限があり、自分でスクロールする。一番下まで来たら次の分を頼む）。</summary>
+        private sealed class MailBox
+        {
+            private readonly OutlookListView _owner;
+            private readonly string _folder;
+            private readonly double _indent;
+            private readonly StackPanel _mails = new StackPanel();
+            private readonly TextBlock _foot;
+            private readonly ScrollViewer _scroll;
+            private readonly HashSet<string> _shown = new HashSet<string>(StringComparer.Ordinal);
+            private bool _more;
+            private string _first;
+            private bool _retry;
+
+            public Border Root { get; private set; }
+
+            public MailBox(OutlookListView owner, string folder, double indent)
+            {
+                _owner = owner;
+                _folder = folder;
+                _indent = indent;
+                _foot = new TextBlock { FontSize = 11, Foreground = Brush("TextMuted"), Margin = new Thickness(indent, 3, 8, 4), TextWrapping = TextWrapping.Wrap };
+                var inner = new StackPanel();
+                inner.Children.Add(_mails);
+                inner.Children.Add(_foot);
+                _scroll = new ScrollViewer
+                {
+                    Content = inner,
+                    MaxHeight = MailBoxHeight,
+                    VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+                    HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
+                    Focusable = false,
+                    Background = Brushes.Transparent,
+                };
+                // 失敗のあとのやり直しは、利用者がスクロールしたときだけ（高さが変わっただけ・見えただけでは、やり直さない。自動で回り続けないように）
+                _scroll.ScrollChanged += (sender, e) => AskMoreIfAtEnd(e.VerticalChange != 0);
+                // 隠れていた（Excel のタブを出していた）箱が見えたら、見直す
+                _scroll.IsVisibleChanged += (sender, e) => AskMoreIfAtEnd(false);
+                // 箱の端でさらにホイールを回したら、外の一覧を動かす（ScrollViewer は動けなくても回したことを止めてしまうため）
+                _scroll.PreviewMouseWheel += (sender, e) =>
+                {
+                    var atTop = _scroll.VerticalOffset <= 0;
+                    var atBottom = _scroll.VerticalOffset >= _scroll.ScrollableHeight;
+                    if (e.Delta < 0 && atBottom) AskMoreIfAtEnd(true);   // 下端では ScrollChanged が来ないので、ここで失敗のあとのやり直しを頼む
+                    if (!((e.Delta > 0 && atTop) || (e.Delta < 0 && atBottom))) return;
+                    e.Handled = true;
+                    var outer = new MouseWheelEventArgs(e.MouseDevice, e.Timestamp, e.Delta) { RoutedEvent = UIElement.MouseWheelEvent, Source = _scroll };
+                    _owner._scroll.RaiseEvent(outer);
+                };
+                // 箱の中の何もない所を押しても、全部外したことにしない
+                _scroll.MouseLeftButtonDown += (sender, e) => e.Handled = true;
+                Root = new Border
+                {
+                    Child = _scroll,
+                    BorderBrush = Brush("BorderBrushSoft"),
+                    BorderThickness = new Thickness(0, 1, 0, 1),
+                    Margin = new Thickness(0, 1, 0, 3),
+                };
+            }
+
+            /// <summary>読んだ分で出し直す。まだ出していないメールだけを足す。</summary>
+            public void Fill(OutlookLink.MailPage page)
+            {
+                if (page == null)
+                {
+                    _foot.Text = "読んでいます…";
+                    _more = false;
+                    return;
+                }
+                // 先頭が変わった（新しいメールが届いた・消えた）なら作り直す（足すだけだと新しい順でなくなるため）
+                if (page.Mails.Count > 0 && _first != null && page.Mails[0].EntryId != _first)
+                {
+                    foreach (UIElement child in _mails.Children) _owner._rows.RemoveAll(row => ReferenceEquals(row.Value, child));
+                    _mails.Children.Clear();
+                    _shown.Clear();
+                }
+                if (page.Mails.Count > 0) _first = page.Mails[0].EntryId;
+                foreach (var mail in page.Mails)
+                {
+                    if (!_shown.Add(mail.EntryId)) continue;
+                    var when = mail.Received == DateTime.MinValue ? string.Empty : mail.Received.ToString("M/d HH:mm", CultureInfo.InvariantCulture) + "  ";
+                    var subject = mail.Subject.Length == 0 ? "（件名なし）" : mail.Subject;
+                    _mails.Children.Add(_owner.Row(MailKey(_folder, mail.EntryId), mail, when + subject, _indent, false, true,
+                                                   subject + (mail.Received == DateTime.MinValue ? string.Empty : "\n" + mail.Received.ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture))
+                                                   + "\n押すとこのメールだけを選んで、件名・日時・ID を AI に渡す（本文は渡さない）。Ctrl を押しながらだと足す・外す"));
+                }
+                var shown = _shown.Count;
+                // 続きがあれば、一番下まで来たら読む。読めなかったときは、利用者が一番下までスクロールしたときだけやり直す
+                _more = !page.Loading && page.Problem == null && shown < page.Total && shown < OutlookBridge.MaxListedMails;
+                _retry = !page.Loading && page.Problem != null;
+                _foot.Text = page.Loading ? "読んでいます…"
+                             : page.Problem != null ? page.Problem + "（下までスクロールすると、やり直します）"
+                             : page.Total == 0 ? "メールはありません"
+                             : shown < page.Total ? (shown >= OutlookBridge.MaxListedMails ? "ここまで（" + page.Total + " 通のうち新しい " + shown + " 通。古いものは AI に探させる）" : "全 " + page.Total + " 通のうち " + shown + " 通（下までスクロールすると続きを読む）")
+                             : "全 " + page.Total + " 通";
+                _owner.Dispatcher.BeginInvoke(new Action(() => AskMoreIfAtEnd(false)), System.Windows.Threading.DispatcherPriority.Background);
+            }
+
+            /// <summary>一番下まで来ていて、続きがあれば頼む（中身が箱より短くて、スクロールできないときも）。byUser は利用者がスクロールしたとき（失敗のあとのやり直しはそのときだけ）。</summary>
+            private void AskMoreIfAtEnd(bool byUser)
+            {
+                if (!_more && !(byUser && _retry)) return;
+                if (!_scroll.IsVisible || _scroll.ViewportHeight <= 0) return;   // 隠れている箱は並べ直されず、いつも「一番下」に見えるため
+                if (_scroll.ScrollableHeight - _scroll.VerticalOffset > 8) return;
+                _more = false;   // 次の分が届くまで、何度も頼まない
+                _retry = false;
+                var more = _owner.MoreRequested;
+                if (more != null) more(_folder);
+            }
         }
 
         private static Brush Brush(string key)

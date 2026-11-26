@@ -429,7 +429,7 @@ PowerShell の構文解析で、許した形だけを通す（断る一覧では
 Tsuzuri と同じファイル（`Tsuzuri/Office/Outlook*.cs`・`Tsuzuri/Views/OutlookListView.cs`・`Tsuzuri/Ai/outlook.ps1`。2026-11-26。利用者の考え）。動きと COM の扱いは Tsuzuri の SPEC 19章「開いている Outlook（classic）のメールを探す・読む・下書きに保存する」。AiLink に置くのは `MainWindow.Outlook.cs` だけ。
 
 - できること: フォルダの一覧・探す・1通を読む・下書きに保存する（新しいメールと返信）。送信・削除・移動などの道は作らない（利用者の判断）
-- 一覧は左の列で、Excel の一覧とタブで切り替える（`Views/OfficeTabs.cs`）。選んだフォルダのパスを、今の状態の「Outlook」の段に書く
+- 一覧は左の列で、Excel の一覧とタブで切り替える（`Views/OfficeTabs.cs`）。選んだフォルダのパスを、今の状態の「Outlook」の段に書く。フォルダの「＞」でメールを件名で並べて選べ、選んだメールは「Outlook のメール」の段に書く（Tsuzuri の SPEC 19章）
 - 下書きのファイルは会話のフォルダの `outlook-draft-tab<n>.txt`（指示の `{outlook-draft}`）。`outlook.ps1` も Codex のルールで確かめなしに動かす（台本はパイプで頼むだけ）
 - AI への指示の Outlook の段は `OutlookInstructions.ForAiLink()`（Excel と同じ型の文の仕組み）
 

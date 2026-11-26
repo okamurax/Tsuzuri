@@ -26,8 +26,8 @@ namespace AiLink
                     _outlook = new OutlookLink(AiFolder, OutlookListName, () =>
                     {
                         var part = _outlook.SummaryPart();
-                        Status(part.Length == 0 ? "Outlook のフォルダを全部外しました。"
-                                                : "Outlook のフォルダを選んでいます:" + part.Replace("  ・Outlook", string.Empty) + "（話しかけると、パスを AI に渡します）");
+                        Status(part.Length == 0 ? "Outlook の選びを全部外しました。"
+                                                : "Outlook で選んでいます:" + part.Replace("  ・Outlook", string.Empty) + "（話しかけると、フォルダのパスとメールの件名・ID を AI に渡します。本文は渡しません）");
                     });
                     _outlook.View.NotesRequested += () => Status(OutlookNotes.Open());
                 }
@@ -40,7 +40,7 @@ namespace AiLink
         {
             var outlook = _outlook;
             if (outlook != null) outlook.AppendContext(text);
-            else text.Append("Outlook: ").Append(OutlookListName).Append("でフォルダを選んでいない（前に選んでいても、今は外されている）\n");
+            else text.Append("Outlook: ").Append(OutlookListName).Append("でフォルダもメールも選んでいない（前に選んでいても、今は外されている）\n");
         }
 
         /// <summary>outlook.ps1 の頼みに答える（パイプのスレッドから）。つなぎがまだ無ければ、画面のスレッドで作ってから。</summary>

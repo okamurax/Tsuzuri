@@ -159,6 +159,86 @@ namespace Tsuzuri.Office
         }
 
         // ---------------------------------------------------------------
+        // 一覧で開いたフォルダのメール（件名だけ。2026-11-26。利用者の考え）
+        // ---------------------------------------------------------------
+
+        public sealed class Mail
+        {
+            /// <summary>メールのあるフォルダのパス。</summary>
+            public string Folder;
+            public string EntryId;
+            public string Subject;
+            /// <summary>受け取った日時（ローカル。無ければ DateTime.MinValue）。</summary>
+            public DateTime Received;
+        }
+
+        /// <summary>一覧で読む件数の上限（スクロールで読み足していっても、ここまで）。</summary>
+        public const int MaxListedMails = 600;
+
+        /// <summary>
+        /// フォルダのメールを新しい順に count 通まで（件名・受け取った日時・ID だけ。守られたプロパティは読まない）。total に全部の数。読めなければ null（problem にわけ）。
+        /// 読み足すときも頭から count 通を読み直す（Table は呼び出しをまたいで持てないため。上限 MaxListedMails までなので重くない）。
+        /// </summary>
+        public static List<Mail> ListMails(string folderPath, int count, int timeout, out int total, out string problem)
+        {
+            List<Mail> mails = null;
+            var all = 0;
+            string why = null;
+            // 画面の読み込みなので、Outlook が空くのは短くだけ待つ（AI の頼みを待たせない。取れなければ「忙しい」で、あとでやり直す）
+            var outcome = RunSta(() => mails = ListMailsCore(folderPath, Math.Min(count, MaxListedMails), out all, out why), timeout, 2000);
+            total = all;
+            problem = outcome == Outcome.Done ? why ?? Unknown : outcome == Outcome.Previous ? StillBusy : NotAnswering;
+            return outcome == Outcome.Done ? mails : null;
+        }
+
+        private static List<Mail> ListMailsCore(string folderPath, int count, out int total, out string problem)
+        {
+            total = 0;
+            problem = null;
+            using (var scope = new Scope())
+            {
+                var session = Session(scope, out problem);
+                if (session == null) return null;
+                try
+                {
+                    string storeId;
+                    var folder = FindFolder(scope, session, folderPath, out storeId, out problem);
+                    if (folder == null) return null;
+                    var table = scope.Call(folder, "GetTable", "@SQL=\"http://schemas.microsoft.com/mapi/proptag/0x001A001F\" like 'IPM.Note%'", 0);
+                    var columns = scope.Get(table, "Columns");
+                    scope.Call(columns, "RemoveAll");
+                    foreach (var name in new[] { "EntryID", "Subject", "ReceivedTime" }) scope.Release(scope.Call(columns, "Add", name));
+                    scope.Call(table, "Sort", "[ReceivedTime]", true);
+                    total = ToInt(scope.Call(table, "GetRowCount"));
+                    var list = new List<Mail>();
+                    if (count <= 0 || total == 0) return list;
+                    // GetArray は行 × 列の2次元の配列（下の端は 0 とは限らない）
+                    var values = scope.Call(table, "GetArray", count) as Array;
+                    if (values == null || values.Rank != 2) return list;
+                    var r0 = values.GetLowerBound(0);
+                    var c0 = values.GetLowerBound(1);
+                    for (var r = r0; r <= values.GetUpperBound(0); r++)
+                    {
+                        var received = values.GetValue(r, c0 + 2);
+                        list.Add(new Mail
+                        {
+                            Folder = folderPath,
+                            EntryId = Text(values.GetValue(r, c0)),
+                            Subject = Line(Text(values.GetValue(r, c0 + 1))),
+                            Received = received is DateTime && ((DateTime)received).Year < 4500 ? (DateTime)received : DateTime.MinValue,
+                        });
+                    }
+                    return list;
+                }
+                catch (Exception ex)
+                {
+                    problem = Failure(ex);
+                    return null;
+                }
+            }
+        }
+
+        // ---------------------------------------------------------------
         // 探す
         // ---------------------------------------------------------------
 
@@ -781,9 +861,15 @@ namespace Tsuzuri.Office
         /// <summary>自分の STA のスレッドで work を呼び、timeout まで待つ。そのスレッドにはメッセージ フィルターを付ける（Outlook が忙しいときにやり直す）。</summary>
         private static Outcome RunSta(Action work, int timeout)
         {
+            return RunSta(work, timeout, timeout / 2);   // 一覧の読み直しが動いていても、AI の頼みは長めに待つ
+        }
+
+        /// <param name="gateWait">ほかの呼び出しが終わるのを待つ上限（ミリ秒）。</param>
+        private static Outcome RunSta(Action work, int timeout, int gateWait)
+        {
             // 締め切りは1つ（空くのを待った分は、動かす時間から引く。合わせて timeout を超えない。台本の持ち時間に収めるため）
             var clock = Stopwatch.StartNew();
-            if (!Gate.Wait(timeout / 2)) return Outcome.Previous;   // 一覧の読み直しが動いていても、AI の頼みは長めに待つ
+            if (!Gate.Wait(gateWait)) return Outcome.Previous;
             var thread = new Thread(() =>
             {
                 IOleMessageFilter old = null;

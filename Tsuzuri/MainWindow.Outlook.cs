@@ -27,8 +27,8 @@ namespace Tsuzuri
                     _outlook = new OutlookLink(AiFolder, OutlookListName, () =>
                     {
                         var part = _outlook.SummaryPart();
-                        Status(part.Length == 0 ? "Outlook のフォルダを全部外しました。"
-                                                : "Outlook のフォルダを選んでいます:" + part.Replace("  ・Outlook", string.Empty) + "（話しかけると、パスを Claude に渡します）");
+                        Status(part.Length == 0 ? "Outlook の選びを全部外しました。"
+                                                : "Outlook で選んでいます:" + part.Replace("  ・Outlook", string.Empty) + "（話しかけると、フォルダのパスとメールの件名・ID を Claude に渡します。本文は渡しません）");
                     });
                     _outlook.View.NotesRequested += () => Status(OutlookNotes.Open());
                 }
@@ -41,7 +41,7 @@ namespace Tsuzuri
         {
             var outlook = _outlook;
             if (outlook != null) outlook.AppendContext(text);
-            else text.Append("Outlook: ").Append(OutlookListName).Append("でフォルダを選んでいない（前に選んでいても、今は外されている）\n");
+            else text.Append("Outlook: ").Append(OutlookListName).Append("でフォルダもメールも選んでいない（前に選んでいても、今は外されている）\n");
         }
 
         /// <summary>今の状態の「Outlook の作業ファイル」の段（この会話が下書きの中身を書くファイル。outlook.ps1 は環境変数 TSUZURI_AI_NAME で同じ名前を選ぶ）。</summary>

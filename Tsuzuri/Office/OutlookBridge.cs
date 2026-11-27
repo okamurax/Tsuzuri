@@ -172,6 +172,11 @@ namespace Tsuzuri.Office
             public string Subject;
             /// <summary>受け取った日時（ローカル。無ければ DateTime.MinValue）。</summary>
             public DateTime Received;
+            /// <summary>
+            /// インターネットのメッセージ ID（PR_INTERNET_MESSAGE_ID。メールごとに変わらない）。読めなければ null。
+            /// ブックマークしたメールが移されて EntryID が変わったとき、これで探し直す（2026-11-27）。
+            /// </summary>
+            public string MessageId;
         }
 
         /// <summary>一覧で読む件数の上限（スクロールで読み足していっても、ここまで）。</summary>
@@ -206,7 +211,20 @@ namespace Tsuzuri.Office
                     string storeId;
                     var folder = FindFolder(scope, session, folderPath, out storeId, out problem);
                     if (folder == null) return null;
-                    return ReadMails(folder, folderPath, count, out total);
+                    if (!_noMessageIdColumn)
+                    {
+                        try
+                        {
+                            return ReadMails(folder, folderPath, count, true, out total);
+                        }
+                        catch (Exception ex) when (!IsBusy(ex) && !IsGone(ex) && !IsDenied(ex))
+                        {
+                            // メッセージ ID の列で読めない Outlook なら（本文の列で起きたように）、列なしで読み直し、アプリを閉じるまで使わない
+                            _noMessageIdColumn = true;
+                            Check();
+                        }
+                    }
+                    return ReadMails(folder, folderPath, count, false, out total);
                 }
                 catch (Exception ex)
                 {
@@ -219,7 +237,12 @@ namespace Tsuzuri.Office
         /// <summary>
         /// 一覧の Table を作って新しい順に count 通を読む（件名・受け取った日時・ID の列だけ。本文の列を足すと読めない Outlook があった。2026-11-27）。
         /// </summary>
-        private static List<Mail> ReadMails(object folder, string folderPath, int count, out int total)
+        /// <summary>メッセージ ID の列で読めなかった（そのあとは足さない）。</summary>
+        private static volatile bool _noMessageIdColumn;
+
+        private const string MessageIdProperty = "http://schemas.microsoft.com/mapi/proptag/0x1035001F";
+
+        private static List<Mail> ReadMails(object folder, string folderPath, int count, bool messageId, out int total)
         {
             total = 0;
             using (var scope = new Scope())
@@ -228,6 +251,7 @@ namespace Tsuzuri.Office
                 var columns = scope.Get(table, "Columns");
                 scope.Call(columns, "RemoveAll");
                 foreach (var name in new[] { "EntryID", "Subject", "ReceivedTime" }) scope.Release(scope.Call(columns, "Add", name));
+                if (messageId) scope.Release(scope.Call(columns, "Add", MessageIdProperty));
                 scope.Call(table, "Sort", "[ReceivedTime]", true);
                 total = ToInt(scope.Call(table, "GetRowCount"));
                 var list = new List<Mail>();
@@ -246,10 +270,134 @@ namespace Tsuzuri.Office
                         EntryId = Text(values.GetValue(r, c0)),
                         Subject = Line(Text(values.GetValue(r, c0 + 1))),
                         Received = received is DateTime && ((DateTime)received).Year < 4500 ? (DateTime)received : DateTime.MinValue,
+                        MessageId = messageId && values.GetLength(1) > 3 ? NullIfEmpty(Text(values.GetValue(r, c0 + 3))) : null,
                     });
                 }
                 return list;
             }
+        }
+
+        private static string NullIfEmpty(string text)
+        {
+            return string.IsNullOrEmpty(text) ? null : text;
+        }
+
+        // ---------------------------------------------------------------
+        // ブックマークしたメールを、メッセージ ID で探し直す（2026-11-27）
+        // ---------------------------------------------------------------
+
+        /// <summary>
+        /// メッセージ ID のメールを探し、見つかったフォルダのパスと EntryID を返す（見つからなければ null。problem にわけ）。
+        /// storeName のストアを先に、そのあとほかのストアのメールのフォルダを順に見る（パブリック フォルダは見ない）。フォルダごとに Table の条件で数えるだけで、メールは開かない。
+        /// </summary>
+        public static Mail Locate(string messageId, string storeName, int timeout, out string problem)
+        {
+            Mail found = null;
+            string why = null;
+            var outcome = RunSta(() => found = LocateCore(messageId, storeName, out why), timeout, 2000);
+            problem = outcome == Outcome.Done ? why ?? Unknown : outcome == Outcome.Previous ? StillBusy : NotAnswering;
+            return outcome == Outcome.Done ? found : null;
+        }
+
+        private static Mail LocateCore(string messageId, string storeName, out string problem)
+        {
+            problem = null;
+            using (var scope = new Scope())
+            {
+                var session = Session(scope, out problem);
+                if (session == null) return null;
+                try
+                {
+                    var filter = "@SQL=\"" + MessageIdProperty + "\" = '" + messageId.Replace("'", "''") + "'";
+                    var storesObject = scope.Get(session, "Stores");
+                    var count = ToInt(scope.Get(storesObject, "Count"));
+                    var order = new List<int>();
+                    for (var pass = 0; pass < 2; pass++)
+                        for (var i = 1; i <= count; i++)
+                        {
+                            using (var inner = new Scope())
+                            {
+                                var store = inner.Pick(storesObject, "Item", i);
+                                var same = string.Equals(Text(inner.Get(store, "DisplayName")), storeName, StringComparison.OrdinalIgnoreCase);
+                                if (same == (pass == 0)) order.Add(i);
+                            }
+                        }
+                    foreach (var i in order)
+                    {
+                        using (var inner = new Scope())
+                        {
+                            try
+                            {
+                                var store = inner.Pick(storesObject, "Item", i);
+                                if (ToInt(inner.Get(store, "ExchangeStoreType")) == 2) continue;
+                                var visited = 0;
+                                var mail = LocateIn(inner, inner.Call(store, "GetRootFolder"), 0, filter, ref visited);
+                                if (mail != null) return mail;
+                            }
+                            catch (Exception ex) when (!IsBusy(ex) && !IsGone(ex) && !IsDenied(ex))
+                            {
+                                // 開けないストアは飛ばす
+                            }
+                        }
+                    }
+                    problem = "メールが見つからなかった（消されたか、開いていないメールボックスに移された）";
+                    return null;
+                }
+                catch (Exception ex)
+                {
+                    problem = Failure(ex);
+                    return null;
+                }
+            }
+        }
+
+        private static Mail LocateIn(Scope scope, object parent, int depth, string filter, ref int visited)
+        {
+            if (depth >= MaxDepth || visited >= MaxFoldersPerStore) return null;
+            var folders = scope.Get(parent, "Folders");
+            var count = ToInt(scope.Get(folders, "Count"));
+            for (var i = 1; i <= count && visited < MaxFoldersPerStore; i++)
+            {
+                Check();
+                using (var child = new Scope())
+                {
+                    try
+                    {
+                        var folder = child.Pick(folders, "Item", i);
+                        if (ToInt(child.Get(folder, "DefaultItemType")) != 0) continue;
+                        visited++;
+                        var table = child.Call(folder, "GetTable", filter, 0);
+                        if (ToInt(child.Call(table, "GetRowCount")) > 0)
+                        {
+                            var columns = child.Get(table, "Columns");
+                            child.Call(columns, "RemoveAll");
+                            foreach (var name in new[] { "EntryID", "Subject", "ReceivedTime" }) child.Release(child.Call(columns, "Add", name));
+                            var values = child.Call(table, "GetArray", 1) as Array;
+                            if (values != null && values.Rank == 2 && values.GetLength(0) > 0)
+                            {
+                                var r0 = values.GetLowerBound(0);
+                                var c0 = values.GetLowerBound(1);
+                                var received = values.GetValue(r0, c0 + 2);
+                                return new Mail
+                                {
+                                    Folder = Text(child.Get(folder, "FolderPath")),
+                                    EntryId = Text(values.GetValue(r0, c0)),
+                                    Subject = Line(Text(values.GetValue(r0, c0 + 1))),
+                                    Received = received is DateTime && ((DateTime)received).Year < 4500 ? (DateTime)received : DateTime.MinValue,
+                                };
+                            }
+                        }
+                        child.Release(table);
+                        var mail = LocateIn(child, folder, depth + 1, filter, ref visited);
+                        if (mail != null) return mail;
+                    }
+                    catch (Exception ex) when (!IsBusy(ex) && !IsGone(ex) && !IsDenied(ex))
+                    {
+                        // そのフォルダだけ読めない。ほかは続ける
+                    }
+                }
+            }
+            return null;
         }
 
         // ---------------------------------------------------------------

@@ -43,6 +43,24 @@ namespace Tsuzuri.Views
 
         private Func<string, bool> _chosen = key => false;
 
+        /// <summary>ブックマーク（星）が付いたメールか（OutlookLink が入れる）。</summary>
+        public Func<OutlookBridge.Mail, bool> IsStarred = mail => false;
+
+        /// <summary>ブックマークしたメール（一覧の一番上の段に並べる）と、その段の置き場所・箱。</summary>
+        private List<OutlookBridge.Mail> _bookmarks = new List<OutlookBridge.Mail>();
+        private readonly StackPanel _bookmarkHost = new StackPanel();
+        private MailBox _bookmarkBox;
+        private string _notice;
+
+        /// <summary>メールの行の星（キー・星の字・行）。星を付け外ししたとき、一覧を作り直さずに塗り直す。</summary>
+        private readonly List<Tuple<OutlookBridge.Mail, TextBlock, Border>> _stars = new List<Tuple<OutlookBridge.Mail, TextBlock, Border>>();
+
+        /// <summary>最後にメールを押した箱（本文はその箱の中に開く。同じメールがブックマークの段とフォルダの箱の両方にあるとき）。</summary>
+        private MailBox _clickedBox;
+
+        /// <summary>ブックマークの段の箱のキー（フォルダのパスと重ならない）。</summary>
+        private const string BookmarksFolder = "\u0002bookmarks";
+
         /// <summary>フォルダの行を押した: フォルダのパス（\\ストア\受信トレイ\…）、Ctrl を押していたか。</summary>
         public event Action<string, bool> RowClicked;
 
@@ -51,6 +69,9 @@ namespace Tsuzuri.Views
 
         /// <summary>開いた本文の欄を押した（閉じる）。</summary>
         public event Action BodyClicked;
+
+        /// <summary>メールの頭の星を押した（ブックマークを付ける・外す）。</summary>
+        public event Action<OutlookBridge.Mail> StarClicked;
 
         /// <summary>フォルダの開閉の矢印を押した（開く・閉じる）。</summary>
         public event Action<string> ToggleRequested;
@@ -176,6 +197,8 @@ namespace Tsuzuri.Views
             _list.Children.Clear();
             _rows.Clear();
             _boxes.Clear();
+            _stars.Clear();
+            _bookmarkBox = null;
             _bodyPanel = null;   // 前の一覧に入っていた本文の欄は捨てる（開いたままなら、作り直す箱の中に出し直す）
             if (stores == null)
             {
@@ -188,6 +211,8 @@ namespace Tsuzuri.Views
                 return;
             }
 
+            _list.Children.Add(_bookmarkHost);
+            FillBookmarks();
             foreach (var store in stores)
             {
                 var closed = storeClosed != null && storeClosed(store.Name);
@@ -233,10 +258,108 @@ namespace Tsuzuri.Views
                 if (parent != null) parent.Children.Remove(_bodyPanel);
                 _bodyPanel = null;
             }
-            foreach (var box in _boxes.Values) box.Tall(false);
+            foreach (var box in AllBoxes()) box.Tall(false);
             if (key == null) return;
-            foreach (var box in _boxes.Values)
+            if (_clickedBox != null && AllBoxes().Contains(_clickedBox) && _clickedBox.PlaceBody(key)) return;
+            foreach (var box in AllBoxes())
                 if (box.PlaceBody(key)) return;
+        }
+
+        /// <summary>ブックマークの段の箱と、開いているフォルダの箱。</summary>
+        private List<MailBox> AllBoxes()
+        {
+            var all = new List<MailBox>();
+            if (_bookmarkBox != null) all.Add(_bookmarkBox);
+            all.AddRange(_boxes.Values);
+            return all;
+        }
+
+        /// <summary>ブックマークを入れ替える（一番上の段を作り直し、ほかの箱の星を塗り直す。フォルダの箱は作り直さない）。</summary>
+        public void SetBookmarks(List<OutlookBridge.Mail> bookmarks)
+        {
+            _bookmarks = new List<OutlookBridge.Mail>(bookmarks);
+            _notice = null;
+            if (_bookmarkHost.Parent != null) FillBookmarks();
+            foreach (var star in _stars) PaintStar(star.Item2, IsStarred(star.Item1));
+            // 本文をブックマークの段で開いていて、その星を外した: 同じメールがフォルダの箱にあれば、そこに開き直す
+            if (_bodyKey != null && (_bodyPanel == null || _bodyPanel.Parent == null))
+                foreach (var box in AllBoxes())
+                    if (box.PlaceBody(_bodyKey)) break;
+        }
+
+        /// <summary>本文の欄が一覧のどこかに出ているか。</summary>
+        public bool BodyShown
+        {
+            get { return _bodyPanel != null && _bodyPanel.Parent != null; }
+        }
+
+        /// <summary>一番上の段に、短い知らせを出す（次にブックマークを入れ替えるまで）。</summary>
+        public void Notice(string message)
+        {
+            _notice = message;
+            if (_bookmarkHost.Parent != null) FillBookmarks();
+        }
+
+        /// <summary>一番上の「★ ブックマーク」の段を作る（無ければ何も出さない）。</summary>
+        private void FillBookmarks()
+        {
+            if (_bookmarkBox != null)
+            {
+                var gone = _bookmarkBox;
+                _rows.RemoveAll(row => gone.Owns(row.Value));
+                _stars.RemoveAll(star => gone.Owns(star.Item3));
+                if (_bodyPanel != null && gone.Owns(_bodyPanel)) _bodyPanel = null;
+            }
+            _bookmarkHost.Children.Clear();
+            _bookmarkBox = null;
+            if (_notice != null)
+                _bookmarkHost.Children.Add(new TextBlock { Text = _notice, FontSize = 12, Foreground = Brush("TextMuted"), TextWrapping = TextWrapping.Wrap, Margin = new Thickness(12, 4, 8, 4) });
+            if (_bookmarks.Count == 0) return;
+            var head = new TextBlock
+            {
+                Text = "★ ブックマーク（" + _bookmarks.Count + "）",
+                FontSize = 14,
+                Foreground = Brush("SidebarText"),
+                Margin = new Thickness(10, 4, 8, 3),
+                ToolTip = "星を付けたメール（この PC のこのアプリが覚えている。Outlook のメールは変えない）。メールが移されていたら、本文を開くときにメッセージ ID で探し直す",
+            };
+            head.MouseLeftButtonDown += (sender, e) => e.Handled = true;
+            _bookmarkHost.Children.Add(head);
+            _bookmarkBox = new MailBox(this, BookmarksFolder, 30);
+            _bookmarkHost.Children.Add(_bookmarkBox.Root);
+            _bookmarkBox.Fill(new OutlookLink.MailPage { Mails = new List<OutlookBridge.Mail>(_bookmarks), Total = _bookmarks.Count, Exhausted = true });
+        }
+
+        /// <summary>星の字を塗る（付いていれば「★」、無ければ薄い「☆」）。</summary>
+        private static void PaintStar(TextBlock star, bool on)
+        {
+            star.Text = on ? "★" : "☆";
+            star.Foreground = on ? new SolidColorBrush(Color.FromRgb(0xE8, 0xB3, 0x39)) : Brush("TextMuted");
+            star.Opacity = on ? 1 : 0.55;
+        }
+
+        /// <summary>メールの行の頭に置く星（押すとブックマークを付ける・外す。行を押したことにはしない）。</summary>
+        private Border Star(OutlookBridge.Mail mail, Border row)
+        {
+            var star = new TextBlock { FontSize = 13, VerticalAlignment = VerticalAlignment.Center, HorizontalAlignment = HorizontalAlignment.Center };
+            PaintStar(star, IsStarred(mail));
+            var holder = new Border
+            {
+                Child = star,
+                Width = 18,
+                Background = Brushes.Transparent,
+                Cursor = Cursors.Hand,
+                ToolTip = "ブックマーク（星）を付ける・外す。付けたメールは一覧の一番上に並ぶ",
+            };
+            holder.MouseLeftButtonDown += (sender, e) =>
+            {
+                e.Handled = true;
+                if (e.ClickCount > 1) return;
+                var clicked = StarClicked;
+                if (clicked != null) clicked(mail);
+            };
+            _stars.Add(Tuple.Create(mail, star, row));
+            return holder;
         }
 
         /// <summary>本文の欄を作る。</summary>
@@ -300,6 +423,8 @@ namespace Tsuzuri.Views
             _list.Children.Clear();
             _rows.Clear();
             _boxes.Clear();
+            _stars.Clear();
+            _bookmarkBox = null;
             _bodyPanel = null;   // 前の一覧に入っていた本文の欄は捨てる（開いたままなら、作り直す箱の中に出し直す）
             _list.Children.Add(new TextBlock
             {
@@ -438,6 +563,7 @@ namespace Tsuzuri.Views
                 if (mail != null)
                 {
                     var clicked = MailClicked;
+                    _clickedBox = row.Tag as MailBox;
                     if (clicked != null) clicked(mail, ctrl);
                 }
                 else
@@ -479,6 +605,18 @@ namespace Tsuzuri.Views
             private bool _retry;
 
             public Border Root { get; private set; }
+
+            /// <summary>ブックマークの段の箱（フォルダをまたいで並べる。読み足さない・下の知らせを出さない）。</summary>
+            private bool Bookmarks
+            {
+                get { return _folder == BookmarksFolder; }
+            }
+
+            /// <summary>element がこの箱の中のものか。</summary>
+            public bool Owns(UIElement element)
+            {
+                return element != null && _mails.Children.Contains(element);
+            }
 
             public MailBox(OutlookListView owner, string folder, double indent)
             {
@@ -536,7 +674,11 @@ namespace Tsuzuri.Views
                 // 先頭が変わった（新しいメールが届いた・消えた）なら作り直す（足すだけだと新しい順でなくなるため）
                 if (page.Mails.Count > 0 && _first != null && page.Mails[0].EntryId != _first)
                 {
-                    foreach (UIElement child in _mails.Children) _owner._rows.RemoveAll(row => ReferenceEquals(row.Value, child));
+                    foreach (UIElement child in _mails.Children)
+                    {
+                        _owner._rows.RemoveAll(row => ReferenceEquals(row.Value, child));
+                        _owner._stars.RemoveAll(star => ReferenceEquals(star.Item3, child));
+                    }
                     _mails.Children.Clear();
                     _shown.Clear();
                     _mailRows.Clear();
@@ -547,9 +689,15 @@ namespace Tsuzuri.Views
                     if (!_shown.Add(mail.EntryId)) continue;
                     var when = mail.Received == DateTime.MinValue ? string.Empty : mail.Received.ToString("M/d HH:mm", CultureInfo.InvariantCulture) + "  ";
                     var subject = mail.Subject.Length == 0 ? "（件名なし）" : mail.Subject;
-                    var key = MailKey(_folder, mail.EntryId);
+                    var key = MailKey(mail.Folder, mail.EntryId);
                     var row = _owner.Row(key, mail, when + subject, _indent, false, true, null);
-                    row.ToolTip = MailTip(mail, subject);
+                    row.ToolTip = MailTip(mail, subject, Bookmarks);
+                    row.Tag = this;
+                    // 頭に星（字下げの分に置く）
+                    var star = _owner.Star(mail, row);
+                    DockPanel.SetDock(star, Dock.Left);
+                    ((DockPanel)row.Child).Children.Insert(0, star);
+                    row.Padding = new Thickness(Math.Max(0, _indent - 18), row.Padding.Top, row.Padding.Right, row.Padding.Bottom);
                     _mails.Children.Add(row);
                     _mailRows[key] = row;
                     if (key == _owner._bodyKey && (_owner._bodyPanel == null || _owner._bodyPanel.Parent == null))
@@ -559,6 +707,13 @@ namespace Tsuzuri.Views
                     }
                 }
                 var shown = _shown.Count;
+                if (Bookmarks)
+                {
+                    _more = false;
+                    _retry = false;
+                    _foot.Visibility = Visibility.Collapsed;
+                    return;
+                }
                 // 続きがあれば、一番下まで来たら読む。読めなかったときは、利用者が一番下までスクロールしたときだけやり直す
                 _more = !page.Loading && page.Problem == null && !page.Exhausted && shown < page.Total && shown < OutlookBridge.MaxListedMails;
                 _retry = !page.Loading && page.Problem != null;
@@ -571,12 +726,14 @@ namespace Tsuzuri.Views
             }
 
             /// <summary>メールの行のポップアップ: 件名・日時と、押したときのこと。</summary>
-            private static object MailTip(OutlookBridge.Mail mail, string subject)
+            private static object MailTip(OutlookBridge.Mail mail, string subject, bool withFolder)
             {
                 var panel = new StackPanel { MaxWidth = 420 };
                 panel.Children.Add(new TextBlock { Text = subject, FontWeight = FontWeights.SemiBold, TextWrapping = TextWrapping.Wrap });
                 if (mail.Received != DateTime.MinValue)
                     panel.Children.Add(new TextBlock { Text = mail.Received.ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture), Opacity = 0.7, Margin = new Thickness(0, 2, 0, 0) });
+                if (withFolder)
+                    panel.Children.Add(new TextBlock { Text = "フォルダ: " + mail.Folder, Opacity = 0.7, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 2, 0, 0) });
                 panel.Children.Add(new TextBlock
                 {
                     Text = "押すと、このメールだけを選んで件名・日時・ID を AI に渡し、すぐ下に本文を開く（本文は AI に渡さない。もう一度押すか、本文を押すと閉じる）。Ctrl を押しながらだと、選びに足す・外すだけ",

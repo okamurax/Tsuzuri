@@ -99,6 +99,8 @@ namespace Tsuzuri.Office
         {
             _closedStoresFile = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), appFolder, "outlook-closed-stores.txt");
             LoadClosedStores();
+            _bookmarksFile = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), appFolder, "outlook-bookmarks.json");
+            LoadBookmarks();
             _aiFolder = aiFolder;
             _listName = listName;
             _changed = changed;
@@ -107,6 +109,9 @@ namespace Tsuzuri.Office
             View.RowClicked += Choose;
             View.MailClicked += ChooseMail;
             View.BodyClicked += CloseBody;
+            View.StarClicked += ToggleStar;
+            View.IsStarred = mail => FindBookmark(mail) >= 0;
+            View.SetBookmarks(_bookmarks);
             View.ToggleRequested += Toggle;
             View.StoreToggleRequested += ToggleStore;
             View.MoreRequested += folder => LoadMails(folder, false);
@@ -383,9 +388,22 @@ namespace Tsuzuri.Office
             {
                 string text = null;
                 string problem;
+                OutlookBridge.Mail moved = null;
                 try
                 {
                     text = OutlookBridge.ReadBody(mail.Folder, mail.EntryId, 8000, out problem);
+                    // ブックマークしたメールが見つからなければ（移された）、メッセージ ID で探し直して読む
+                    if (text == null && !string.IsNullOrEmpty(mail.MessageId) && problem != null && (problem.Contains("は無い") || problem.Contains("メールではない")))
+                    {
+                        string why;
+                        moved = OutlookBridge.Locate(mail.MessageId, StoreOf(mail.Folder), 30000, out why);
+                        if (moved != null)
+                        {
+                            moved.MessageId = mail.MessageId;
+                            text = OutlookBridge.ReadBody(moved.Folder, moved.EntryId, 8000, out problem);
+                        }
+                        else problem = why;
+                    }
                 }
                 catch (Exception ex)
                 {
@@ -394,11 +412,135 @@ namespace Tsuzuri.Office
                 dispatcher.BeginInvoke(new Action(() =>
                 {
                     if (request != _bodyRequest || key != _bodyKey) return;   // その間に閉じた・別のメールを押した
+                    if (moved != null)
+                    {
+                        Moved(mail, moved);
+                        key = OutlookListView.MailKey(moved.Folder, moved.EntryId);
+                        _bodyKey = key;
+                    }
                     _bodyFailed = text == null;
                     if (text != null) View.ShowBody(key, text, false);
                     else View.ShowBody(key, "本文を読めませんでした（" + UserText(problem) + "）。ここを押すと閉じ、メールをもう一度押すと読み直します", true);
                 }));
             });
+        }
+
+        // ---------------------------------------------------------------
+        // ブックマーク（メールの頭の星。2026-11-27。利用者の考え。アプリの側に覚える。Outlook のメールは変えない）
+        // ---------------------------------------------------------------
+
+        /// <summary>ブックマークしたメール（画面のスレッドだけで使う）。受け取った日時の新しい順。</summary>
+        private readonly List<OutlookBridge.Mail> _bookmarks = new List<OutlookBridge.Mail>();
+
+        /// <summary>ブックマークを覚えるファイル（%LOCALAPPDATA%\&lt;アプリ&gt;\outlook-bookmarks.json）。</summary>
+        private readonly string _bookmarksFile;
+
+        /// <summary>覚えるブックマークの数の上限。</summary>
+        private const int MaxBookmarks = 300;
+
+        /// <summary>ブックマークの番号（無ければ -1）。EntryID が同じか、メッセージ ID が同じなら同じメール。</summary>
+        private int FindBookmark(OutlookBridge.Mail mail)
+        {
+            for (var i = 0; i < _bookmarks.Count; i++)
+            {
+                var item = _bookmarks[i];
+                if (string.Equals(item.EntryId, mail.EntryId, StringComparison.Ordinal)) return i;
+                if (!string.IsNullOrEmpty(item.MessageId) && string.Equals(item.MessageId, mail.MessageId, StringComparison.Ordinal)) return i;
+            }
+            return -1;
+        }
+
+        /// <summary>星を押した: 付いていれば外し、無ければ付ける。</summary>
+        private void ToggleStar(OutlookBridge.Mail mail)
+        {
+            var index = FindBookmark(mail);
+            if (index >= 0) _bookmarks.RemoveAt(index);
+            else
+            {
+                if (_bookmarks.Count >= MaxBookmarks)
+                {
+                    View.Notice("ブックマークは " + MaxBookmarks + " 通までです。要らないものの星を外してください");
+                    return;
+                }
+                _bookmarks.Add(new OutlookBridge.Mail { Folder = mail.Folder, EntryId = mail.EntryId, Subject = mail.Subject, Received = mail.Received, MessageId = mail.MessageId });
+                _bookmarks.Sort((a, b) => b.Received.CompareTo(a.Received));
+            }
+            SaveBookmarks();
+            View.SetBookmarks(_bookmarks);
+            if (_bodyKey != null && !View.BodyShown) CloseBody();   // 本文を開いていたブックマークの段の行が消えた（ほかに同じメールの行が無い）
+        }
+
+        /// <summary>ブックマークしたメールが移されていた: 覚えている場所を直す（選んでいれば、選びも新しい場所に）。</summary>
+        private void Moved(OutlookBridge.Mail old, OutlookBridge.Mail moved)
+        {
+            var index = FindBookmark(old);
+            if (index >= 0)
+            {
+                _bookmarks[index] = new OutlookBridge.Mail { Folder = moved.Folder, EntryId = moved.EntryId, Subject = moved.Subject.Length > 0 ? moved.Subject : old.Subject, Received = moved.Received != DateTime.MinValue ? moved.Received : old.Received, MessageId = old.MessageId };
+                SaveBookmarks();
+            }
+            var chosen = _mailChoices;
+            if (chosen.Any(item => item.EntryId == old.EntryId))
+                SetChoices(_choices, chosen.Select(item => item.EntryId == old.EntryId ? moved : item).ToArray());
+            View.SetBookmarks(_bookmarks);
+        }
+
+        private static string StoreOf(string folderPath)
+        {
+            var path = (folderPath ?? string.Empty).TrimStart('\\');
+            var end = path.IndexOf('\\');
+            return end < 0 ? path : path.Substring(0, end);
+        }
+
+        private void LoadBookmarks()
+        {
+            try
+            {
+                if (!File.Exists(_bookmarksFile)) return;
+                var items = new System.Web.Script.Serialization.JavaScriptSerializer().Deserialize<List<Dictionary<string, string>>>(File.ReadAllText(_bookmarksFile, Encoding.UTF8));
+                if (items == null) return;
+                foreach (var item in items)
+                {
+                    string folder, id, subject, received, messageId;
+                    if (!item.TryGetValue("folder", out folder) || !item.TryGetValue("id", out id) || string.IsNullOrEmpty(folder) || string.IsNullOrEmpty(id)) continue;
+                    item.TryGetValue("subject", out subject);
+                    item.TryGetValue("received", out received);
+                    item.TryGetValue("messageId", out messageId);
+                    DateTime when;
+                    if (!DateTime.TryParseExact(received ?? string.Empty, "yyyy-MM-dd'T'HH:mm:ss", CultureInfo.InvariantCulture, DateTimeStyles.None, out when)) when = DateTime.MinValue;
+                    _bookmarks.Add(new OutlookBridge.Mail { Folder = folder, EntryId = id, Subject = subject ?? string.Empty, Received = when, MessageId = string.IsNullOrEmpty(messageId) ? null : messageId });
+                    if (_bookmarks.Count >= MaxBookmarks) break;
+                }
+                _bookmarks.Sort((a, b) => b.Received.CompareTo(a.Received));
+            }
+            catch (Exception)
+            {
+                // 読めなければ、ブックマーク無しで始める（ファイルはそのまま。次に星を付けると書き直す）
+            }
+        }
+
+        private void SaveBookmarks()
+        {
+            try
+            {
+                var items = _bookmarks.Select(mail => new Dictionary<string, string>
+                {
+                    { "folder", mail.Folder },
+                    { "id", mail.EntryId },
+                    { "subject", mail.Subject },
+                    { "received", mail.Received == DateTime.MinValue ? string.Empty : mail.Received.ToString("yyyy-MM-dd'T'HH:mm:ss", CultureInfo.InvariantCulture) },
+                    { "messageId", mail.MessageId ?? string.Empty },
+                }).ToList();
+                Directory.CreateDirectory(Path.GetDirectoryName(_bookmarksFile));
+                var temp = _bookmarksFile + ".tmp";
+                File.WriteAllText(temp, new System.Web.Script.Serialization.JavaScriptSerializer().Serialize(items), new UTF8Encoding(false));
+                if (File.Exists(_bookmarksFile)) File.Replace(temp, _bookmarksFile, null);
+                else File.Move(temp, _bookmarksFile);
+            }
+            catch (Exception)
+            {
+                View.Notice("ブックマークを保存できませんでした（今は覚えていますが、アプリを閉じると消えます）");
+            }
         }
 
         private void CloseBody()

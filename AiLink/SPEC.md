@@ -431,6 +431,7 @@ Tsuzuri と同じファイル（`Tsuzuri/Office/Outlook*.cs`・`Tsuzuri/Views/Ou
 - できること: フォルダの一覧・探す・1通を読む・下書きに保存する（新しいメールと返信）。送信・削除・移動などの道は作らない（利用者の判断）
 - 一覧は左の列で、Excel の一覧とタブで切り替える（`Views/OfficeTabs.cs`）。選んだフォルダのパスを、今の状態の「Outlook」の段に書く。フォルダの頭の矢印でメールを件名で並べて選べ、選んだメールは「Outlook のメール」の段に書く（Tsuzuri の SPEC 19章）
 - 下書きのファイルは会話のフォルダの `outlook-draft-tab<n>.txt`（指示の `{outlook-draft}`）。`outlook.ps1` も Codex のルールで確かめなしに動かす（台本はパイプで頼むだけ）
+- メールの頭の星でブックマークでき、一覧の一番上の段に並ぶ（`outlook-bookmarks.json`。Tsuzuri の SPEC 19章「ブックマーク」。2026-11-27）
 - 添付は `-Attachment` で AI のフォルダの `outlook-attachments\` に保存し、ZIP は `ZipUnpacker` で展開する（Tsuzuri の SPEC 19章「添付」。2026-11-27）
 - AI への指示の Outlook の段は `OutlookInstructions.ForAiLink()`（Excel と同じ型の文の仕組み）
 

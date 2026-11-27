@@ -777,7 +777,7 @@ namespace Tsuzuri.Markdown
                     // ルートは誰の子にもならないので辿らない。ルートの Id は空で、ReferencePattern("") は
                     // (#概要) のような日本語の見出しへのリンクにも当たってしまい、ルートと本当の親まで候補から外してしまう。
                     if (page.Id == id || page.Id == RootId || found.Contains(page.Id)) continue;
-                    if (!ReferencePattern(page.Id).IsMatch(from.Text)) continue;
+                    if (!ReferencePattern(page.Id).IsMatch(from.Text)) continue;   // 「戻す」の親の候補から外す子孫は、形だけで見る（Markdig を足すと外す候補が増え、戻せない場面が増えた。2026-11-27）
 
                     found.Add(page.Id);
                     pending.Enqueue(page);
@@ -798,6 +798,7 @@ namespace Tsuzuri.Markdown
         {
             var reached = new HashSet<string>(StringComparer.Ordinal);
             var pending = new Queue<PageRegion>();
+            var links = new Dictionary<string, HashSet<string>>(StringComparer.Ordinal);   // ページの Id → そのページの中のリンクの行き先（Markdig で1回だけ読む）
 
             var root = Find(RootId);
             if (root != null)
@@ -813,7 +814,7 @@ namespace Tsuzuri.Markdown
                 foreach (var page in _pages)
                 {
                     if (reached.Contains(page.Id)) continue;
-                    if (!ReferencePattern(page.Id).IsMatch(from.Text)) continue;
+                    if (!Refers(from, page.Id, links)) continue;
 
                     reached.Add(page.Id);
                     pending.Enqueue(page);
@@ -845,6 +846,7 @@ namespace Tsuzuri.Markdown
             parents[RootId] = null;
 
             var pending = new Queue<PageRegion>();
+            var links = new Dictionary<string, HashSet<string>>(StringComparer.Ordinal);   // ページの Id → そのページの中のリンクの行き先（Markdig で1回だけ読む）
             pending.Enqueue(root);
 
             while (pending.Count > 0 && !parents.ContainsKey(target))
@@ -854,7 +856,7 @@ namespace Tsuzuri.Markdown
                 foreach (var page in _pages)
                 {
                     if (parents.ContainsKey(page.Id)) continue;
-                    if (!ReferencePattern(page.Id).IsMatch(from.Text)) continue;
+                    if (!Refers(from, page.Id, links)) continue;
 
                     parents[page.Id] = from.Id;
                     pending.Enqueue(page);
@@ -882,6 +884,39 @@ namespace Tsuzuri.Markdown
 
             return new Regex(@"\[(?:" + plain + @"|\[" + plain + @"*\])*\]\([ \t]*(?:<#" + target + @">|#" + target + @")"
                 + @"(?:[ \t]+(?:""[^""\r\n]*""|'[^'\r\n]*'))?[ \t]*\)");
+        }
+
+        /// <summary>
+        /// from のページが id のページを指しているか（辿れるかどうかの判定）。画面と同じ Markdig の解析でリンクと読むもの（行をまたぐリンク・引用やリストの中の参照の定義・
+        /// 文字参照や \ で逃がした書き方も）と、下の緩めの形のどちらかに当たれば指している（2026-11-27。前は形だけで見ていて、押せば開けるページを孤立と見なし、削除を勧めていた）。
+        /// 緩めの形も残すのは、判定を外して孤立と見なすより、多めに数えて残すほうが安全なため。
+        /// </summary>
+        private static bool Refers(PageRegion from, string id, Dictionary<string, HashSet<string>> links)
+        {
+            HashSet<string> targets;
+            if (!links.TryGetValue(from.Id, out targets))
+            {
+                targets = LinkTargets(from.Text);
+                links[from.Id] = targets;
+            }
+            return targets.Contains(id) || ReferencePattern(id).IsMatch(from.Text);
+        }
+
+        /// <summary>Markdig がリンクと読む、# で始まる行き先（画面で押せば開くもの。画像は除く）。読めなければ空。</summary>
+        private static HashSet<string> LinkTargets(string text)
+        {
+            var set = new HashSet<string>(StringComparer.Ordinal);
+            try
+            {
+                var parsed = Markdig.Markdown.Parse(text ?? string.Empty, MarkdownParser.Pipeline);
+                foreach (var link in Markdig.Syntax.MarkdownObjectExtensions.Descendants<Markdig.Syntax.Inlines.LinkInline>(parsed))
+                    if (!link.IsImage && link.Url != null && link.Url.StartsWith("#", StringComparison.Ordinal)) set.Add(link.Url.Substring(1));
+            }
+            catch (Exception)
+            {
+                // 読めなくても、緩めの形で見る
+            }
+            return set;
         }
 
         /// <summary>

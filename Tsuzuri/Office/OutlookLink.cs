@@ -106,6 +106,7 @@ namespace Tsuzuri.Office
             View.RefreshRequested += () => Refresh(true);
             View.RowClicked += Choose;
             View.MailClicked += ChooseMail;
+            View.BodyClicked += CloseBody;
             View.ToggleRequested += Toggle;
             View.StoreToggleRequested += ToggleStore;
             View.MoreRequested += folder => LoadMails(folder, false);
@@ -357,6 +358,9 @@ namespace Tsuzuri.Office
         private string _bodyKey;
         private int _bodyRequest;
 
+        /// <summary>開いている本文の欄が、読めなかったわけを出している（そのメールをもう一度押したら、閉じずに読み直す）。</summary>
+        private bool _bodyFailed;
+
         /// <summary>
         /// メールを（Ctrl なしで）押した: そのメールの本文を行のすぐ下に開く。開いていれば閉じる（2026-11-27。利用者の考え）。
         /// 本文は裏で読み、まず「読んでいます」を出す。読めたら本文を、読めなければわけを出す（Outlook が空くのは 2 秒だけ待ち、読むのは 8 秒まで）。
@@ -366,12 +370,13 @@ namespace Tsuzuri.Office
         {
             var key = OutlookListView.MailKey(mail.Folder, mail.EntryId);
             var request = ++_bodyRequest;
-            if (key == _bodyKey)
+            if (key == _bodyKey && !_bodyFailed)
             {
                 CloseBody();
                 return;
             }
             _bodyKey = key;
+            _bodyFailed = false;
             View.ShowBody(key, "本文を読んでいます…", true);
             var dispatcher = View.Dispatcher;
             Task.Run(() =>
@@ -389,8 +394,9 @@ namespace Tsuzuri.Office
                 dispatcher.BeginInvoke(new Action(() =>
                 {
                     if (request != _bodyRequest || key != _bodyKey) return;   // その間に閉じた・別のメールを押した
+                    _bodyFailed = text == null;
                     if (text != null) View.ShowBody(key, text, false);
-                    else View.ShowBody(key, "本文を読めませんでした（" + UserText(problem) + "）。もう一度押すと閉じ、また押すと読み直します", true);
+                    else View.ShowBody(key, "本文を読めませんでした（" + UserText(problem) + "）。ここを押すと閉じ、メールをもう一度押すと読み直します", true);
                 }));
             });
         }
@@ -399,6 +405,7 @@ namespace Tsuzuri.Office
         {
             if (_bodyKey == null) return;
             _bodyKey = null;
+            _bodyFailed = false;
             _bodyRequest++;
             View.ShowBody(null, null, false);
         }

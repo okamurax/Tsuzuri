@@ -49,6 +49,9 @@ namespace Tsuzuri.Views
         /// <summary>メールの行を押した: メール、Ctrl を押していたか。</summary>
         public event Action<OutlookBridge.Mail, bool> MailClicked;
 
+        /// <summary>開いた本文の欄を押した（閉じる）。</summary>
+        public event Action BodyClicked;
+
         /// <summary>フォルダの開閉の矢印を押した（開く・閉じる）。</summary>
         public event Action<string> ToggleRequested;
 
@@ -251,10 +254,17 @@ namespace Tsuzuri.Views
                 Child = text,
                 Padding = new Thickness(indent, 6, 10, 8),
                 Background = Brush("HoverFill"),
-                ToolTip = _bodyLoading ? null : "利用者が見るためだけの本文（AI には渡さない）。もう一度メールを押すと閉じる",
+                Cursor = Cursors.Hand,
+                ToolTip = _bodyLoading ? "押すと閉じる" : "利用者が見るためだけの本文（AI には渡さない）。本文のどこを押しても閉じる（メールをもう一度押しても閉じる）",
             };
-            // 本文の中を押しても、何もない所を押したこと（全部外す）にしない
-            panel.MouseLeftButtonDown += (sender, e) => e.Handled = true;
+            // 本文のどこを押しても閉じる（2026-11-27。利用者の判断）。何もない所を押したこと（全部外す）にはしない
+            panel.MouseLeftButtonDown += (sender, e) =>
+            {
+                e.Handled = true;
+                if (e.ClickCount > 1) return;
+                var clicked = BodyClicked;
+                if (clicked != null) clicked();
+            };
             _bodyPanel = panel;
             return panel;
         }
@@ -569,7 +579,7 @@ namespace Tsuzuri.Views
                     panel.Children.Add(new TextBlock { Text = mail.Received.ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture), Opacity = 0.7, Margin = new Thickness(0, 2, 0, 0) });
                 panel.Children.Add(new TextBlock
                 {
-                    Text = "押すと、このメールだけを選んで件名・日時・ID を AI に渡し、すぐ下に本文を開く（本文は AI に渡さない。もう一度押すと本文を閉じる）。Ctrl を押しながらだと、選びに足す・外すだけ",
+                    Text = "押すと、このメールだけを選んで件名・日時・ID を AI に渡し、すぐ下に本文を開く（本文は AI に渡さない。もう一度押すか、本文を押すと閉じる）。Ctrl を押しながらだと、選びに足す・外すだけ",
                     TextWrapping = TextWrapping.Wrap,
                     Opacity = 0.7,
                     Margin = new Thickness(0, 6, 0, 0),

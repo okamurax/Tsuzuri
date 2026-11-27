@@ -7,10 +7,10 @@ namespace Tsuzuri
 {
     // MainWindow の一部: Outlook（classic）を AI に扱わせるつなぎ（2026-11-26。利用者の考え）。
     // 中身（一覧・選んだフォルダ・今の状態の段・outlook.ps1 の頼みに答える所）は Office/OutlookLink.cs（AiLink と共通）。ここは Tsuzuri に置く所だけ。
-    // 一覧はランチャーのファイラーの下の段で、Excel の一覧とタブで切り替える（Views/OfficeTabs.cs。MainWindow.Excel.cs の RefreshExcelList で作る）。
+    // 一覧は COM のエクスプローラ（本文の右の欄。2026-11-27 まではランチャーのファイラーの下の段）で、Excel の一覧とタブで切り替える（Views/OfficeTabs.cs。MainWindow.Excel.cs の RefreshExcelList で作る）。
     public partial class MainWindow
     {
-        private const string OutlookListName = "ランチャーの Outlook の一覧";
+        private const string OutlookListName = "COM のエクスプローラの Outlook の一覧";
 
         private OutlookLink _outlook;
 

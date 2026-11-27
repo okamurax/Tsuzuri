@@ -310,7 +310,7 @@ namespace Tsuzuri.Office
             }
         }
 
-        /// <summary>開いているブック（ランチャーの Excel の一覧）。</summary>
+        /// <summary>開いているブック（COM のエクスプローラの Excel の一覧）。</summary>
         public sealed class Book
         {
             /// <summary>フルパス。まだ保存していなければ null。</summary>

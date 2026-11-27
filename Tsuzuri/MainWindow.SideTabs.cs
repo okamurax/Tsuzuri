@@ -11,11 +11,11 @@ namespace Tsuzuri
         // ---------------------------------------------------------------
         // 本文の左下のつまみ（2026-11-24。利用者の考え。SPEC 22章・4章）
         //
-        // カレンダーとランチャーのアイコンのボタンを縦に2つ並べた、浮いた小さな板を本文の左下に重ねる。見た目は Mattermost の左のチームの切り替えに寄せる。
+        // カレンダー・ランチャー・COM のエクスプローラのアイコンのボタンを縦に3つ並べた、浮いた小さな板を本文の左下に重ねる。見た目は Mattermost の左のチームの切り替えに寄せる。
         // 経緯（同じ日）: 左端の細い帯の真ん中から 14px 幅のつまみ（アイコンが見えなかった）→ 左下に重ねる面取りのつまみ（形がしっくりこない）→ 今の形。
         // どちらも押すたびに開け閉めし、外を押しても Esc でも閉じない（ランチャーもカレンダーに合わせた）。出しているもののつまみは色を付ける。
-        // 2つは別々に開け閉めし、両方出せば後から出したほうが手前に重なる。手前を閉じれば奥のほうが見える。つまみの色はそれぞれ自分を出しているかだけで決め、
-        // 相手に隠れていても出していれば色を付ける（2026-11-24。利用者の考え。前は隠れたカレンダーのつまみを押すとランチャーを閉じていた）。
+        // カレンダーとランチャーはいつもどちらか一方だけ（2026-11-26。前は別々に開け閉めして重ねていた）。3つ目の COM のエクスプローラ（2026-11-27）は本文の右に並ぶので、どちらとも一緒に出せる。
+        // つまみの色はそれぞれ自分を出しているかだけで決める。
         // 「見出し」とは呼ばない（文書の見出し・アウトラインの見出しと取り違えるため。レビューの指摘）。
         // 前は、カレンダーは帯の真ん中の持ち手（2026-11-23）、ランチャーは画面のタブの並びの一番右のボタンだった。
         // ---------------------------------------------------------------
@@ -23,10 +23,10 @@ namespace Tsuzuri
         /// <summary>カレンダーとランチャーを両方出していて、カレンダーを後から出した（カレンダーが上）。</summary>
         private bool _calendarAboveLauncher;
 
-        /// <summary>カレンダーが見えている（出していて、ランチャーの奥に隠れていない）。</summary>
+        /// <summary>カレンダーが見えている（ランチャーとはどちらか一方だけなので、出していれば見えている）。</summary>
         private bool CalendarOnTop
         {
-            get { return _calendar != null && (_launcher == null || _calendarAboveLauncher); }
+            get { return _calendar != null; }   // カレンダーとランチャーはどちらか一方だけなので（2026-11-26）、出していれば見えている
         }
 
         /// <summary>
@@ -68,10 +68,12 @@ namespace Tsuzuri
             SideTabs.Visibility = _drawing != null && !launcherOpen ? Visibility.Collapsed : Visibility.Visible;
             PaintSideTab(CalendarTab, CalendarTabBack, CalendarTabBar, CalendarTabIcon, _calendar != null);
             PaintSideTab(LauncherTab, LauncherTabBack, LauncherTabBar, LauncherTabIcon, launcherOpen);
+            PaintSideTab(ComTab, ComTabBack, ComTabBar, ComTabIcon, ComExplorerOpen);
 
             CalendarTab.ToolTip = _calendar == null ? "カレンダーを出す（Alt+C）。予定を週の行で下へずっと並べ、ここで直接打つ"
                 : "カレンダーを閉じる（Alt+C）";
             LauncherTab.ToolTip = launcherOpen ? "ランチャーを閉じる（Alt+L）" : "ランチャーを出す（Alt+L）。ランチャーとファイラーを本文の場所に重ねて出す";
+            ComTab.ToolTip = ComExplorerOpen ? "COM のエクスプローラを閉じる（Alt+X）" : "COM のエクスプローラを出す（Alt+X）。開いている Excel と Outlook の一覧を、本文の右に並べて出す";
         }
 
         /// <summary>ふだんは地なしで薄い字、載せると地を付けて白、出しているものは青い地（AccentFill）に青いアイコンと左の縁の棒（Mattermost に寄せる）。</summary>

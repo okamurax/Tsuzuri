@@ -20,7 +20,7 @@ namespace Tsuzuri
     // MainWindow の一部: カレンダー（SPEC 22章。2026-11-20）。
     // 予定を週の行で下へずっと並べ、カレンダーの画面で直接打つ。保存先は .md（ScheduleFile）で、裏に置くだけ（利用者の考え）。
     // ランチャーと同じく、本文の場所いっぱいに重ねて出し、本文の左下のつまみ（ランチャーのつまみと縦に並ぶ。MainWindow.SideTabs.cs）か Alt+C で出し入れする（2026-11-23。前は画面のタブの並びのボタン）。
-    // ランチャーとは別々に開け閉めし、両方出せば後から出したほうが手前に重なる（2026-11-24。MainWindow.SideTabs.cs の StackOverlays）。
+    // ランチャーとはいつもどちらか一方だけ（2026-11-26。片方を出すと、もう片方を閉じる）。
     // アウトラインの見出しをカレンダーの日へドラッグすると、その見出しと結んだ予定になる（2026-11-20）。結ぶのは見出しの文字で、名前が変わっても追わない。
     public partial class MainWindow
     {
@@ -131,23 +131,22 @@ namespace Tsuzuri
 
         /// <summary>
         /// AI に渡す今の状態に、カレンダーを足す（2026-11-21。利用者と日付の話をするため）。開いていなければ何も書かない。
-        /// 出している週・選んでいる日・選んでいる予定。ランチャーの奥に隠れていれば、そう書く。保存先や結んだ文書が AI に渡さない場所なら、その中身は書かない。
+        /// 出している週・選んでいる日・選んでいる予定。見えているかは「見えているもの」の段に書く（AppendScreenContext）。保存先や結んだ文書が AI に渡さない場所なら、その中身は書かない。
         /// </summary>
         private void AppendCalendarContext(StringBuilder text)
         {
             var calendar = _calendar;
             if (calendar == null) return;
-            var hidden = CalendarOnTop ? string.Empty : "。今はランチャーの奥に隠れていて、利用者には見えていない";
 
             if (AiGuard.IsGuarded(calendar.FilePath))
             {
-                text.Append("カレンダー: 開いている（予定の保存先は、利用者が AI に渡さないと決めた場所にある。中身を尋ねたり探したりしない").Append(hidden).Append("）\n");
+                text.Append("カレンダー: 開いている（予定の保存先は、利用者が AI に渡さないと決めた場所にある。中身を尋ねたり探したりしない）\n");
                 return;
             }
 
             DateTime first, last;
             calendar.VisibleRange(out first, out last);
-            text.Append("カレンダー: 開いている（予定の保存先: ").Append(calendar.FilePath).Append(hidden).Append("）\n");
+            text.Append("カレンダー: 開いている（予定の保存先: ").Append(calendar.FilePath).Append("）\n");
             text.Append("  カレンダーで出している週: ").Append(Day(first)).Append("〜").Append(Day(last)).Append('\n');
 
             var from = calendar.SelectedFrom;

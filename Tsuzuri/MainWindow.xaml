@@ -104,6 +104,8 @@
                 <ColumnDefinition x:Name="SidebarColumn" Width="190" MinWidth="110" />
                 <ColumnDefinition x:Name="SplitterColumn" Width="4" />
                 <ColumnDefinition x:Name="EditorColumn" Width="*" MinWidth="280" />
+                <ColumnDefinition x:Name="ComSplitterColumn" Width="0" />
+                <ColumnDefinition x:Name="ComColumn" Width="0" />
                 <ColumnDefinition x:Name="AiSplitterColumn" Width="0" />
                 <ColumnDefinition x:Name="AiColumn" Width="0" />
             </Grid.ColumnDefinitions>
@@ -165,8 +167,7 @@
                                SizeChanged="StackPanelHost_SizeChanged" />
 
                     <!-- カレンダー（SPEC 22章。2026-11-20。MainWindow.Calendar.cs・Views/CalendarView.cs）。ランチャーと同じく本文の場所いっぱいに重ねる。
-                         カレンダーとランチャーは別々に開け閉めし、後から出したほうが上に重なる（2026-11-24。ふだんは LauncherHost が StackHost より上。
-                         カレンダーを後から出したときは、StackHost の ZIndex を上げてランチャーの上へ出す。MainWindow.SideTabs.cs の StackOverlays） -->
+                         カレンダーとランチャーはいつもどちらか一方だけ（2026-11-26） -->
                     <Border x:Name="CalendarHost" Visibility="Collapsed"
                             Focusable="False"
                             Background="{StaticResource SidebarBackground}" />
@@ -195,14 +196,12 @@
                                   HorizontalAlignment="Stretch" VerticalAlignment="Stretch"
                                   DragCompleted="Layout_DragCompleted" />
 
-                    <!-- ファイラーの上に、AI の会話のプロジェクトフォルダを渡す段（2026-11-24。プロジェクトフォルダはここから渡す。MainWindow.Overlays.cs） -->
-                    <!-- 下の段に、開いている Excel のブックとシートの一覧（2026-11-24。ファイラーとの間の仕切りで高さを変えられる。MainWindow.Excel.cs） -->
+                    <!-- ファイラーの上に、AI の会話のプロジェクトフォルダを渡す段（2026-11-24。プロジェクトフォルダはここから渡す。MainWindow.Overlays.cs）。
+                         Excel・Outlook の一覧は、2026-11-27 から COM のエクスプローラ（ComHost）に分けた -->
                     <Grid Grid.Column="2">
                         <Grid.RowDefinitions>
                             <RowDefinition Height="Auto" />
                             <RowDefinition Height="*" MinHeight="80" />
-                            <RowDefinition Height="Auto" />
-                            <RowDefinition x:Name="ExcelListRow" Height="300" MinHeight="130" />
                         </Grid.RowDefinitions>
                         <Border Grid.Row="0" Height="32" BorderBrush="{StaticResource BorderBrushSoft}" BorderThickness="0,0,0,1">
                             <Button x:Name="FilerUseFolder" Style="{StaticResource ToolButton}" Content="このフォルダをプロジェクトフォルダにする"
@@ -210,9 +209,6 @@
                                     VerticalAlignment="Center" HorizontalAlignment="Left" Click="FilerUseFolder_Click" />
                         </Border>
                         <Border x:Name="FilerHost" Grid.Row="1" />
-                        <GridSplitter Grid.Row="2" Height="4" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" ResizeDirection="Rows"
-                                      DragCompleted="Layout_DragCompleted" />
-                        <Border x:Name="ExcelListHost" Grid.Row="3" />
                     </Grid>
                 </Grid>
             </Border>
@@ -223,7 +219,7 @@
                     Focusable="False"
                     Background="{StaticResource SidebarBackground}" />
 
-            <!-- 本文の左下のつまみ（2026-11-24。利用者の考え。MainWindow.SideTabs.cs）。カレンダーとランチャーのアイコンを縦に2つ並べた、浮いた小さな板。
+            <!-- 本文の左下のつまみ（2026-11-24。利用者の考え。MainWindow.SideTabs.cs）。カレンダー・ランチャー・COM のエクスプローラのアイコンを縦に3つ並べた、浮いた小さな板（3つ目は 2026-11-27）。
                  Mattermost の左のチームの切り替えに寄せる（角の丸い板・角の丸いアイコンのボタン・載せると地・出しているものは青い地と左の縁の棒）。
                  本文・カレンダー・ランチャー・図エディタの上に重ねる（ZIndex 5。カレンダーをランチャーの上に出すときの StackHost は 4）。押すたびに開け閉めする。板の外の透けた所は押しても下に届く -->
             <Border x:Name="SideTabs" Grid.Column="2" Panel.ZIndex="5" HorizontalAlignment="Left" VerticalAlignment="Bottom" Margin="8,0,0,12"
@@ -253,15 +249,33 @@
                                    HorizontalAlignment="Center" VerticalAlignment="Center"
                                    Foreground="{StaticResource SidebarText}" IsHitTestVisible="False" />
                     </Grid>
+                    <Grid x:Name="ComTab" Width="32" Height="32" Margin="0,4,0,0" Cursor="Hand" Background="Transparent"
+                          MouseLeftButtonDown="ComTab_Click" MouseEnter="SideTab_Hover" MouseLeave="SideTab_Hover">
+                        <Border x:Name="ComTabBack" CornerRadius="8" Background="Transparent" />
+                        <Border x:Name="ComTabBar" Width="3" Height="16" CornerRadius="1.5" HorizontalAlignment="Left" Margin="-5,0,0,0"
+                                Background="{StaticResource AccentBrush}" Visibility="Hidden" />
+                        <TextBlock x:Name="ComTabIcon" Text="&#xE8F1;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" FontSize="16"
+                                   HorizontalAlignment="Center" VerticalAlignment="Center"
+                                   Foreground="{StaticResource SidebarText}" IsHitTestVisible="False" />
+                    </Grid>
                 </StackPanel>
             </Border>
 
             <!-- AI の欄 (SPEC 19章)。「AI」で出し入れする。中は会話のタブごとの端末（Views/TerminalView。WebView2 の xterm.js と ConPTY）で、PowerShell の中で Claude Code が動く -->
-            <GridSplitter x:Name="AiSplitter" Grid.Column="3" Width="4" Visibility="Collapsed"
+            <!-- COM のエクスプローラ（2026-11-27。利用者の判断。Excel と Outlook の一覧をタブで切り替える。MainWindow.Excel.cs の ShowComExplorer）。
+                 本文の右に、本文と並べて出す（カレンダー・ランチャーのように本文を覆わない。本文を見ながらメールや表を扱えるように）。高さいっぱいを使う。
+                 本文の左下のつまみ（3つ目）・Alt+X で出し入れする。前はランチャーのファイラーの下の段だった -->
+            <GridSplitter x:Name="ComSplitter" Grid.Column="3" Width="4" Visibility="Collapsed"
+                          HorizontalAlignment="Stretch" VerticalAlignment="Stretch"
+                          DragCompleted="ComSplitter_DragCompleted" />
+            <Border x:Name="ComHost" Grid.Column="4" Visibility="Collapsed"
+                    Background="{StaticResource SidebarBackground}" />
+
+            <GridSplitter x:Name="AiSplitter" Grid.Column="5" Width="4" Visibility="Collapsed"
                           HorizontalAlignment="Stretch" VerticalAlignment="Stretch"
                           DragCompleted="AiSplitter_DragCompleted" MouseDoubleClick="AiSplitter_MouseDoubleClick" />
 
-            <Border x:Name="AiPane" Grid.Column="4" Visibility="Collapsed" Background="{StaticResource PageBackground}">
+            <Border x:Name="AiPane" Grid.Column="6" Visibility="Collapsed" Background="{StaticResource PageBackground}">
                 <DockPanel>
                     <!-- 上端の段。本文の検索欄の段と高さ・下の線をそろえる。会話（端末）のタブと「＋」（2026-10-26） -->
                     <Border DockPanel.Dock="Top" Height="32"

@@ -92,7 +92,7 @@ namespace Tsuzuri.Office
         public OutlookListView View { get; private set; }
 
         /// <param name="aiFolder">結果のファイルを書く AI のフォルダ（台本を置いた所）。</param>
-        /// <param name="listName">今の状態で一覧を指す呼び名（Tsuzuri は「ランチャーの Outlook の一覧」、AiLink は「Outlook の一覧」）。</param>
+        /// <param name="listName">今の状態で一覧を指す呼び名（Tsuzuri は「COM のエクスプローラの Outlook の一覧」、AiLink は「Outlook の一覧」）。</param>
         /// <param name="changed">選んだフォルダ・メールが変わった（下端の行を出し直す）。画面のスレッドで呼ぶ。</param>
         /// <param name="appFolder">%LOCALAPPDATA% の下のアプリのフォルダの名前（Tsuzuri・AiLink）。閉じたストアを覚えるファイルを置く。</param>
         public OutlookLink(string aiFolder, string listName, string appFolder, Action changed)

@@ -212,7 +212,7 @@ namespace Tsuzuri
             // Alt+L は 2026-11-24 から）。AI の欄の端末にキーボードがあるときは、端末のキーとして向こうに渡す。
             PreviewKeyDown += (sender, e) =>
             {
-                if (e.Key != Key.System || (e.SystemKey != Key.C && e.SystemKey != Key.L) || Keyboard.Modifiers != ModifierKeys.Alt) return;
+                if (e.Key != Key.System || (e.SystemKey != Key.C && e.SystemKey != Key.L && e.SystemKey != Key.X) || Keyboard.Modifiers != ModifierKeys.Alt) return;
 
                 var source = e.OriginalSource as Visual;
                 if (AiPane.IsKeyboardFocusWithin || (source != null && AiPane.IsAncestorOf(source))) return;
@@ -224,6 +224,7 @@ namespace Tsuzuri
 
                 e.Handled = true;
                 if (e.SystemKey == Key.C) ToggleCalendar();
+                else if (e.SystemKey == Key.X) ToggleComExplorer();   // COM のエクスプローラ（2026-11-27）
                 else ToggleLauncher();
             };
 
@@ -338,6 +339,7 @@ namespace Tsuzuri
 
             _aiRestorePending = false;
             if (RestoreAiTabs() && AiPane.Visibility != Visibility.Visible) ShowAiPane();
+            if (_settings.ComExplorerOpen) ShowComExplorer();   // 前に出していた COM のエクスプローラ（2026-11-27）
         }
 
         /// <summary>

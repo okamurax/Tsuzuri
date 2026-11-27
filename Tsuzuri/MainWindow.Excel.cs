@@ -14,7 +14,7 @@ namespace Tsuzuri
     // MainWindow の一部: 開いている Excel を読み書きする（2026-11-24。利用者の考え。SPEC 19章・4章）。
     // ・Claude は、開いているブックのどのシートも読める・書ける（2026-11-25。利用者の判断。前は一覧で選んだ1つのシートだけ書けた）。
     //   AI に渡さない場所・https:// などの URL の場所・隠れたブックは扱わない（LAN の共有フォルダ・NAS は扱う）。書く前に、Claude が利用者の許可を取る（AI に渡す文で指示する）。保存は利用者がする。
-    // ・ランチャーのファイラーの下の段に、開いているブックとシートの一覧。選び方はエクスプローラーと同じ（押すとそれだけ・Ctrl で足す外す・Shift で範囲。ブックの行はシート全部。初めは何も選んでいない）。
+    // ・COM のエクスプローラ（本文の右の欄。2026-11-27 まではランチャーのファイラーの下の段）に、開いているブックとシートの一覧。選び方はエクスプローラーと同じ（押すとそれだけ・Ctrl で足す外す・Shift で範囲。ブックの行はシート全部。初めは何も選んでいない）。
     //   選んだシートが、AI への「このシート」になる。話しかけるたびの今の状態に、選んだブックとシートの名前だけを書く（中身・Excel で前に出ているもの・保存したかは渡さない）。
     // ・Claude が範囲を指定して読む（excel.ps1 → パイプの excel-read）・書く（excel.ps1 -Write → パイプの excel-write）・COM の台本を動かす（excel.ps1 -Script → excel-script）。
     //   読むときは、ブック・シートを付けなければ、選んだシートが1つのときだけそのシート（2つ以上なら付けさせる）。書くときは、どちらも付けさせる
@@ -134,7 +134,7 @@ namespace Tsuzuri
             var choices = _excelChoices;
             if (choices.Length == 0)
             {
-                text.Append("Excel: ランチャーの Excel の一覧でシートを選んでいない（前の頼みで選んでいても、今は外されている）\n");
+                text.Append("Excel: COM のエクスプローラの Excel の一覧でシートを選んでいない（前の頼みで選んでいても、今は外されている）\n");
                 return;
             }
             // 画面のスレッドで動くので、ファイルを確かめに行かず、一覧を読んだときに裏で決めたものを使う（つながらない共有フォルダで画面を止めないように。2026-11-26 のレビュー）
@@ -143,7 +143,7 @@ namespace Tsuzuri
             var hidden = choices.Length - shown.Count;
             if (shown.Count == 0)
             {
-                text.Append("Excel: ランチャーの Excel の一覧で選んだシートは、AI に渡さない場所のブックにあるので、名前も渡していない。尋ねたり探したりしない\n");
+                text.Append("Excel: COM のエクスプローラの Excel の一覧で選んだシートは、AI に渡さない場所のブックにあるので、名前も渡していない。尋ねたり探したりしない\n");
                 return;
             }
 
@@ -168,7 +168,7 @@ namespace Tsuzuri
             var file = sheetList.Length > 0 ? WriteExcelSheets(sheetList.ToString()) : null;
             if (file == null) listedOut.Clear();   // 書けなければ、名前を並べる
 
-            text.Append("Excel: 利用者がランチャーの Excel の一覧で選んだシート（").Append(shown.Count).Append(" 枚。渡すのは名前だけで、中身は渡していない）: ");
+            text.Append("Excel: 利用者が COM のエクスプローラの Excel の一覧で選んだシート（").Append(shown.Count).Append(" 枚。渡すのは名前だけで、中身は渡していない）: ");
             var first = true;
             foreach (var group in groups)
             {
@@ -248,11 +248,11 @@ namespace Tsuzuri
             // AI に渡さない場所のブックのシートは数えない（今の状態の段にも書いていないので、枚数を段と合わせる）
             var choices = all.Where(choice => !IsGuardedBook(choice.Book)).ToArray();
             if (book.Length == 0 && sheet.Length == 0 && choices.Length == 0 && all.Length > 0)
-                return "ランチャーの Excel の一覧で選んだシートは、AI に渡さない場所のブックにあるので扱わない。利用者にそう伝える（名前を尋ねたり探したりしない）";
+                return "COM のエクスプローラの Excel の一覧で選んだシートは、AI に渡さない場所のブックにあるので扱わない。利用者にそう伝える（名前を尋ねたり探したりしない）";
             if (book.Length == 0 && sheet.Length == 0)
             {
-                if (choices.Length == 0) return "ランチャーの Excel の一覧でシートが選ばれていない。どのブックのどのシートかを推し量らず、利用者に一覧で選んでもらうか、名前を教えてもらう";
-                if (choices.Length > 1) return "ランチャーの Excel の一覧でシートを " + choices.Length + " 枚選んでいる。どのシートかを -Book と -Sheet で付ける（分からなければ利用者に尋ねる）";
+                if (choices.Length == 0) return "COM のエクスプローラの Excel の一覧でシートが選ばれていない。どのブックのどのシートかを推し量らず、利用者に一覧で選んでもらうか、名前を教えてもらう";
+                if (choices.Length > 1) return "COM のエクスプローラの Excel の一覧でシートを " + choices.Length + " 枚選んでいる。どのシートかを -Book と -Sheet で付ける（分からなければ利用者に尋ねる）";
                 book = choices[0].Book;
                 sheet = choices[0].Sheet;
             }
@@ -690,8 +690,87 @@ namespace Tsuzuri
         }
 
         // ---------------------------------------------------------------
-        // ランチャーの Excel の一覧
+        // COM のエクスプローラ（2026-11-27。利用者の判断。本文の右に、本文と並べて出す Excel と Outlook の一覧。前はランチャーのファイラーの下の段）
+        // 本文の左下のつまみ（3つ目）・Alt+X で出し入れする。カレンダー・ランチャーとは別で、どれを出していても出せる（本文を覆わない）。
+        // 幅と、出していたかを覚える（次に起動したときも出す）。
         // ---------------------------------------------------------------
+
+        /// <summary>COM のエクスプローラを出しているか。</summary>
+        private bool ComExplorerOpen
+        {
+            get { return ComHost.Visibility == Visibility.Visible; }
+        }
+
+        private void ToggleComExplorer()
+        {
+            if (ComExplorerOpen) HideComExplorer();
+            else ShowComExplorer();
+            _settings.ComExplorerOpen = ComExplorerOpen;
+            _settings.Save();
+        }
+
+        private void ShowComExplorer()
+        {
+            if (ComExplorerOpen) return;
+            EnsureOfficeTabs();
+            ComHost.Visibility = Visibility.Visible;
+            ComSplitter.Visibility = Visibility.Visible;
+            ComSplitterColumn.Width = new GridLength(4);
+            ComColumn.MinWidth = 240;
+            ComColumn.Width = new GridLength(_settings.ComExplorerWidth);
+            PaintSideTabs();
+            RefreshExcelList();
+        }
+
+        private void HideComExplorer()
+        {
+            if (!ComExplorerOpen) return;
+            var hadFocus = ComHost.IsKeyboardFocusWithin;
+            StoreComWidth();
+            ComHost.Visibility = Visibility.Collapsed;
+            ComSplitter.Visibility = Visibility.Collapsed;
+            ComSplitterColumn.Width = new GridLength(0);
+            ComColumn.MinWidth = 0;
+            ComColumn.Width = new GridLength(0);
+            PaintSideTabs();
+            // 中にキーボードがあったら、エディタへ戻す
+            if (hadFocus && _drawing != null) _drawing.View.FocusCanvas();
+            else if (hadFocus && Active != null) Active.TextArea.Focus();
+        }
+
+        private void StoreComWidth()
+        {
+            if (ComColumn.ActualWidth < 240) return;
+            _settings.ComExplorerWidth = ComColumn.ActualWidth;
+        }
+
+        private void ComSplitter_DragCompleted(object sender, System.Windows.Controls.Primitives.DragCompletedEventArgs e)
+        {
+            StoreComWidth();
+            _settings.Save();
+        }
+
+        private void ComTab_Click(object sender, System.Windows.Input.MouseButtonEventArgs e)
+        {
+            e.Handled = true;
+            if (e.ClickCount > 1) return;   // つい2度押しても、開いてすぐ閉じない
+            ToggleComExplorer();
+        }
+
+        /// <summary>Excel と Outlook の一覧とタブを作って、COM のエクスプローラに入れる（初めて出すとき）。</summary>
+        private void EnsureOfficeTabs()
+        {
+            if (_excelList != null) return;
+            _excelList = new ExcelListView();
+            _excelList.RefreshRequested += RefreshExcelList;
+            _excelList.NotesRequested += OpenExcelNotes;
+            _excelList.RowClicked += ChooseExcelRow;
+            _excelList.EmptyClicked += ClearExcelChoices;
+            // Excel と Outlook はタブで切り替える（2026-11-26。利用者の判断。MainWindow.Outlook.cs）。Outlook のタブを初めて出したときに読む
+            _officeTabs = new OfficeTabs(_excelList, Outlook.View);
+            _officeTabs.Switched += index => { if (index == 1) Outlook.Refresh(false); };
+            ComHost.Child = _officeTabs;
+        }
 
         private ExcelListView _excelList;
 
@@ -718,22 +797,11 @@ namespace Tsuzuri
             _excelListSoon.Start();
         }
 
-        /// <summary>一覧を読み直す（裏で。ランチャーを出していなければ何もしない）。選んだシートが無くなっていれば外す。</summary>
+        /// <summary>一覧を読み直す（裏で。COM のエクスプローラを出していなければ何もしない）。選んだシートが無くなっていれば外す。</summary>
         private void RefreshExcelList()
         {
-            if (_launcher == null) return;
-            if (_excelList == null)
-            {
-                _excelList = new ExcelListView();
-                _excelList.RefreshRequested += RefreshExcelList;
-                _excelList.NotesRequested += OpenExcelNotes;
-                _excelList.RowClicked += ChooseExcelRow;
-                _excelList.EmptyClicked += ClearExcelChoices;
-                // Excel と Outlook はタブで切り替える（2026-11-26。利用者の判断。MainWindow.Outlook.cs）。Outlook のタブを初めて出したときに読む
-                _officeTabs = new OfficeTabs(_excelList, Outlook.View);
-                _officeTabs.Switched += index => { if (index == 1) Outlook.Refresh(false); };
-                ExcelListHost.Child = _officeTabs;
-            }
+            if (!ComExplorerOpen) return;
+            EnsureOfficeTabs();
             if (_officeTabs.Current == 1) Outlook.Refresh(false);   // Outlook のタブを出していれば（まだ読めていなければ読む）
             if (_excelListing)
             {

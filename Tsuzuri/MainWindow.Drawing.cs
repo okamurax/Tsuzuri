@@ -44,6 +44,13 @@ namespace Tsuzuri
             public DateTime KnownStamp;
             public string KnownJson;
 
+            /// <summary>
+            /// ほかで書き換わったのに図エディタに読み込めなかった .json の更新時刻（無ければ MinValue）。ファイルがこのままの間は、図エディタの図で黙って上書きしない
+            /// （AI に渡すための書き出しはしない。保存・保存せずに閉じるときは尋ねる。2026-11-27 のレビュー。前は「読んだ」ことにして、次の書き出しで古い図を書き戻した）。
+            /// </summary>
+            public DateTime UnreadableStamp = DateTime.MinValue;
+            public string UnreadableReason;
+
             /// <summary>開いてから、AI に渡すために .json を書いた。</summary>
             public bool Wrote;
 
@@ -155,6 +162,18 @@ namespace Tsuzuri
                     "図エディタ", MessageBoxButton.OK, MessageBoxImage.Information);
                 return false;
             }
+            // 読めない書き換えのまま: 上書きしてよいか尋ねる（新しい図で、まだファイルを知らないときは尋ねない。下の WriteDrawing が同じ名前を上書きせずに知らせる）
+            if (DrawingFileUnreadable(session) && !(session.IsNew && session.KnownStamp == DateTime.MinValue))
+            {
+                var stamp = session.UnreadableStamp;
+                if (MessageBox.Show(this,
+                        "この図のファイルは、ほかで（AI など）書き換わっていて、図エディタに読み込めません（" + session.UnreadableReason + "）。" + Environment.NewLine +
+                        "図エディタの図で上書きすると、その書き換えは消えます。上書きして保存しますか？",
+                        "図エディタ", MessageBoxButton.YesNo, MessageBoxImage.Warning, MessageBoxResult.No) != MessageBoxResult.Yes)
+                    return false;
+                // 尋ねている間にまた書き換わっていたら（AI が直したなど）、上書きせずに読み込みからやり直す
+                if (LastWriteOf(session.JsonPath) != stamp) return SaveDrawing(session, result);
+            }
 
             // 新しい図で、まだ自分で書いても読み込んでもいなければ（ファイルを知らない）、同じ名前が先にできていても上書きしない
             if (!WriteDrawing(session.Folder, session.Stem, result, session.IsNew && session.KnownStamp == DateTime.MinValue)) return false;
@@ -218,20 +237,22 @@ namespace Tsuzuri
                 }
 
                 if (!session.Wrote && LastWriteOf(session.JsonPath) == session.OriginalStamp) return false;   // 開いてから誰も書いていない
+                if (DrawingFileUnreadable(session)
+                    && MessageBox.Show(this,
+                        "この図のファイルは、ほかで（AI など）書き換わっていて、図エディタに読み込めません（" + session.UnreadableReason + "）。" + Environment.NewLine +
+                        "保存せずに閉じるので図を開く前に戻しますか？ 戻すと、その書き換えは消えます（「いいえ」なら .json は書き換わったまま残し、画像だけ開く前に戻します）。",
+                        "図エディタ", MessageBoxButton.YesNo, MessageBoxImage.Warning, MessageBoxResult.No) != MessageBoxResult.Yes)
+                {
+                    // 画像は、保存しなかった手直しの図かもしれないので開く前に戻す（本文に捨てた図が出ないように）
+                    RestoreDrawingPng(session);
+                    Status("保存しなかったので画像を開く前に戻しました。図のファイル（.json）は、ほかで書き換わったまま残しました: " + session.Stem);
+                    return true;
+                }
 
                 var temp = session.JsonPath + ".saving";
                 WriteDrawingTemp(temp, session.OriginalJson);
                 ReplaceDrawingFile(temp, session.JsonPath, false);
-                if (session.PngExisted)
-                {
-                    temp = session.PngPath + ".saving";
-                    WriteDrawingTemp(temp, session.OriginalPng);
-                    ReplaceDrawingFile(temp, session.PngPath, false);
-                }
-                else if (File.Exists(session.PngPath))
-                {
-                    File.Delete(session.PngPath);
-                }
+                RestoreDrawingPng(session);
                 Status("保存しなかったので、図を開く前に戻しました（AI が書き換えた分も）: " + session.Stem);
                 return true;
             }
@@ -256,6 +277,7 @@ namespace Tsuzuri
 
             var stamp = LastWriteOf(session.JsonPath);
             if (stamp == session.KnownStamp || stamp == DateTime.MinValue) return false;   // 変わっていない・まだ無い（消えたなら、保存で書き直す）
+            if (stamp == session.UnreadableStamp) return false;   // 読めないと分かっている書き換えのまま（知らせ直さない）
 
             string json;
             try
@@ -267,20 +289,48 @@ namespace Tsuzuri
                 return false;   // 書いている最中など。次のきっかけで見る
             }
 
-            session.KnownStamp = stamp;
-            if (json == session.KnownJson) return false;
-            session.KnownJson = json;
+            if (json == session.KnownJson)
+            {
+                session.KnownStamp = stamp;
+                return false;
+            }
 
             string error;
             if (!session.View.Reload(json, out error))
             {
-                Status("図のファイルがほかで書き換わりましたが、図エディタに読み込めませんでした（図エディタの図はそのまま）: " + error);
+                // 「読んだ」ことにしない（KnownStamp・KnownJson を変えない）。このままの間は、図エディタの図で上書きしない
+                session.UnreadableStamp = stamp;
+                session.UnreadableReason = error;
+                Status("図のファイルがほかで書き換わりましたが、図エディタに読み込めませんでした（図エディタの図はそのまま。ファイルは上書きしません）: " + error);
                 return false;
             }
+            session.KnownStamp = stamp;
+            session.UnreadableStamp = DateTime.MinValue;
 
             session.KnownJson = session.View.CurrentJson();   // 図エディタの書き方にそろえる（同じ図を次の頼みで書き直さない。ファイルと比べるのは更新時刻で）
             Status("図のファイルがほかで（AI など）書き換わったので、図エディタに読み込みました。Ctrl+Z で読み込む前に戻せます: " + session.Stem);
             return true;
+        }
+
+        /// <summary>画像（.png）を開く前に戻す（無かったなら消す）。</summary>
+        private void RestoreDrawingPng(DrawingSession session)
+        {
+            if (session.PngExisted)
+            {
+                var temp = session.PngPath + ".saving";
+                WriteDrawingTemp(temp, session.OriginalPng);
+                ReplaceDrawingFile(temp, session.PngPath, false);
+            }
+            else if (File.Exists(session.PngPath))
+            {
+                File.Delete(session.PngPath);
+            }
+        }
+
+        /// <summary>図のファイルが、読み込めなかった書き換えのままか。</summary>
+        private static bool DrawingFileUnreadable(DrawingSession session)
+        {
+            return session.UnreadableStamp != DateTime.MinValue && LastWriteOf(session.JsonPath) == session.UnreadableStamp;
         }
 
         /// <summary>
@@ -295,6 +345,8 @@ namespace Tsuzuri
             session.FileIsCurrent = false;
             if (AiGuard.IsGuarded(session.JsonPath)) return null;   // AI に渡さない場所の図。Claude は読まないので書かない（知らせに場所も載せない）
             ReloadDrawingIfChanged();
+            if (DrawingFileUnreadable(session))
+                return "図のファイルはほかで書き換わっていて、図エディタに読み込めなかった（" + session.UnreadableReason + "）。図エディタに見えている図はファイルと違い、ファイルには書き戻していない（ファイルは書き換わったまま）。図を直す前に利用者に確かめる。";
             var json = session.View.CurrentJson();
             if (json == session.KnownJson && File.Exists(session.JsonPath))   // ファイルと同じ
             {
@@ -361,7 +413,9 @@ namespace Tsuzuri
             }
 
             text.Append("  図のファイル: ").Append(session.JsonPath).Append("（画像は同じ名前の .png。Tsuzuri が作る）\n");
-            if (session.FileIsCurrent)
+            if (DrawingFileUnreadable(session))
+                text.Append("  今回はこのファイルに図エディタの今の図を書けていない（このファイルはほかで書き換わっていて、図エディタに読み込めなかった（").Append(session.UnreadableReason).Append("）ので、書き戻していない）。ファイルのほうが新しく、図エディタに見えている図とは違う。直す前に利用者に確かめる\n");
+            else if (session.FileIsCurrent)
                 text.Append("  このファイルには、図エディタの今の図（利用者がまだ保存していない手直しも）が書いてある。直すときは、このファイルを読んでから書き換える\n");
             else if (File.Exists(session.JsonPath))
                 text.Append("  今回はこのファイルに図エディタの今の図を書けていない。ファイルの図は、図エディタに見えている図より古いかもしれない。直す前に利用者に確かめる\n");

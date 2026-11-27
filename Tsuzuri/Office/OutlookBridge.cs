@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Globalization;
+using System.IO;
 using System.Linq;
 using System.Net;
 using System.Reflection;
@@ -508,7 +509,11 @@ namespace Tsuzuri.Office
                     var sender = Line(Text(scope.Get(mail, "SenderName")));
                     var body = Text(scope.Get(mail, "Body"));
                     if (body.Length == 0 && ToInt(scope.Get(mail, "DownloadState")) == 0) body = "（本文をまだ受け取っていない。Outlook でこのメールを開くと受け取る）";
-                    return (sender.Length > 0 ? "差出人: " + sender + "\n\n" : string.Empty) + body;
+                    // 添付は名前と大きさだけ（利用者が見るため。2026-11-27。利用者の判断。画面からは開かない・保存しない）
+                    var attached = AttachmentList(scope, mail);
+                    var head = (sender.Length > 0 ? "差出人: " + sender + "\n" : string.Empty)
+                               + (attached.Count > 0 ? "添付: " + string.Join("、", attached.Select(item => item.Name + "（" + SizeText(item.Size) + "）")) + "\n" : string.Empty);
+                    return (head.Length > 0 ? head + "\n" : string.Empty) + body;
                 }
                 catch (Exception ex)
                 {
@@ -597,36 +602,267 @@ namespace Tsuzuri.Office
             return address;
         }
 
-        private static string Attachments(Scope scope, object mail)
+        /// <summary>添付の番号（1から）・名前・大きさ（バイト。読めなければ -1）・保存できないわけ（保存できれば null）。</summary>
+        public sealed class AttachmentInfo
+        {
+            public int Index;
+            public string Name;
+            public long Size;
+            public string Unsaveable;
+        }
+
+        /// <summary>メールの添付を並べる（名前と大きさだけ。中身は読まない）。</summary>
+        private static List<AttachmentInfo> AttachmentList(Scope scope, object mail)
+        {
+            int count;
+            return AttachmentList(scope, mail, out count);
+        }
+
+        /// <summary>count に本当の数（並べるのは MaxAttachments まで）。</summary>
+        private static List<AttachmentInfo> AttachmentList(Scope scope, object mail, out int count)
         {
             var attachments = scope.Get(mail, "Attachments");
-            var count = ToInt(scope.Get(attachments, "Count"));
-            if (count == 0) return "なし";
-            var names = new List<string>();
-            for (var i = 1; i <= count; i++)
+            count = ToInt(scope.Get(attachments, "Count"));
+            var list = new List<AttachmentInfo>();
+            for (var i = 1; i <= count && i <= MaxAttachments; i++)
             {
                 using (var item = new Scope())   // 添付は1つごとに手放す
                 try
                 {
                     var attachment = item.Pick(attachments, "Item", i);
-                    string name;
+                    long size = -1;
                     try
                     {
-                        name = Text(item.Get(attachment, "FileName"));
+                        size = Convert.ToInt64(item.Get(attachment, "Size"), CultureInfo.InvariantCulture);
                     }
                     catch (Exception ex) when (!IsBusy(ex) && !IsGone(ex))
                     {
-                        name = string.Empty;   // 埋め込みのメール・OLE などは FileName が無いことがある
                     }
-                    if (name.Length == 0) name = Text(item.Get(attachment, "DisplayName"));
-                    names.Add(Line(name));
+                    var type = 0;
+                    try
+                    {
+                        type = ToInt(item.Get(attachment, "Type"));
+                    }
+                    catch (Exception ex) when (!IsBusy(ex) && !IsGone(ex))
+                    {
+                    }
+                    var name = AttachmentName(item, attachment);
+                    if (type == 5 && !name.EndsWith(".msg", StringComparison.OrdinalIgnoreCase)) name += ".msg";
+                    list.Add(new AttachmentInfo
+                    {
+                        Index = i,
+                        Name = Line(name),
+                        Size = size,
+                        Unsaveable = type == 4 ? "リンクだけで中身が無い" : IsRunnable(name) || IsRunnable(SafeFileName(name, "x")) ? "動かせる形のファイル" : size > MaxAttachmentSize ? "大きすぎる（" + SizeText(MaxAttachmentSize) + " まで）" : null,
+                    });
                 }
                 catch (Exception ex) when (!IsBusy(ex) && !IsGone(ex))
                 {
-                    names.Add("（名前を読めない添付）");
+                    list.Add(new AttachmentInfo { Index = i, Name = "（名前を読めない添付）", Size = -1 });
                 }
             }
-            return count + " 個（" + string.Join("、", names) + "。中身は読めない）";
+            return list;
+        }
+
+        /// <summary>添付の名前（FileName。埋め込みのメール・OLE などで無ければ DisplayName）。</summary>
+        private static string AttachmentName(Scope scope, object attachment)
+        {
+            string name;
+            try
+            {
+                name = Text(scope.Get(attachment, "FileName"));
+            }
+            catch (Exception ex) when (!IsBusy(ex) && !IsGone(ex))
+            {
+                name = string.Empty;
+            }
+            return name.Length > 0 ? name : Text(scope.Get(attachment, "DisplayName"));
+        }
+
+        /// <summary>並べる添付の数の上限。</summary>
+        private const int MaxAttachments = 100;
+
+        /// <summary>大きさを「12 KB」の形に。</summary>
+        public static string SizeText(long size)
+        {
+            if (size < 0) return "大きさ不明";
+            if (size < 1024) return size + " バイト";
+            if (size < 1024 * 1024) return (size / 1024) + " KB";
+            return (size / (1024.0 * 1024)).ToString("0.0", CultureInfo.InvariantCulture) + " MB";
+        }
+
+        /// <summary>-Read の「添付」の行の中身。</summary>
+        private static string Attachments(Scope scope, object mail)
+        {
+            int count;
+            var list = AttachmentList(scope, mail, out count);
+            if (count == 0) return "なし";
+            var parts = list.Select(item => item.Index + ". " + item.Name + "（" + SizeText(item.Size) + (item.Unsaveable != null ? "。保存できない: " + item.Unsaveable : string.Empty) + "）");
+            return count + " 個（" + string.Join("、", parts) + (count > list.Count ? "、ほか " + (count - list.Count) + " 個は並べていない" : string.Empty)
+                   + "。保存できるものは、-Attachment で番号を付けて保存すると中身を読める）";
+        }
+
+        // ---------------------------------------------------------------
+        // 添付を保存する（2026-11-27。利用者の考え。AI が中身を読むため。開かない・動かさない）
+        // ---------------------------------------------------------------
+
+        /// <summary>保存する添付の大きさの上限。</summary>
+        public const long MaxAttachmentSize = 100L * 1024 * 1024;
+
+        /// <summary>動かせる形のファイルの拡張子（保存しない。ZIP の中のものも出さない）。</summary>
+        private static readonly HashSet<string> Runnable = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            ".exe", ".com", ".scr", ".pif", ".bat", ".cmd", ".ps1", ".psm1", ".psd1", ".vbs", ".vbe", ".js", ".jse", ".wsf", ".wsh", ".hta",
+            ".msi", ".msp", ".msc", ".lnk", ".url", ".scf", ".cpl", ".dll", ".sys", ".drv", ".ocx", ".reg", ".inf", ".jar", ".application",
+            ".appref-ms", ".gadget", ".chm", ".iso", ".img", ".vhd", ".vhdx", ".library-ms", ".settingcontent-ms", ".appx", ".msix",
+            ".xll", ".xla", ".xlam", ".ppa", ".ppam", ".wll", ".wsc", ".sct", ".vb", ".ws", ".ps1xml", ".ps2", ".ps2xml", ".psc1", ".psc2",
+            ".mst", ".shb", ".shs", ".website", ".search-ms", ".searchconnector-ms", ".diagcab", ".msu", ".appinstaller", ".msixbundle", ".appxbundle",
+            ".mde", ".accde", ".ade", ".adp", ".mda", ".py", ".pyw", ".pyc", ".pyz", ".rb", ".pl", ".sh", ".bash", ".command", ".apk", ".deb", ".rpm",
+            ".htm", ".html", ".mht", ".mhtml", ".svg", ".xht", ".xhtml", ".hlp", ".ins", ".isp", ".job", ".mmc", ".pcd", ".prf", ".theme", ".themepack",
+        };
+
+        /// <summary>動かせる形のファイルか（名前の拡張子で見る）。</summary>
+        public static bool IsRunnable(string name)
+        {
+            string extension;
+            try
+            {
+                extension = Path.GetExtension(TrimEnds(name));   // Windows が名前の末尾の点・空白を落とすので、落としたあとの形で見る
+            }
+            catch (ArgumentException)
+            {
+                return true;   // 名前に使えない字がある: 見分けられないので出さない側
+            }
+            return Runnable.Contains(extension ?? string.Empty);
+        }
+
+        /// <summary>頭の空白と、末尾の点・空白（Unicode の空白も）を、変わらなくなるまで落とす（Windows が末尾の点・空白を落として保存するのに合わせる）。</summary>
+        private static string TrimEnds(string name)
+        {
+            var text = (name ?? string.Empty).TrimStart();
+            var end = text.Length;
+            while (end > 0 && (text[end - 1] == '.' || char.IsWhiteSpace(text[end - 1]))) end--;
+            return text.Substring(0, end);
+        }
+
+        /// <summary>ファイルの名前に使えない字を「_」にする（空なら fallback）。</summary>
+        public static string SafeFileName(string name, string fallback)
+        {
+            var invalid = Path.GetInvalidFileNameChars();
+            var chars = (name ?? string.Empty).Select(c => Array.IndexOf(invalid, c) >= 0 || char.IsControl(c) ? '_' : c).ToArray();
+            var safe = TrimEnds(new string(chars));
+            if (safe.Length == 0 || safe.All(c => c == '.' || c == '_')) safe = fallback;
+            // Windows の予約名（CON・NUL・COM1 など。拡張子が付いていても装置を指す）は頭に「_」を付ける
+            var stem = safe.Split('.')[0].Trim().ToUpperInvariant();
+            if (stem == "CON" || stem == "PRN" || stem == "AUX" || stem == "NUL" || stem == "CONIN$" || stem == "CONOUT$"
+                || (stem.Length == 4 && (stem.StartsWith("COM", StringComparison.Ordinal) || stem.StartsWith("LPT", StringComparison.Ordinal)) && (char.IsDigit(stem[3]) || "¹²³".IndexOf(stem[3]) >= 0)))
+                safe = "_" + safe;
+            if (safe.Length > 120)
+            {
+                var extension = Path.GetExtension(safe);
+                if (extension.Length > 20) extension = string.Empty;
+                safe = safe.Substring(0, 120 - extension.Length) + extension;
+            }
+            return safe;
+        }
+
+        /// <summary>
+        /// ファイルに「インターネットから来た」印（Zone.Identifier。ZoneId=3）を付ける（利用者が保存した所から開いても、Office の保護ビュー・マクロのブロックが効くように。2026-11-27 のレビュー）。
+        /// 付けられなくても（ADS の無いドライブなど）止めない。
+        /// </summary>
+        public static void MarkFromInternet(string path)
+        {
+            // .NET Framework はドライブ名のあと以外の「:」を断ることがあるので、\\?\ を付けた形でも試す
+            foreach (var target in new[] { @"\\?\" + Path.GetFullPath(path) + ":Zone.Identifier", path + ":Zone.Identifier" })
+            {
+                try
+                {
+                    File.WriteAllText(target, "[ZoneTransfer]\r\nZoneId=3\r\n", Encoding.ASCII);
+                    return;
+                }
+                catch (Exception)
+                {
+                }
+            }
+        }
+
+        /// <summary>
+        /// メールの index 番目（1から）の添付を folder に保存し、保存したファイルのパスを返す。できなければ null（problem にわけ）。
+        /// 動かせる形のファイル・大きすぎるもの・保存できない種類（リンクだけの添付など）は保存しない。
+        /// </summary>
+        public static string SaveAttachment(string folderPath, string entryId, int index, string folder, int timeout, out string problem)
+        {
+            string path = null;
+            string why = null;
+            var outcome = RunSta(() => path = SaveAttachmentCore(folderPath, entryId, index, folder, out why), timeout);   // 台本は 90 秒であきらめるので、ZIP の展開の分を残して短めに
+            problem = outcome == Outcome.Done ? why ?? Unknown : outcome == Outcome.Previous ? StillBusy : NotAnsweringGuard;
+            return outcome == Outcome.Done ? path : null;
+        }
+
+        private static string SaveAttachmentCore(string folderPath, string entryId, int index, string folder, out string problem)
+        {
+            problem = null;
+            using (var scope = new Scope())
+            {
+                var session = Session(scope, out problem);
+                if (session == null) return null;
+                try
+                {
+                    var mail = FindMail(scope, session, folderPath, entryId, out problem);
+                    if (mail == null) return null;
+                    var attachments = scope.Get(mail, "Attachments");
+                    var count = ToInt(scope.Get(attachments, "Count"));
+                    if (index < 1 || index > count)
+                    {
+                        problem = count == 0 ? "このメールに添付は無い。何もしていない" : "添付の番号は 1〜" + count + "（-Read の「添付」の行の番号）。何もしていない";
+                        return null;
+                    }
+                    var attachment = scope.Pick(attachments, "Item", index);
+                    var type = ToInt(scope.Get(attachment, "Type"));   // 1 = ファイル、4 = リンクだけ、5 = 埋め込みのメール、6 = OLE
+                    if (type == 4)
+                    {
+                        problem = "この添付はファイルの場所へのリンクだけで、中身が無い。何もしていない";
+                        return null;
+                    }
+                    var name = AttachmentName(scope, attachment);
+                    if (type == 5 && !name.EndsWith(".msg", StringComparison.OrdinalIgnoreCase)) name += ".msg";
+                    var fileName = SafeFileName(name, "attachment-" + index);
+                    if (IsRunnable(name) || IsRunnable(fileName))   // 名前を直したあとの形でも見る（末尾の全角の空白を落とすと .exe になる、など）
+                    {
+                        problem = "「" + Line(name) + "」は動かせる形のファイル（プログラム・スクリプト・ショートカットなど）なので保存しない。何もしていない";
+                        return null;
+                    }
+                    long size = -1;
+                    try
+                    {
+                        size = Convert.ToInt64(scope.Get(attachment, "Size"), CultureInfo.InvariantCulture);
+                    }
+                    catch (Exception ex) when (!IsBusy(ex) && !IsGone(ex) && !IsDenied(ex))
+                    {
+                    }
+                    if (size > MaxAttachmentSize)
+                    {
+                        problem = "添付が大きすぎる（" + SizeText(size) + "。" + SizeText(MaxAttachmentSize) + " まで）。何もしていない";
+                        return null;
+                    }
+                    Directory.CreateDirectory(folder);
+                    var path = Path.Combine(folder, fileName);
+                    if (IsRunnable(Path.GetFileName(Path.GetFullPath(path))))
+                    {
+                        problem = "「" + Line(name) + "」は動かせる形のファイルなので保存しない。何もしていない";
+                        return null;
+                    }
+                    Check();   // 呼んだ側が待つのをやめていれば保存しない
+                    scope.Call(attachment, "SaveAsFile", path);
+                    MarkFromInternet(path);
+                    return path;
+                }
+                catch (Exception ex)
+                {
+                    problem = Failure(ex);
+                    return null;
+                }
+            }
         }
 
         // ---------------------------------------------------------------

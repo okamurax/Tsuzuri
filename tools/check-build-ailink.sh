@@ -80,6 +80,7 @@ cat > "$work/main/Main.csproj" <<'XML'
     <Reference Include="System.Web.Extensions" />
     <Reference Include="System.Drawing" />
     <Reference Include="System.Windows.Forms" />
+    <Reference Include="System.IO.Compression" />
     <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.4258.31" />
   </ItemGroup>
 </Project>

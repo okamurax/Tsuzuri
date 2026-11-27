@@ -90,6 +90,7 @@ cat > "$work/main/Main.csproj" <<'EOF'
     <Reference Include="System.Security" />
     <Reference Include="System.Drawing" />
     <Reference Include="System.Windows.Forms" />
+    <Reference Include="System.IO.Compression" />
     <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.4258.31" />
     <ProjectReference Include="../te/TableEditor.csproj" />
     <ProjectReference Include="../de/DrawingEditor.csproj" />

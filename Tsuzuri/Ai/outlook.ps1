@@ -10,7 +10,11 @@
 #       lists the mail in the folder (newest first): received time, sender, subject, ID. The app writes the list to a file and this prints its path.
 #       -Folder is the folder path as the Outlook list shows it (\\mailbox\Inbox\sub). -Limit: up to 200 (50 when left out).
 #   powershell -NoProfile -ExecutionPolicy Bypass -File outlook.ps1 -Read -Folder "<folder path>" -Id "<ID from the list>"
-#       one mail: headers, attachment names and the text of the body. The app writes it to a file and this prints its path.
+#       one mail: headers, the numbered attachment names and the text of the body. The app writes it to a file and this prints its path.
+#   powershell -NoProfile -ExecutionPolicy Bypass -File outlook.ps1 -Attachment -Folder "<folder path>" -Id "<ID>" -Index <number from -Read>
+#       saves that attachment under the AI folder of the app (removed after half a day) so the AI can read it; a ZIP is also unpacked there
+#       (no names outside the folder, size and count limits, no password ZIPs). Runnable files (programs, scripts, shortcuts) are not saved.
+#       The app writes where it saved what to a file and this prints its path. Nothing here opens or runs a file.
 #   powershell -NoProfile -ExecutionPolicy Bypass -File outlook.ps1 -Draft
 #       saves a new draft from outlook-draft-<name>.txt in the work folder (UTF-8; removed once sent, kept when nothing was sent):
 #       lines "To: ...", "Cc: ..." and "Subject: ..." first, an empty line, then the body.
@@ -28,6 +32,8 @@ param(
     [switch]$Search,
     [switch]$Read,
     [switch]$Draft,
+    [switch]$Attachment,
+    [int]$Index = 0,
     [string]$Folder = '',
     [string]$Id = '',
     [string]$From = '',
@@ -50,22 +56,27 @@ function Fail([string]$message) { [Console]::Error.WriteLine($message); exit 1 }
 function B64([string]$text) { return [Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes($text)) }
 
 # check the arguments before touching any file: a wrong call fails here and sends nothing
-$modes = @($Folders, $Search, $Read, $Draft) | Where-Object { $_ }
-if (@($modes).Count -ne 1) { Fail 'give exactly one of -Folders, -Search, -Read and -Draft. Nothing was sent' }
+$modes = @($Folders, $Search, $Read, $Draft, $Attachment) | Where-Object { $_ }
+if (@($modes).Count -ne 1) { Fail 'give exactly one of -Folders, -Search, -Read, -Attachment and -Draft. Nothing was sent' }
 $given = $PSBoundParameters
 $searchOnly = 'From', 'Subject', 'Text', 'Since', 'Until', 'Subfolders', 'Limit'
 if (-not $Search) {
     foreach ($name in $searchOnly) { if ($given.ContainsKey($name)) { Fail ('-' + $name + ' is only for -Search. Nothing was sent') } }
 }
 if ($Folders -and $given.ContainsKey('Folder')) { Fail '-Folders lists every folder and takes no -Folder. Nothing was sent' }
-if (-not $Read -and $given.ContainsKey('Id')) { Fail '-Id is only for -Read (a reply draft takes -ReplyTo). Nothing was sent' }
+if (-not ($Read -or $Attachment) -and $given.ContainsKey('Id')) { Fail '-Id is only for -Read and -Attachment (a reply draft takes -ReplyTo). Nothing was sent' }
+if (-not $Attachment -and $given.ContainsKey('Index')) { Fail '-Index is only for -Attachment. Nothing was sent' }
 if (-not $Draft) {
     foreach ($name in 'ReplyTo', 'All') { if ($given.ContainsKey($name)) { Fail ('-' + $name + ' is only for -Draft. Nothing was sent') } }
 }
-if ($Search -or $Read) {
+if ($Search -or $Read -or $Attachment) {
     if (-not $Folder) { Fail ('-Folder is needed (the folder path as the Outlook list shows it). Nothing was sent') }
 }
 if ($Read -and -not $Id) { Fail '-Read needs -Id (from a -Search list). Nothing was sent' }
+if ($Attachment) {
+    if (-not $Id) { Fail '-Attachment needs -Id (the ID of the mail). Nothing was sent' }
+    if ($Index -lt 1) { Fail '-Attachment needs -Index (the number of the attachment in the -Read output, from 1). Nothing was sent' }
+}
 if ($Draft) {
     if ($All -and -not $ReplyTo) { Fail '-All is only for a reply draft (-ReplyTo). Nothing was sent' }
     if ($ReplyTo -and -not $Folder) { Fail '-ReplyTo needs -Folder (the folder of that mail). Nothing was sent' }
@@ -156,6 +167,8 @@ try {
                    $tab + (B64 $(if ($Subfolders) { '1' } else { '0' })) + $tab + (B64 ([string]$Limit)) + $tab + 'end'
     } elseif ($Read) {
         $request = 'outlook-read' + $tab + (B64 $Folder) + $tab + (B64 $Id) + $tab + 'end'
+    } elseif ($Attachment) {
+        $request = 'outlook-attachment' + $tab + (B64 $Folder) + $tab + (B64 $Id) + $tab + (B64 ([string]$Index)) + $tab + 'end'
     } else {
         $request = 'outlook-draft' + $tab + (B64 $ReplyTo) + $tab + (B64 $Folder) + $tab + (B64 $(if ($All) { '1' } else { '0' })) + $tab + (B64 $content) + $tab + 'end'
     }

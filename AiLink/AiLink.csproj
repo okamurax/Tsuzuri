@@ -44,6 +44,7 @@
     <Reference Include="System.Drawing" />
     <Reference Include="System.Windows.Forms" />
     <Reference Include="System.Xml" />
+    <Reference Include="System.IO.Compression" />
     <Reference Include="Microsoft.VisualBasic" />
     <Reference Include="System.Xaml">
       <RequiredTargetFramework>4.0</RequiredTargetFramework>
@@ -130,6 +131,7 @@
     <Compile Include="..\Tsuzuri\Office\ExcelInstructions.cs"><Link>Office\ExcelInstructions.cs</Link></Compile>
     <!-- Outlook（classic）も Tsuzuri と同じファイル（2026-11-26） -->
     <Compile Include="..\Tsuzuri\Office\OutlookBridge.cs"><Link>Office\OutlookBridge.cs</Link></Compile>
+    <Compile Include="..\Tsuzuri\Office\ZipUnpacker.cs"><Link>Office\ZipUnpacker.cs</Link></Compile>
     <Compile Include="..\Tsuzuri\Office\OutlookInstructions.cs"><Link>Office\OutlookInstructions.cs</Link></Compile>
     <Compile Include="..\Tsuzuri\Office\OutlookLink.cs"><Link>Office\OutlookLink.cs</Link></Compile>
     <Compile Include="..\Tsuzuri\Views\OutlookListView.cs"><Link>Views\OutlookListView.cs</Link></Compile>

@@ -69,7 +69,8 @@ AI は Outlook に直接触りません。AI が台本 `outlook.ps1` を動か�
 |---|---|
 | `outlook.ps1 -Folders` | 全部のメールボックスのメールのフォルダのパス（メールは含まない） |
 | `outlook.ps1 -Search -Folder … [-From …] [-Subject …] [-Text …] [-Since 2026-11-01] [-Until …] [-Subfolders] [-Limit 50]` | 新しい順に、受け取った日時・差出人・件名・添付の有無・ID の一覧 |
-| `outlook.ps1 -Read -Folder … -Id …` | 1通の差出人・宛先・日時・添付ファイルの名前・本文（文字だけ） |
+| `outlook.ps1 -Read -Folder … -Id …` | 1通の差出人・宛先・日時・添付ファイルの番号と名前・本文（文字だけ） |
+| `outlook.ps1 -Attachment -Folder … -Id … -Index 1` | 添付を1つ、AI のフォルダ（`%LOCALAPPDATA%\AiLink\ai\outlook-attachments`。半日で消える）に保存する。ZIP は展開する（展開先の外へ書く名前・大きすぎるもの・パスワード付きは展開しない）。プログラム・スクリプトなど動かせる形のファイルは保存しない。開く・動かすことはしない |
 | `outlook.ps1 -Draft [-ReplyTo … -Folder … [-All]]` | AI が先に作った `outlook-draft-tab<n>.txt` から、新しいメールか返信の下書きを保存する（送らない） |
 
 - 開いている Outlook にだけつなぎ、起動はしません。宛先・差出人・本文を読むと、Outlook が「プログラムがメール アドレス情報にアクセスしようとしています」と尋ねることがあります（ウイルス対策が有効だと Outlook が認めていれば、たいてい出ません）。出たら、許可するかは利用者が決めます

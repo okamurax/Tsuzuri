@@ -326,6 +326,32 @@
             </Setter>
         </Style>
 
+        <!-- 仕切りの見た目の Thumb（2026-11-27。GridSplitter と同じ見た目。両隣の列を変えずに、コードで1つの列の幅だけを変えるとき。AI の欄の仕切り） -->
+        <Style x:Key="SplitterThumb" TargetType="Thumb">
+            <Setter Property="Cursor" Value="SizeWE" />
+            <Setter Property="Focusable" Value="False" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Thumb">
+                        <Border Background="Transparent">
+                            <Rectangle x:Name="Line" Width="1" HorizontalAlignment="Center"
+                                       Fill="{StaticResource BorderBrushSoft}" />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Line" Property="Fill" Value="{StaticResource AccentBrush}" />
+                                <Setter TargetName="Line" Property="Width" Value="2" />
+                            </Trigger>
+                            <Trigger Property="IsDragging" Value="True">
+                                <Setter TargetName="Line" Property="Fill" Value="{StaticResource AccentBrush}" />
+                                <Setter TargetName="Line" Property="Width" Value="2" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
         <Style x:Key="RowSplitter" TargetType="GridSplitter" BasedOn="{StaticResource {x:Type GridSplitter}}">
             <Setter Property="Template">
                 <Setter.Value>

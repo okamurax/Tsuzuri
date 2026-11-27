@@ -945,6 +945,18 @@ namespace Tsuzuri
             StoreAiWidth();
         }
 
+        /// <summary>
+        /// 仕切りを動かした: AI の欄の幅だけを変える（左へ動かすと広がる）。本文の列（*）が残りを取るので、COM のエクスプローラの幅は変わらない（2026-11-27。
+        /// 前の GridSplitter は両隣の列を変えるので、COM のエクスプローラを閉じていても、その 0 幅の列が広がった）。AI の欄は 200 まで、本文は 280 まで狭められる。
+        /// </summary>
+        private void AiSplitter_DragDelta(object sender, System.Windows.Controls.Primitives.DragDeltaEventArgs e)
+        {
+            var current = AiColumn.ActualWidth;
+            var room = Math.Max(0, EditorColumn.ActualWidth - EditorColumn.MinWidth);
+            var width = Math.Max(200, Math.Min(current + room, current - e.HorizontalChange));
+            AiColumn.Width = new GridLength(Math.Floor(width));
+        }
+
         /// <summary>仕切りをダブルクリックしたら、エディタと AI の欄を同じ幅にする（2026-11-11）。</summary>
         private void AiSplitter_MouseDoubleClick(object sender, MouseButtonEventArgs e)
         {

@@ -45,9 +45,11 @@ types = {"TextBlock": "System.Windows.Controls.TextBlock", "Grid": "System.Windo
          "ItemsControl": "System.Windows.Controls.ItemsControl", "TreeView": "System.Windows.Controls.TreeView",
          "ScrollViewer": "System.Windows.Controls.ScrollViewer", "StackPanel": "System.Windows.Controls.StackPanel", "WrapPanel": "System.Windows.Controls.WrapPanel",
          "DockPanel": "System.Windows.Controls.DockPanel", "GridSplitter": "System.Windows.Controls.GridSplitter",
-         "RowDefinition": "System.Windows.Controls.RowDefinition", "Path": "System.Windows.Shapes.Path"}
+         "RowDefinition": "System.Windows.Controls.RowDefinition", "Path": "System.Windows.Shapes.Path",
+         "Thumb": "System.Windows.Controls.Primitives.Thumb"}
 handlers = {"Click": "System.Windows.RoutedEventHandler",
             "DragCompleted": "System.Windows.Controls.Primitives.DragCompletedEventHandler",
+            "DragDelta": "System.Windows.Controls.Primitives.DragDeltaEventHandler",
             "MouseLeftButtonDown": "System.Windows.Input.MouseButtonEventHandler",
             "PreviewMouseLeftButtonDown": "System.Windows.Input.MouseButtonEventHandler",
             "SizeChanged": "System.Windows.SizeChangedEventHandler",

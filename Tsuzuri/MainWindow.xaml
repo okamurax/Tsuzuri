@@ -271,9 +271,9 @@
             <Border x:Name="ComHost" Grid.Column="4" Visibility="Collapsed"
                     Background="{StaticResource SidebarBackground}" />
 
-            <GridSplitter x:Name="AiSplitter" Grid.Column="5" Width="4" Visibility="Collapsed"
-                          HorizontalAlignment="Stretch" VerticalAlignment="Stretch"
-                          DragCompleted="AiSplitter_DragCompleted" MouseDoubleClick="AiSplitter_MouseDoubleClick" />
+            <!-- AI の欄の仕切り（2026-11-27）。GridSplitter だと両隣の列（COM のエクスプローラの列）を変えてしまうので、Thumb で AI の欄の幅だけを変える（本文の列が残りを取る） -->
+            <Thumb x:Name="AiSplitter" Grid.Column="5" Width="4" Visibility="Collapsed" Style="{StaticResource SplitterThumb}"
+                   DragDelta="AiSplitter_DragDelta" DragCompleted="AiSplitter_DragCompleted" MouseDoubleClick="AiSplitter_MouseDoubleClick" />
 
             <Border x:Name="AiPane" Grid.Column="6" Visibility="Collapsed" Background="{StaticResource PageBackground}">
                 <DockPanel>

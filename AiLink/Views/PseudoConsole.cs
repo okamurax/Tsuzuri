@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Concurrent;
 using System.ComponentModel;
 using System.IO;
 using System.Runtime.InteropServices;
@@ -20,6 +21,12 @@ namespace AiLink.Views
         private IntPtr _console;
         private SafeFileHandle _input;
         private FileStream _inputStream;
+
+        /// <summary>
+        /// 端末へ送る字の列（2026-11-27 のレビュー）。書くのは専用のスレッド（Send）。前は画面のスレッドでパイプへ直に書いていて、
+        /// 中のプログラムが入力を読まない間に大きく貼り付けると、書き終わるまで画面ごと止まった（タブの切り替え・閉じるも）。
+        /// </summary>
+        private readonly BlockingCollection<byte[]> _pending = new BlockingCollection<byte[]>();
         private IntPtr _processHandle;
         private IntPtr _threadHandle;
         private volatile bool _exited;
@@ -131,24 +138,46 @@ namespace AiLink.Views
 
             var waiter = new Thread(Wait) { IsBackground = true };
             waiter.Start();
+
+            var stream = _inputStream;
+            var sender = new Thread(() => Send(stream)) { IsBackground = true };
+            sender.Start();
         }
 
-        /// <summary>打った文字を渡す。終わっていれば何もしない。</summary>
+        /// <summary>打った文字を渡す（列に入れるだけで、すぐ戻る。送る順は保つ）。終わっていれば何もしない。</summary>
         public void Write(string text)
         {
-            if (_exited || _inputStream == null) return;
+            if (_exited || _inputStream == null || string.IsNullOrEmpty(text)) return;
 
             try
             {
-                var bytes = Encoding.UTF8.GetBytes(text);
-                _inputStream.Write(bytes, 0, bytes.Length);
-                _inputStream.Flush();
+                _pending.Add(Encoding.UTF8.GetBytes(text));
+            }
+            catch (InvalidOperationException)
+            {
+                // 閉じたあと。
+            }
+        }
+
+        /// <summary>列の字を、入った順にパイプへ書く（専用のスレッド）。書けなくなったら（終わった・閉じた）やめる。</summary>
+        private void Send(FileStream stream)
+        {
+            try
+            {
+                foreach (var bytes in _pending.GetConsumingEnumerable())
+                {
+                    stream.Write(bytes, 0, bytes.Length);
+                    stream.Flush();
+                }
             }
             catch (IOException)
             {
                 // 終わる間際。
             }
             catch (ObjectDisposedException)
+            {
+            }
+            catch (InvalidOperationException)
             {
             }
         }
@@ -180,17 +209,22 @@ namespace AiLink.Views
             var job = Interlocked.Exchange(ref _job, IntPtr.Zero);
             if (job != IntPtr.Zero) CloseHandle(job);
 
-            if (_inputStream != null)
+            _pending.CompleteAdding();   // 送るスレッドは、残りを送るか書けなくなったら終わる
+            var input = _inputStream;
+            _inputStream = null;
+            if (input != null)
             {
-                try
+                // 閉じるのも裏で（送るスレッドがパイプへの書き込みで待っていると、画面のスレッドで閉じて待たされうる）
+                ThreadPool.QueueUserWorkItem(delegate
                 {
-                    _inputStream.Dispose();
-                }
-                catch (Exception)
-                {
-                }
-
-                _inputStream = null;
+                    try
+                    {
+                        input.Dispose();
+                    }
+                    catch (Exception)
+                    {
+                    }
+                });
             }
 
             // 仮想端末を閉じるのは裏のスレッドでする（2026-10-27）。古い Windows では、ClosePseudoConsole は

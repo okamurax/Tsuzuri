@@ -1347,7 +1347,8 @@ namespace Tsuzuri.Markdown
 
         /// <summary>
         /// 書き終えた一時ファイル temp で path を置き換える（どちらもある）。
-        /// \\Mac\ 共有は置き換え（File.Replace）に対応していないので、元を「名前.old」へ名前替えしてから一時ファイルを本来の名前にし、.old を消す（2026-11-20）。
+        /// \\Mac\ 共有は置き換え（File.Replace）に対応していないので、元を「名前.old-番号」へ名前替えしてから一時ファイルを本来の名前にし、それを消す（2026-11-20）。
+        /// 退避の名前は毎回別にし、もとからあるファイルは消さない（2026-11-27 のレビュー。前は「名前.old」で、利用者の同じ名前のファイルを消していた）。
         /// 前は上書きのコピーで代えていて、コピーの途中で共有が切れると、元のファイルが途中までの中身で残った。
         /// 名前替えもできなければ、最後の手として上書きのコピー。それも失敗したら、一時ファイルの場所を添えて投げる（中身の全部はそこに残る）。
         /// </summary>
@@ -1362,11 +1363,10 @@ namespace Tsuzuri.Markdown
             {
             }
 
-            var old = path + ".old";
+            var old = path + ".old-" + Guid.NewGuid().ToString("N").Substring(0, 8);
             var moved = false;
             try
             {
-                if (File.Exists(old)) File.Delete(old);
                 File.Move(path, old);
                 moved = true;
                 File.Move(temp, path);
@@ -1399,7 +1399,7 @@ namespace Tsuzuri.Markdown
                                       + (moved && File.Exists(old) ? "（前の中身は " + old + "）" : string.Empty) + "。" + ex.Message, ex);
             }
             TryDelete(temp);
-            TryDelete(old);
+            if (moved) TryDelete(old);   // 自分で退避したものだけ
         }
 
         private static void TryDelete(string path)

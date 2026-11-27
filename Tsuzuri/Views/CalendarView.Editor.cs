@@ -459,11 +459,12 @@ namespace Tsuzuri.Views
         /// <summary>
         /// 打ちかけを保存する（カレンダー・画面を閉じる前。MainWindow.Calendar.cs）。マスで打っている名前は足し、欄が開いていれば欄の中身を保存して閉じる。
         /// 終わりの日を読めなければ、欄は開いたまま false（閉じるのをやめる）。
+        /// 予定のファイルを読めないとき（ロック・共有が切れたなど）も、欄は開いたまま false。保存できなかったときも false（直した中身はカレンダーに残るので、閉じずに残す。2026-11-27 のレビュー。前は欄を閉じてから読み、読めなくても保存できなくても true で、そのまま閉じると打った分が消えた）。
         /// </summary>
         public bool CommitEdit()
         {
             CommitNew();
-            if (!_editorOpen) return true;
+            if (!_editorOpen) return !_saveFailed || Save();   // 前の保存が失敗したままなら、もう一度保存できるまで閉じない
 
             var editing = _editing;
             if (editing == null)
@@ -487,9 +488,11 @@ namespace Tsuzuri.Views
                 notify = time;
             }
             var title = _editTitle.Text;   // 結んだ予定の欄に出しているのはリンク先だが、Edit が名前を見出しの文字のままにする
+            string probe;
+            if (!TryRead(out probe)) return false;   // 読めなければ欄を閉じない（打った分を残す。TryRead が知らせる）
             CloseEditor();
             var key = ScheduleBook.KeyOf(editing);
-            if (!Sync()) return true;
+            if (!Sync()) return false;
 
             var target = _book.Find(editing, key);
             if (target == null)
@@ -501,9 +504,9 @@ namespace Tsuzuri.Views
 
             _selected = target;
             if (!target.IsRepeat) _selectedOriginal = null;
-            Save();
+            var saved = Save();
             Rebuild();
-            return true;
+            return saved;   // 保存できなければ、閉じるのをやめる（直した中身はカレンダーの中に残っていて、次に保存できれば書く）
         }
     }
 }

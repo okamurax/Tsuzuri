@@ -89,12 +89,16 @@ namespace Tsuzuri.Views
             get { return _editorOpen || _newBox != null || _dragItem != null || _selectingDays || _sizingRow != null; }
         }
 
-        private void Save()
+        /// <summary>前の保存が失敗して、直した分がまだファイルに書けていない（閉じる前に CommitEdit がもう一度保存する）。</summary>
+        private bool _saveFailed;
+
+        /// <summary>保存する。保存できなければ false（知らせる）。</summary>
+        private bool Save()
         {
             if (_loadedText == null)
             {
                 _status("予定を読めていないので、保存しません");   // 読めないまま書くと、読めなかった予定が消える
-                return;
+                return false;
             }
             var temp = _path + ".saving";
             try
@@ -107,10 +111,14 @@ namespace Tsuzuri.Views
                 else File.Move(temp, _path);
                 _loadedText = text;
                 _loadedStamp = Stamp();
+                _saveFailed = false;
+                return true;
             }
             catch (Exception ex)
             {
-                _status("予定を保存できませんでした: " + ex.Message);
+                _status("予定を保存できませんでした（直した分はカレンダーに残っています。閉じずにもう一度試してください）: " + ex.Message);
+                _saveFailed = true;
+                return false;
             }
         }
 
@@ -288,6 +296,8 @@ namespace Tsuzuri.Views
             var before = _book.Items;
             var firstRead = _loadedText == null;
             var selectedKey = _selected != null ? ScheduleBook.KeyOf(_selected) : null;
+            if (_saveFailed) _status("予定のファイルが外で書き換わったので読み直しました（保存できていなかった分は、外の書き換えに置き換わりました）");
+            _saveFailed = false;
             _book.Replace(text);   // 戻す記録は捨てる（外の書き換えを戻してしまわないため）
             _loadedText = text;
             _selected = _book.Find(null, selectedKey);
